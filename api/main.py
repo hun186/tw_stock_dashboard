@@ -120,9 +120,9 @@ def make_chart_html(df: pd.DataFrame, title: str) -> str:
     fig = go.Figure()
     fig.add_trace(go.Candlestick(x=df["Date"], open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"], name="K線",
                                  increasing_line_color=UP_COLOR, decreasing_line_color=DOWN_COLOR))
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA5"], mode="lines", name="MA5"))
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA20"], mode="lines", name="MA20"))
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA60"], mode="lines", name="MA60"))
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA5"], mode="lines", name="MA5", line=dict(color="yellow")))
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA20"], mode="lines", name="MA20", line=dict(color="purple")))
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA60"], mode="lines", name="MA60", line=dict(color="lightblue")))
     fig.update_layout(title=title, height=320, margin=dict(l=4, r=4, t=36, b=4), xaxis_rangeslider_visible=False)
     return fig.to_html(full_html=False, include_plotlyjs="cdn")
 
