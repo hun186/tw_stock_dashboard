@@ -229,10 +229,43 @@ def make_chart_html(df: pd.DataFrame, title: str, show_volume: bool, show_ma: bo
 
 
 
-def resolve_price_params(period: str, interval: str) -> tuple[str, str]:
+def resolve_price_params(period: str, interval: str) -> tuple[str, str, str]:
     if period == "intraday":
-        return "2d", "1m"
-    return period, interval
+        return "2d", "1m", period
+
+    ma_warmup_period_map = {
+        "1mo": "6mo",
+        "2mo": "6mo",
+        "3mo": "6mo",
+        "6mo": "1y",
+        "1y": "2y",
+        "5y": "max",
+    }
+    fetch_period = ma_warmup_period_map.get(period, period)
+    return fetch_period, interval, period
+
+
+def trim_display_df(df: pd.DataFrame, display_period: str) -> pd.DataFrame:
+    if df.empty or display_period in {"intraday", "max"}:
+        return df
+
+    period_days = {
+        "1mo": 31,
+        "2mo": 62,
+        "3mo": 93,
+        "6mo": 186,
+        "1y": 366,
+        "2y": 732,
+        "5y": 1828,
+    }
+    days = period_days.get(display_period)
+    if days is None:
+        return df
+
+    end_date = pd.to_datetime(df["Date"]).max()
+    start_date = end_date - pd.Timedelta(days=days)
+    trimmed = df[pd.to_datetime(df["Date"]) >= start_date].copy()
+    return trimmed if not trimmed.empty else df
 
 
 def app(environ, start_response):
@@ -246,7 +279,7 @@ def app(environ, start_response):
     cards_per_row = cards_per_row if cards_per_row in [1, 2, 3, 4] else 3
     custom_watchlist_raw = params.get("custom_watchlist", [""])[0]
     show_volume = params.get("show_volume", ["1"])[0] == "1"
-    fetch_period, fetch_interval = resolve_price_params(period, interval)
+    fetch_period, fetch_interval, display_period = resolve_price_params(period, interval)
 
     base_watchlist = load_watchlist(WATCHLIST_FILE)
     industry_df = load_twse_industry_map()
@@ -284,6 +317,7 @@ def app(environ, start_response):
             signal = {"score": -999}
         else:
             df = add_indicators(df)
+            df = trim_display_df(df, display_period)
             if signal_df.empty:
                 signal = {"bucket": "watch", "message": "⚪ 抓不到判斷資料", "score": -999}
             else:
@@ -368,7 +402,7 @@ def app(environ, start_response):
     <label>頁籤</label><select name='tab'><option value='watchlist' {'selected' if tab=='watchlist' else ''}>自選股監控</option><option value='category' {'selected' if tab=='category' else ''}>分類股池</option></select>
     <label>產業</label><select name='industry'>{industry_options}</select>
     <label>期間</label><select name='period'><option value='intraday' {'selected' if period=='intraday' else ''}>當日即時K</option><option value='1mo' {'selected' if period=='1mo' else ''}>1個月</option><option value='2mo' {'selected' if period=='2mo' else ''}>2個月</option><option value='3mo' {'selected' if period=='3mo' else ''}>3個月</option><option value='6mo' {'selected' if period=='6mo' else ''}>6個月</option><option value='1y' {'selected' if period=='1y' else ''}>1年</option><option value='5y' {'selected' if period=='5y' else ''}>5年</option></select>
-    <label>週期</label><select name='interval'><option {'selected' if interval=='1m' else ''}>1m</option><option {'selected' if interval=='5m' else ''}>5m</option><option {'selected' if interval=='15m' else ''}>15m</option><option {'selected' if interval=='1d' else ''}>1d</option><option {'selected' if interval=='1wk' else ''}>1wk</option></select>
+    <label>週期</label><select name='interval'><option value='1m' {'selected' if interval=='1m' else ''}>1 分鐘</option><option value='5m' {'selected' if interval=='5m' else ''}>5 分鐘</option><option value='15m' {'selected' if interval=='15m' else ''}>15 分鐘</option><option value='1d' {'selected' if interval=='1d' else ''}>日線</option><option value='1wk' {'selected' if interval=='1wk' else ''}>週線</option></select>
     <label>檔數</label><input name='limit' value='{limit}' size='3'/>
     <label>判斷篩選</label><select name='status_filter'>{status_options}</select>
     <label>每列檔數</label><select name='cards_per_row'><option value='1' {'selected' if cards_per_row==1 else ''}>1</option><option value='2' {'selected' if cards_per_row==2 else ''}>2</option><option value='3' {'selected' if cards_per_row==3 else ''}>3</option><option value='4' {'selected' if cards_per_row==4 else ''}>4</option></select>
