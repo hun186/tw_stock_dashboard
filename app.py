@@ -1,4 +1,3 @@
-import math
 from pathlib import Path
 
 import numpy as np
@@ -100,6 +99,9 @@ def classify_status(df: pd.DataFrame) -> tuple[str, str]:
     return f"強勢在 MA20 上（+{dist:.1f}%）", "🟢"
 
 
+UP_COLOR = "#d60000"  # 台股習慣：上漲紅色
+DOWN_COLOR = "#008a00"  # 台股習慣：下跌綠色
+
 def make_chart(df: pd.DataFrame, title: str, height: int = 330) -> go.Figure:
     fig = go.Figure()
 
@@ -113,6 +115,10 @@ def make_chart(df: pd.DataFrame, title: str, height: int = 330) -> go.Figure:
             name="K線",
             increasing_line_width=1,
             decreasing_line_width=1,
+            increasing_line_color=UP_COLOR,
+            increasing_fillcolor=UP_COLOR,
+            decreasing_line_color=DOWN_COLOR,
+            decreasing_fillcolor=DOWN_COLOR,
         )
     )
 
@@ -140,11 +146,15 @@ def make_chart(df: pd.DataFrame, title: str, height: int = 330) -> go.Figure:
 
 def make_volume_chart(df: pd.DataFrame, height: int = 120) -> go.Figure:
     fig = go.Figure()
+    prev_close = df["Close"].shift(1).fillna(df["Open"])
+    bar_colors = np.where(df["Close"] >= prev_close, UP_COLOR, DOWN_COLOR)
+
     fig.add_trace(
         go.Bar(
             x=df["Date"],
             y=df["Volume"],
             name="成交量",
+            marker_color=bar_colors,
         )
     )
     fig.update_layout(
