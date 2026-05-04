@@ -8,6 +8,7 @@ from urllib.parse import parse_qs
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import requests
 import yfinance as yf
 
@@ -17,6 +18,9 @@ TWSE_LISTED_INFO_API = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
 
 UP_COLOR = "#d60000"
 DOWN_COLOR = "#008a00"
+MA5_COLOR = "#ffd400"
+MA20_COLOR = "#8a2be2"
+MA60_COLOR = "#6ec6ff"
 
 INDUSTRY_CODE_NAME = {
     "01": "水泥工業", "02": "食品工業", "03": "塑膠工業", "04": "紡織纖維", "05": "電機機械",
@@ -89,6 +93,9 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["MA5"] = df["Close"].rolling(5).mean()
     df["MA20"] = df["Close"].rolling(20).mean()
     df["MA60"] = df["Close"].rolling(60).mean()
+    df["VMA5"] = df["Volume"].rolling(5).mean()
+    df["VMA20"] = df["Volume"].rolling(20).mean()
+    df["VMA60"] = df["Volume"].rolling(60).mean()
     delta = df["Close"].diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
@@ -116,15 +123,34 @@ def classify_status(df: pd.DataFrame) -> tuple[str, str]:
     return "strong", f"🔴 強勢 (+{dist:.1f}%)"
 
 
-def make_chart_html(df: pd.DataFrame, title: str) -> str:
-    fig = go.Figure()
-    fig.add_trace(go.Candlestick(x=df["Date"], open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"], name="K線",
-                                 increasing_line_color=UP_COLOR, decreasing_line_color=DOWN_COLOR))
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA5"], mode="lines", name="MA5", line=dict(color="yellow")))
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA20"], mode="lines", name="MA20", line=dict(color="purple")))
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA60"], mode="lines", name="MA60", line=dict(color="lightblue")))
-    fig.update_layout(title=title, height=320, margin=dict(l=4, r=4, t=36, b=4), xaxis_rangeslider_visible=False)
+def make_chart_html(df: pd.DataFrame, title: str, show_volume: bool) -> str:
+    row_heights = [0.7, 0.3] if show_volume else [1.0]
+    fig = make_subplots(rows=2 if show_volume else 1, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=row_heights)
+    fig.add_trace(go.Candlestick(x=df["Date"], open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"], name="價格K線",
+                                 increasing_line_color=UP_COLOR, decreasing_line_color=DOWN_COLOR), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA5"], mode="lines", name="MA5", line=dict(color=MA5_COLOR)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA20"], mode="lines", name="MA20", line=dict(color=MA20_COLOR)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA60"], mode="lines", name="MA60", line=dict(color=MA60_COLOR)), row=1, col=1)
+
+    if show_volume:
+        volume_colors = np.where(df["Close"] >= df["Open"], UP_COLOR, DOWN_COLOR)
+        fig.add_trace(go.Bar(x=df["Date"], y=df["Volume"], name="量K線", marker_color=volume_colors, opacity=0.8), row=2, col=1)
+        fig.add_trace(go.Scatter(x=df["Date"], y=df["VMA5"], mode="lines", name="VMA5", line=dict(color=MA5_COLOR)), row=2, col=1)
+        fig.add_trace(go.Scatter(x=df["Date"], y=df["VMA20"], mode="lines", name="VMA20", line=dict(color=MA20_COLOR)), row=2, col=1)
+        fig.add_trace(go.Scatter(x=df["Date"], y=df["VMA60"], mode="lines", name="VMA60", line=dict(color=MA60_COLOR)), row=2, col=1)
+        fig.update_yaxes(title_text="價格", row=1, col=1)
+        fig.update_yaxes(title_text="成交量", row=2, col=1)
+
+    fig.update_layout(title=title, height=500 if show_volume else 320, margin=dict(l=4, r=4, t=36, b=4), xaxis_rangeslider_visible=False)
     return fig.to_html(full_html=False, include_plotlyjs="cdn")
+
+
+
+
+def resolve_price_params(period: str, interval: str) -> tuple[str, str]:
+    if period == "intraday":
+        return "1d", "1m"
+    return period, interval
 
 
 def app(environ, start_response):
@@ -137,6 +163,8 @@ def app(environ, start_response):
     cards_per_row = int(params.get("cards_per_row", ["3"])[0])
     cards_per_row = cards_per_row if cards_per_row in [1, 2, 3, 4] else 3
     custom_watchlist_raw = params.get("custom_watchlist", [""])[0]
+    show_volume = params.get("show_volume", ["1"])[0] == "1"
+    fetch_period, fetch_interval = resolve_price_params(period, interval)
 
     base_watchlist = load_watchlist(WATCHLIST_FILE)
     industry_df = load_twse_industry_map()
@@ -166,7 +194,7 @@ def app(environ, start_response):
     rows = []
     cards = []
     for row in stocks.itertuples(index=False):
-        df = fetch_price(row.symbol, period, interval)
+        df = fetch_price(row.symbol, fetch_period, fetch_interval)
         if df.empty:
             bucket, status = "watch", "⚪ 抓不到資料"
             close_text = "-"
@@ -187,7 +215,7 @@ def app(environ, start_response):
             f"<tr><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(row.group)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{action_btn}</td></tr>"
         )
         if not df.empty:
-            cards.append(f"<h3>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 {close_text}</h3>{make_chart_html(df, row.name)}")
+            cards.append(f"<h3>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 {close_text}</h3>{make_chart_html(df, row.name, show_volume)}")
 
     industry_options = "".join([
         f"<option value='{html.escape(r.industry)}' {'selected' if r.industry == industry else ''}>{html.escape(r.industry_label)}</option>"
@@ -206,19 +234,40 @@ def app(environ, start_response):
         "status_filter": status_filter,
         "cards_per_row": cards_per_row,
         "custom_watchlist": ",".join(watchlist["symbol"].tolist()),
+        "show_volume": "1" if show_volume else "0",
     }
 
     body = f"""<!doctype html><html lang='zh-Hant'><head><meta charset='utf-8'><title>TW Dashboard</title>
-    <style>body{{font-family:Arial;margin:20px}} table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #ddd;padding:6px}} .card{{margin:18px 0;padding:10px;border:1px solid #ddd;border-radius:8px}}</style></head><body>
+    <style>
+      body{{font-family:Arial;margin:16px;line-height:1.35}}
+      h1{{font-size:1.35rem;margin:0 0 10px}}
+      h2{{font-size:1.1rem;margin:12px 0 8px}}
+      form{{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center}}
+      label{{font-size:.9rem;color:#333}}
+      input,select,button{{font-size:.9rem;padding:4px 6px}}
+      table{{border-collapse:collapse;width:100%;font-size:.88rem}}
+      td,th{{border:1px solid #ddd;padding:5px;white-space:nowrap}}
+      .table-wrap{{overflow-x:auto}}
+      .card{{margin:8px 0;padding:8px;border:1px solid #ddd;border-radius:8px}}
+      .card h3{{font-size:.95rem;margin:4px 0 6px}}
+      @media (max-width: 900px){{ body{{margin:10px}} }}
+      @media (max-width: 720px){{
+        form{{gap:4px 6px}}
+        input,select,button{{font-size:.82rem;padding:3px 5px}}
+        label{{font-size:.8rem}}
+        table{{font-size:.8rem}}
+      }}
+    </style></head><body>
     <h1>多台股監控 Dashboard（Vercel 版）</h1>
     <form id='cfgForm'>
     <label>頁籤</label><select name='tab'><option value='watchlist' {'selected' if tab=='watchlist' else ''}>自選股監控</option><option value='category' {'selected' if tab=='category' else ''}>分類股池</option></select>
     <label>產業</label><select name='industry'>{industry_options}</select>
-    <label>期間</label><select name='period'><option {'selected' if period=='3mo' else ''}>3mo</option><option {'selected' if period=='6mo' else ''}>6mo</option><option {'selected' if period=='1y' else ''}>1y</option></select>
-    <label>週期</label><select name='interval'><option {'selected' if interval=='1d' else ''}>1d</option><option {'selected' if interval=='1wk' else ''}>1wk</option></select>
+    <label>期間</label><select name='period'><option value='intraday' {'selected' if period=='intraday' else ''}>當日即時K</option><option {'selected' if period=='3mo' else ''}>3mo</option><option {'selected' if period=='6mo' else ''}>6mo</option><option {'selected' if period=='1y' else ''}>1y</option></select>
+    <label>週期</label><select name='interval'><option {'selected' if interval=='1m' else ''}>1m</option><option {'selected' if interval=='5m' else ''}>5m</option><option {'selected' if interval=='15m' else ''}>15m</option><option {'selected' if interval=='1d' else ''}>1d</option><option {'selected' if interval=='1wk' else ''}>1wk</option></select>
     <label>檔數</label><input name='limit' value='{limit}' size='3'/>
     <label>判斷篩選</label><select name='status_filter'>{status_options}</select>
     <label>每列檔數</label><select name='cards_per_row'><option value='1' {'selected' if cards_per_row==1 else ''}>1</option><option value='2' {'selected' if cards_per_row==2 else ''}>2</option><option value='3' {'selected' if cards_per_row==3 else ''}>3</option><option value='4' {'selected' if cards_per_row==4 else ''}>4</option></select>
+    <label>顯示量K線</label><select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select>
     <button type='submit'>更新</button>
     <button type='button' onclick='saveLocal()'>存到瀏覽器</button>
     <button type='button' onclick='loadLocal()'>讀取瀏覽器設定</button>
@@ -234,8 +283,8 @@ def app(environ, start_response):
     <button type='button' onclick='addSelectedStock()'>加入</button>
     <input type='hidden' name='custom_watchlist' id='customWatchlist' value='{html.escape(','.join(watchlist['symbol'].tolist()))}'>
     </form>
-    <h2>總覽</h2><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>判斷</th><th>收盤</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="7">無符合條件資料</td></tr>'}</table>
-    <h2>多股趨勢圖</h2><div id='cardsGrid' style='display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:12px'>{''.join([f"<div class='card'>{c}</div>" for c in cards])}</div>
+    <h2>總覽</h2><div class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>判斷</th><th>收盤</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="7">無符合條件資料</td></tr>'}</table></div>
+    <h2>多股趨勢圖</h2><div id='cardsGrid' style='display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:8px'>{''.join([f"<div class='card'>{c}</div>" for c in cards])}</div>
     <script>
     const defaultConfig = {json.dumps(save_payload, ensure_ascii=False)};
     function serializeForm(){{
@@ -322,6 +371,15 @@ def app(environ, start_response):
     }}
     document.getElementById('watchKeyword').addEventListener('input', (e)=>fillStockPicker(e.target.value));
     fillStockPicker();
+    function updateResponsiveGrid(){{
+      const grid = document.getElementById('cardsGrid');
+      const w = window.innerWidth;
+      if (w <= 640) grid.style.gridTemplateColumns = '1fr';
+      else if (w <= 1024) grid.style.gridTemplateColumns = 'repeat(2, minmax(0,1fr))';
+      else grid.style.gridTemplateColumns = `repeat(${{defaultConfig.cards_per_row || 3}}, minmax(0,1fr))`;
+    }}
+    window.addEventListener('resize', updateResponsiveGrid);
+    updateResponsiveGrid();
     function downloadConfig(){{
       const blob = new Blob([JSON.stringify(serializeForm(), null, 2)], {{type: 'application/json'}});
       const a = document.createElement('a');
