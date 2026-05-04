@@ -363,7 +363,9 @@ def add_symbol_to_watchlist(symbol: str, name: str | None = None, group: str | N
 with tab_watchlist:
     watchlist = st.session_state.watchlist_df.copy()
 
-    with st.expander("➕ 新增/刪除自選股", expanded=True):
+    st.subheader("➕ 自選股管理")
+    st.caption("可用代號/關鍵字加入，或從下拉刪除。")
+    with st.container():
         add_col1, add_col2 = st.columns([2, 1])
         with add_col1:
             keyword = st.text_input("輸入代號或關鍵字", placeholder="例如 2330、台積、聯發科", key="wl_keyword")
@@ -385,7 +387,7 @@ with tab_watchlist:
                 ok, msg = add_symbol_to_watchlist(target)
                 if ok:
                     st.success(msg)
-                    st.rerun()
+                    (st.rerun() if hasattr(st, "rerun") else st.experimental_rerun())
                 else:
                     st.warning(msg)
 
@@ -402,7 +404,7 @@ with tab_watchlist:
                 ].copy()
                 save_watchlist(WATCHLIST_FILE, st.session_state.watchlist_df)
                 st.success(f"已刪除 {symbol}")
-                st.rerun()
+                (st.rerun() if hasattr(st, "rerun") else st.experimental_rerun())
 
     with st.sidebar:
         st.header("自選股設定")
@@ -603,6 +605,7 @@ with tab_category:
                 ok, msg = add_symbol_to_watchlist(symbol, name, group_name)
                 if ok:
                     st.success(msg)
+                    (st.rerun() if hasattr(st, "rerun") else st.experimental_rerun())
                 else:
                     st.warning(msg)
 
