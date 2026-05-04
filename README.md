@@ -77,43 +77,17 @@ symbol,name,group
 
 ## Vercel 線上部署
 
-本專案已加入 Vercel 部署設定（`Dockerfile` + `vercel.json`），可直接部署為線上服務。
+已改為可直接部署在 Vercel 的 **WSGI 單頁 Dashboard**（入口：`api/main.py`），不依賴 Streamlit 常駐行程。
 
-### 1) 本機先確認可執行
-
-```bash
-streamlit run app.py
-```
-
-### 2) 安裝並登入 Vercel CLI
-
-```bash
-npm i -g vercel
-vercel login
-```
-
-### 3) 部署
-
-在專案根目錄執行：
+### 部署
 
 ```bash
 vercel
-```
-
-首次部署時建議選擇：
-
-- Framework Preset: `Other`
-- Root Directory: `./`
-
-正式版部署：
-
-```bash
 vercel --prod
 ```
 
-### 4) 重要設定
+### 說明
 
-- Vercel 不會直接用 `Dockerfile` 跑 Streamlit；其 Python Runtime 需要可辨識的入口點。
-- 本專案提供 `api/main.py`（WSGI）作為 Vercel 入口，避免 build 階段出現「No python entrypoint found」。
-- `api/main.py` 目前會顯示說明頁；若設定 Vercel 環境變數 `STREAMLIT_PUBLIC_URL`，會自動跳轉到該 Streamlit 網址。
-- 若要完整執行互動式 Streamlit 介面，建議改用可長時間執行行程的容器平台（例如 Railway、Render、Fly.io）。
+- Vercel 會直接執行 `api/main.py`，頁面支援：自選股監控 / 分類股池、總覽表、多股 K 線圖。
+- URL Query 可調整：`tab`、`industry`、`period`、`interval`、`limit`。
+- 本機若要跑 Streamlit 版仍可用 `streamlit run app.py`；Vercel 線上則使用 `api/main.py` 版本。

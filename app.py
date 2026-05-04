@@ -437,18 +437,102 @@ with tab_watchlist:
 with tab_category:
     universe = load_twse_industry_map()
     st.subheader("分類股池（上市）")
-    st.caption("這個區塊會抓台灣證交所產業分類下的所有上市股票，並與自選股區隔顯示。")
+    st.caption("這個區塊會抓台灣證交所產業分類下的所有上市股票，並用與自選股相同的監控顯示。")
     if universe.empty:
         st.warning("目前無法取得上市分類資料，請稍後再試。")
     else:
-        industries = sorted(universe["industry"].dropna().unique().tolist())
-        picked_industry = st.selectbox("選擇產業類別", industries, index=0)
-        picked_rows = universe[universe["industry"] == picked_industry].copy()
-        st.write(f"共 {len(picked_rows)} 檔")
-        st.dataframe(
-            picked_rows[["name", "symbol", "group"]].rename(
-                columns={"name": "名稱", "symbol": "代號", "group": "分類"}
-            ),
-            hide_index=True,
-            use_container_width=True,
-        )
+        with st.sidebar:
+            st.header("分類股池設定")
+            cat_period = st.selectbox("資料期間", ["3mo", "6mo", "1y", "2y"], index=0, key="cat_period")
+            cat_interval = st.selectbox("K線週期", ["1d", "1wk"], index=0, key="cat_interval")
+            cat_max_cards = st.slider("最多顯示檔數", min_value=6, max_value=60, value=24, step=6, key="cat_max")
+            cat_columns_per_row = st.selectbox("每列幾檔", [1, 2, 3, 4], index=2, key="cat_cols")
+
+            industries = sorted(universe["industry"].dropna().unique().tolist())
+            picked_industry = st.selectbox("選擇產業類別", industries, index=0, key="cat_industry")
+            cat_status_options = ["🟡 回檔", "🔴 強勢", "🟠 過熱", "🟢 跌破", "⚪ 資料不足/抓不到"]
+            cat_selected_status = st.multiselect("狀態篩選", cat_status_options, default=[], key="cat_status")
+
+        picked_rows = universe[universe["industry"] == picked_industry].copy().head(cat_max_cards)
+        st.write(f"{picked_industry}：共 {len(picked_rows)} 檔（已套用上限 {cat_max_cards}）")
+
+        cat_summary_rows = []
+        cat_data_cache = {}
+
+        cat_progress = st.progress(0, text="下載股價資料中...")
+        for i, row in enumerate(picked_rows.itertuples(index=False), start=1):
+            df = fetch_price(row.symbol, cat_period, cat_interval)
+            if not df.empty:
+                df = add_indicators(df)
+                cat_data_cache[row.symbol] = df
+                status, icon = classify_status(df)
+                m = compact_metrics(df)
+                cat_summary_rows.append({
+                    "狀態": icon,
+                    "代號": row.symbol,
+                    "名稱": row.name,
+                    "分類": row.group,
+                    "收盤": round(m["close"], 2),
+                    "日漲跌%": round(m["change_pct"], 2),
+                    "距MA20%": None if np.isnan(m["dist20"]) else round(m["dist20"], 2),
+                    "距MA60%": None if np.isnan(m["dist60"]) else round(m["dist60"], 2),
+                    "RSI14": None if np.isnan(m["rsi"]) else round(m["rsi"], 1),
+                    "判斷": status,
+                    "篩選": status_tag(icon, status),
+                })
+            else:
+                cat_summary_rows.append({
+                    "狀態": "⚪",
+                    "代號": row.symbol,
+                    "名稱": row.name,
+                    "分類": row.group,
+                    "收盤": None,
+                    "日漲跌%": None,
+                    "距MA20%": None,
+                    "距MA60%": None,
+                    "RSI14": None,
+                    "判斷": "抓不到資料",
+                    "篩選": "⚪ 資料不足/抓不到",
+                })
+            cat_progress.progress(i / len(picked_rows), text=f"下載股價資料中... {i}/{len(picked_rows)}")
+        cat_progress.empty()
+
+        cat_summary = pd.DataFrame(cat_summary_rows)
+        if cat_selected_status:
+            cat_summary = cat_summary[cat_summary["篩選"].isin(cat_selected_status)].copy()
+
+        st.subheader("總覽")
+        st.dataframe(cat_summary.drop(columns=["篩選"], errors="ignore"), use_container_width=True, hide_index=True)
+
+        if cat_summary.empty:
+            st.info("目前篩選條件下沒有符合的股票。")
+            st.stop()
+
+        cat_filtered_symbols = cat_summary["代號"].tolist()
+        cat_filtered_rows = picked_rows[picked_rows["symbol"].isin(cat_filtered_symbols)].copy()
+
+        st.subheader("多股趨勢圖")
+        cat_cols = st.columns(cat_columns_per_row)
+
+        for idx, row in enumerate(cat_filtered_rows.itertuples(index=False)):
+            with cat_cols[idx % cat_columns_per_row]:
+                df = cat_data_cache.get(row.symbol)
+                if df is None or df.empty:
+                    st.error(f"{row.name}（{row.symbol}）抓不到資料")
+                    continue
+
+                status, icon = classify_status(df)
+                m = compact_metrics(df)
+
+                st.markdown(f"### {icon} {row.name} `{row.symbol}`")
+                metric_cols = st.columns(4)
+                metric_cols[0].metric("收盤", f"{m['close']:.2f}", f"{m['change_pct']:.2f}%")
+                metric_cols[1].metric("距 MA20", "-" if np.isnan(m["dist20"]) else f"{m['dist20']:.1f}%")
+                metric_cols[2].metric("距 MA60", "-" if np.isnan(m["dist60"]) else f"{m['dist60']:.1f}%")
+                metric_cols[3].metric("RSI14", "-" if np.isnan(m["rsi"]) else f"{m['rsi']:.0f}")
+
+                st.caption(status)
+                st.plotly_chart(make_chart(df, f"{row.name} {row.symbol}"), use_container_width=True)
+                with st.expander("成交量 / RSI"):
+                    st.plotly_chart(make_volume_chart(df), use_container_width=True)
+                    st.plotly_chart(make_rsi_chart(df), use_container_width=True)
