@@ -116,6 +116,25 @@ def resolve_symbol_meta(symbol: str) -> tuple[str, str]:
     except Exception:
         return symbol, "臨時加入"
 
+
+
+def extract_theme_tags(group_value: str) -> list[str]:
+    text = str(group_value or "").strip()
+    if not text:
+        return []
+    normalized = text
+    for sep in ["、", ",", "，", "/", "|", ";", "；"]:
+        normalized = normalized.replace(sep, "+")
+    tags = [t.strip() for t in normalized.split("+") if t.strip()]
+    return list(dict.fromkeys(tags))
+
+
+def collect_watchlist_tags(df: pd.DataFrame) -> list[str]:
+    tags: list[str] = []
+    for value in df.get("group", pd.Series(dtype=str)).dropna().tolist():
+        tags.extend(extract_theme_tags(value))
+    return sorted(set(tags))
+
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["MA5"] = df["Close"].rolling(5).mean()
@@ -323,6 +342,9 @@ with tab_watchlist:
         groups = ["全部"] + sorted(watchlist["group"].dropna().unique().tolist())
         group = st.selectbox("分類", groups, key="wl_group")
 
+        tags = collect_watchlist_tags(watchlist)
+        selected_tags = st.multiselect("主題分類篩選", tags, default=[], key="wl_tags")
+
         status_options = ["🟡 回檔", "🔴 強勢", "🟠 過熱", "🟢 跌破", "⚪ 資料不足/抓不到"]
         selected_status = st.multiselect("狀態篩選", status_options, default=[], key="wl_status")
 
@@ -333,6 +355,11 @@ with tab_watchlist:
 
     if group != "全部":
         watchlist = watchlist[watchlist["group"] == group].copy()
+
+    if selected_tags:
+        watchlist = watchlist[
+            watchlist["group"].apply(lambda g: any(tag in extract_theme_tags(g) for tag in selected_tags))
+        ].copy()
 
     manual_rows = []
     for line in manual_symbols.splitlines():
@@ -419,6 +446,7 @@ with tab_watchlist:
             m = compact_metrics(df)
 
             st.markdown(f"### {icon} {row.name} `{row.symbol}`")
+            st.caption(f"分類：{row.group}")
             metric_cols = st.columns(4)
             metric_cols[0].metric("收盤", f"{m['close']:.2f}", f"{m['change_pct']:.2f}%")
             metric_cols[1].metric("距 MA20", "-" if np.isnan(m["dist20"]) else f"{m['dist20']:.1f}%")
@@ -525,6 +553,7 @@ with tab_category:
                 m = compact_metrics(df)
 
                 st.markdown(f"### {icon} {row.name} `{row.symbol}`")
+                st.caption(f"分類：{row.group}")
                 metric_cols = st.columns(4)
                 metric_cols[0].metric("收盤", f"{m['close']:.2f}", f"{m['change_pct']:.2f}%")
                 metric_cols[1].metric("距 MA20", "-" if np.isnan(m["dist20"]) else f"{m['dist20']:.1f}%")
