@@ -86,7 +86,16 @@ def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.Da
     need = ["Date", "Open", "High", "Low", "Close", "Volume"]
     if not set(need).issubset(df.columns):
         return pd.DataFrame()
-    return df[need].dropna(subset=["Close"])
+    df = df[need].dropna(subset=["Close"])
+    if interval.endswith("m"):
+        date_col = pd.to_datetime(df["Date"], errors="coerce")
+        if getattr(date_col.dt, "tz", None) is None:
+            date_col = date_col.dt.tz_localize("UTC")
+        date_col = date_col.dt.tz_convert("Asia/Taipei")
+        df["Date"] = date_col.dt.tz_localize(None)
+        intraday_mask = (df["Date"].dt.time >= pd.Timestamp("09:00").time()) & (df["Date"].dt.time <= pd.Timestamp("13:30").time())
+        df = df[intraday_mask].copy()
+    return df
 
 
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -166,21 +175,23 @@ def analyze_stock_signal(df: pd.DataFrame) -> dict:
     return {"emoji": "⚪", "label": "中性", "message": "⚪ 中性", "code": "NEUTRAL", "score": 0, "risk": "low", "bucket": "neutral"}
 
 
-def make_chart_html(df: pd.DataFrame, title: str, show_volume: bool) -> str:
+def make_chart_html(df: pd.DataFrame, title: str, show_volume: bool, show_ma: bool) -> str:
     row_heights = [0.7, 0.3] if show_volume else [1.0]
     fig = make_subplots(rows=2 if show_volume else 1, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=row_heights)
     fig.add_trace(go.Candlestick(x=df["Date"], open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"], name="價格K線",
                                  increasing_line_color=UP_COLOR, decreasing_line_color=DOWN_COLOR), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA5"], mode="lines", name="MA5", line=dict(color=MA5_COLOR)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA20"], mode="lines", name="MA20", line=dict(color=MA20_COLOR)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA60"], mode="lines", name="MA60", line=dict(color=MA60_COLOR)), row=1, col=1)
+    if show_ma:
+        fig.add_trace(go.Scatter(x=df["Date"], y=df["MA5"], mode="lines", name="MA5", line=dict(color=MA5_COLOR)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df["Date"], y=df["MA20"], mode="lines", name="MA20", line=dict(color=MA20_COLOR)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df["Date"], y=df["MA60"], mode="lines", name="MA60", line=dict(color=MA60_COLOR)), row=1, col=1)
 
     if show_volume:
         volume_colors = np.where(df["Close"] >= df["Open"], UP_COLOR, DOWN_COLOR)
         fig.add_trace(go.Bar(x=df["Date"], y=df["Volume"], name="量K線", marker_color=volume_colors, opacity=0.8), row=2, col=1)
-        fig.add_trace(go.Scatter(x=df["Date"], y=df["VMA5"], mode="lines", name="VMA5", line=dict(color=MA5_COLOR)), row=2, col=1)
-        fig.add_trace(go.Scatter(x=df["Date"], y=df["VMA20"], mode="lines", name="VMA20", line=dict(color=MA20_COLOR)), row=2, col=1)
-        fig.add_trace(go.Scatter(x=df["Date"], y=df["VMA60"], mode="lines", name="VMA60", line=dict(color=MA60_COLOR)), row=2, col=1)
+        if show_ma:
+            fig.add_trace(go.Scatter(x=df["Date"], y=df["VMA5"], mode="lines", name="VMA5", line=dict(color=MA5_COLOR)), row=2, col=1)
+            fig.add_trace(go.Scatter(x=df["Date"], y=df["VMA20"], mode="lines", name="VMA20", line=dict(color=MA20_COLOR)), row=2, col=1)
+            fig.add_trace(go.Scatter(x=df["Date"], y=df["VMA60"], mode="lines", name="VMA60", line=dict(color=MA60_COLOR)), row=2, col=1)
         fig.update_yaxes(title_text="價格", row=1, col=1)
         fig.update_yaxes(title_text="成交量", row=2, col=1)
 
@@ -257,7 +268,8 @@ def app(environ, start_response):
         )
         rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(row.group)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{action_btn}</td></tr>"})
         if not df.empty:
-            cards.append(f"<h3>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 {close_text}</h3>{make_chart_html(df, row.name, show_volume)}")
+            show_ma = period != "intraday"
+            cards.append(f"<h3>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 {close_text}</h3>{make_chart_html(df, row.name, show_volume, show_ma)}")
 
     rows_data.sort(key=lambda x: x["score"], reverse=True)
     rows = [x["row_html"] for x in rows_data]
