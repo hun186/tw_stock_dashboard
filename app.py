@@ -3,12 +3,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import requests
 import streamlit as st
 import yfinance as yf
 
 
 APP_DIR = Path(__file__).parent
 WATCHLIST_FILE = APP_DIR / "watchlist.csv"
+TWSE_LISTED_INFO_API = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
 
 
 st.set_page_config(
@@ -31,6 +33,38 @@ def load_watchlist(path: Path) -> pd.DataFrame:
     df["name"] = df["name"].astype(str).str.strip()
     df["group"] = df["group"].astype(str).str.strip()
     return df[df["symbol"] != ""].copy()
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def load_twse_industry_map() -> pd.DataFrame:
+    try:
+        resp = requests.get(TWSE_LISTED_INFO_API, timeout=15)
+        resp.raise_for_status()
+        records = resp.json()
+        df = pd.DataFrame(records)
+    except Exception:
+        return pd.DataFrame(columns=["industry", "symbol", "name", "group"])
+
+    rename_map = {
+        "公司代號": "code",
+        "公司簡稱": "short_name",
+        "產業別": "industry",
+    }
+    for src, dst in rename_map.items():
+        if src in df.columns:
+            df[dst] = df[src]
+    required = {"code", "short_name", "industry"}
+    if not required.issubset(df.columns):
+        return pd.DataFrame(columns=["industry", "symbol", "name", "group"])
+
+    df["code"] = df["code"].astype(str).str.strip()
+    df["short_name"] = df["short_name"].astype(str).str.strip()
+    df["industry"] = df["industry"].astype(str).str.strip()
+    df = df[(df["code"] != "") & (df["industry"] != "")]
+    df["symbol"] = df["code"] + ".TW"
+    df["name"] = df["short_name"]
+    df["group"] = "上市-" + df["industry"]
+    return df[["industry", "symbol", "name", "group"]].drop_duplicates().reset_index(drop=True)
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -274,126 +308,147 @@ def status_tag(icon: str, status_text: str) -> str:
 
 st.title("📈 多台股監控 Dashboard")
 st.caption("一頁掌握多檔台股是否回檔、靠近均線、過熱或轉弱。資料來源：Yahoo Finance，可能有延遲。")
+tab_watchlist, tab_category = st.tabs(["自選股監控", "分類股池"])
 
-watchlist = load_watchlist(WATCHLIST_FILE)
+with tab_watchlist:
+    watchlist = load_watchlist(WATCHLIST_FILE)
 
-with st.sidebar:
-    st.header("設定")
-    period = st.selectbox("資料期間", ["3mo", "6mo", "1y", "2y"], index=0)
-    interval = st.selectbox("K線週期", ["1d", "1wk"], index=0)
-    max_cards = st.slider("最多顯示檔數", min_value=3, max_value=24, value=12, step=3)
-    columns_per_row = st.selectbox("每列幾檔", [1, 2, 3, 4], index=2)
+    with st.sidebar:
+        st.header("自選股設定")
+        period = st.selectbox("資料期間", ["3mo", "6mo", "1y", "2y"], index=0, key="wl_period")
+        interval = st.selectbox("K線週期", ["1d", "1wk"], index=0, key="wl_interval")
+        max_cards = st.slider("最多顯示檔數", min_value=3, max_value=24, value=12, step=3, key="wl_max")
+        columns_per_row = st.selectbox("每列幾檔", [1, 2, 3, 4], index=2, key="wl_cols")
 
-    groups = ["全部"] + sorted(watchlist["group"].dropna().unique().tolist())
-    group = st.selectbox("分類", groups)
+        groups = ["全部"] + sorted(watchlist["group"].dropna().unique().tolist())
+        group = st.selectbox("分類", groups, key="wl_group")
 
-    status_options = ["🟡 回檔", "🔴 強勢", "🟠 過熱", "🟢 跌破", "⚪ 資料不足/抓不到"]
-    selected_status = st.multiselect("狀態篩選", status_options, default=[])
+        status_options = ["🟡 回檔", "🔴 強勢", "🟠 過熱", "🟢 跌破", "⚪ 資料不足/抓不到"]
+        selected_status = st.multiselect("狀態篩選", status_options, default=[], key="wl_status")
+
+        st.divider()
+        st.subheader("快速加入代號")
+        st.write("格式例：`2330.TW`、`4971.TWO`")
+        manual_symbols = st.text_area("臨時股票代號，一行一檔", value="", height=120, key="wl_manual")
+
+    if group != "全部":
+        watchlist = watchlist[watchlist["group"] == group].copy()
+
+    manual_rows = []
+    for line in manual_symbols.splitlines():
+        symbol = line.strip()
+        if symbol:
+            name, group_name = resolve_symbol_meta(symbol)
+            manual_rows.append({"symbol": symbol, "name": name, "group": group_name})
+    if manual_rows:
+        watchlist = pd.concat([watchlist, pd.DataFrame(manual_rows)], ignore_index=True)
+
+    watchlist = watchlist.drop_duplicates(subset=["symbol"]).head(max_cards)
+
+    if watchlist.empty:
+        st.warning("watchlist.csv 沒有股票。請加入 symbol,name,group。")
+        st.stop()
+
+    summary_rows = []
+    data_cache = {}
+
+    progress = st.progress(0, text="下載股價資料中...")
+    for i, row in enumerate(watchlist.itertuples(index=False), start=1):
+        df = fetch_price(row.symbol, period, interval)
+        if not df.empty:
+            df = add_indicators(df)
+            data_cache[row.symbol] = df
+            status, icon = classify_status(df)
+            m = compact_metrics(df)
+            summary_rows.append({
+                "狀態": icon,
+                "代號": row.symbol,
+                "名稱": row.name,
+                "分類": row.group,
+                "收盤": round(m["close"], 2),
+                "日漲跌%": round(m["change_pct"], 2),
+                "距MA20%": None if np.isnan(m["dist20"]) else round(m["dist20"], 2),
+                "距MA60%": None if np.isnan(m["dist60"]) else round(m["dist60"], 2),
+                "RSI14": None if np.isnan(m["rsi"]) else round(m["rsi"], 1),
+                "判斷": status,
+                "篩選": status_tag(icon, status),
+            })
+        else:
+            summary_rows.append({
+                "狀態": "⚪",
+                "代號": row.symbol,
+                "名稱": row.name,
+                "分類": row.group,
+                "收盤": None,
+                "日漲跌%": None,
+                "距MA20%": None,
+                "距MA60%": None,
+                "RSI14": None,
+                "判斷": "抓不到資料",
+                "篩選": "⚪ 資料不足/抓不到",
+            })
+        progress.progress(i / len(watchlist), text=f"下載股價資料中... {i}/{len(watchlist)}")
+    progress.empty()
+
+    summary = pd.DataFrame(summary_rows)
+
+    if selected_status:
+        summary = summary[summary["篩選"].isin(selected_status)].copy()
+
+    st.subheader("總覽")
+    st.dataframe(summary.drop(columns=["篩選"], errors="ignore"), use_container_width=True, hide_index=True)
+
+    if summary.empty:
+        st.info("目前篩選條件下沒有符合的股票。")
+        st.stop()
+
+    filtered_symbols = summary["代號"].tolist()
+    filtered_watchlist = watchlist[watchlist["symbol"].isin(filtered_symbols)].copy()
+
+    st.subheader("多股趨勢圖")
+    cols = st.columns(columns_per_row)
+
+    for idx, row in enumerate(filtered_watchlist.itertuples(index=False)):
+        with cols[idx % columns_per_row]:
+            df = data_cache.get(row.symbol)
+            if df is None or df.empty:
+                st.error(f"{row.name}（{row.symbol}）抓不到資料")
+                continue
+
+            status, icon = classify_status(df)
+            m = compact_metrics(df)
+
+            st.markdown(f"### {icon} {row.name} `{row.symbol}`")
+            metric_cols = st.columns(4)
+            metric_cols[0].metric("收盤", f"{m['close']:.2f}", f"{m['change_pct']:.2f}%")
+            metric_cols[1].metric("距 MA20", "-" if np.isnan(m["dist20"]) else f"{m['dist20']:.1f}%")
+            metric_cols[2].metric("距 MA60", "-" if np.isnan(m["dist60"]) else f"{m['dist60']:.1f}%")
+            metric_cols[3].metric("RSI14", "-" if np.isnan(m["rsi"]) else f"{m['rsi']:.0f}")
+
+            st.caption(status)
+            st.plotly_chart(make_chart(df, f"{row.name} {row.symbol}"), use_container_width=True)
+            with st.expander("成交量 / RSI"):
+                st.plotly_chart(make_volume_chart(df), use_container_width=True)
+                st.plotly_chart(make_rsi_chart(df), use_container_width=True)
 
     st.divider()
-    st.subheader("快速加入代號")
-    st.write("格式例：`2330.TW`、`4971.TWO`")
-    manual_symbols = st.text_area("臨時股票代號，一行一檔", value="", height=120)
+    st.caption("提醒：這是監控工具，不是買賣建議。台股資料來自 Yahoo Finance，可能有延遲或缺漏。")
 
-if group != "全部":
-    watchlist = watchlist[watchlist["group"] == group].copy()
-
-manual_rows = []
-for line in manual_symbols.splitlines():
-    symbol = line.strip()
-    if symbol:
-        name, group_name = resolve_symbol_meta(symbol)
-        manual_rows.append({"symbol": symbol, "name": name, "group": group_name})
-if manual_rows:
-    watchlist = pd.concat([watchlist, pd.DataFrame(manual_rows)], ignore_index=True)
-
-watchlist = watchlist.drop_duplicates(subset=["symbol"]).head(max_cards)
-
-if watchlist.empty:
-    st.warning("watchlist.csv 沒有股票。請加入 symbol,name,group。")
-    st.stop()
-
-summary_rows = []
-data_cache = {}
-
-progress = st.progress(0, text="下載股價資料中...")
-for i, row in enumerate(watchlist.itertuples(index=False), start=1):
-    df = fetch_price(row.symbol, period, interval)
-    if not df.empty:
-        df = add_indicators(df)
-        data_cache[row.symbol] = df
-        status, icon = classify_status(df)
-        m = compact_metrics(df)
-        summary_rows.append({
-            "狀態": icon,
-            "代號": row.symbol,
-            "名稱": row.name,
-            "分類": row.group,
-            "收盤": round(m["close"], 2),
-            "日漲跌%": round(m["change_pct"], 2),
-            "距MA20%": None if np.isnan(m["dist20"]) else round(m["dist20"], 2),
-            "距MA60%": None if np.isnan(m["dist60"]) else round(m["dist60"], 2),
-            "RSI14": None if np.isnan(m["rsi"]) else round(m["rsi"], 1),
-            "判斷": status,
-            "篩選": status_tag(icon, status),
-        })
+with tab_category:
+    universe = load_twse_industry_map()
+    st.subheader("分類股池（上市）")
+    st.caption("這個區塊會抓台灣證交所產業分類下的所有上市股票，並與自選股區隔顯示。")
+    if universe.empty:
+        st.warning("目前無法取得上市分類資料，請稍後再試。")
     else:
-        summary_rows.append({
-            "狀態": "⚪",
-            "代號": row.symbol,
-            "名稱": row.name,
-            "分類": row.group,
-            "收盤": None,
-            "日漲跌%": None,
-            "距MA20%": None,
-            "距MA60%": None,
-            "RSI14": None,
-            "判斷": "抓不到資料",
-            "篩選": "⚪ 資料不足/抓不到",
-        })
-    progress.progress(i / len(watchlist), text=f"下載股價資料中... {i}/{len(watchlist)}")
-progress.empty()
-
-summary = pd.DataFrame(summary_rows)
-
-if selected_status:
-    summary = summary[summary["篩選"].isin(selected_status)].copy()
-
-st.subheader("總覽")
-st.dataframe(summary.drop(columns=["篩選"], errors="ignore"), use_container_width=True, hide_index=True)
-
-if summary.empty:
-    st.info("目前篩選條件下沒有符合的股票。")
-    st.stop()
-
-filtered_symbols = summary["代號"].tolist()
-filtered_watchlist = watchlist[watchlist["symbol"].isin(filtered_symbols)].copy()
-
-st.subheader("多股趨勢圖")
-cols = st.columns(columns_per_row)
-
-for idx, row in enumerate(filtered_watchlist.itertuples(index=False)):
-    with cols[idx % columns_per_row]:
-        df = data_cache.get(row.symbol)
-        if df is None or df.empty:
-            st.error(f"{row.name}（{row.symbol}）抓不到資料")
-            continue
-
-        status, icon = classify_status(df)
-        m = compact_metrics(df)
-
-        st.markdown(f"### {icon} {row.name} `{row.symbol}`")
-        metric_cols = st.columns(4)
-        metric_cols[0].metric("收盤", f"{m['close']:.2f}", f"{m['change_pct']:.2f}%")
-        metric_cols[1].metric("距 MA20", "-" if np.isnan(m["dist20"]) else f"{m['dist20']:.1f}%")
-        metric_cols[2].metric("距 MA60", "-" if np.isnan(m["dist60"]) else f"{m['dist60']:.1f}%")
-        metric_cols[3].metric("RSI14", "-" if np.isnan(m["rsi"]) else f"{m['rsi']:.0f}")
-
-        st.caption(status)
-        st.plotly_chart(make_chart(df, f"{row.name} {row.symbol}"), use_container_width=True)
-        with st.expander("成交量 / RSI"):
-            st.plotly_chart(make_volume_chart(df), use_container_width=True)
-            st.plotly_chart(make_rsi_chart(df), use_container_width=True)
-
-st.divider()
-st.caption("提醒：這是監控工具，不是買賣建議。台股資料來自 Yahoo Finance，可能有延遲或缺漏。")
+        industries = sorted(universe["industry"].dropna().unique().tolist())
+        picked_industry = st.selectbox("選擇產業類別", industries, index=0)
+        picked_rows = universe[universe["industry"] == picked_industry].copy()
+        st.write(f"共 {len(picked_rows)} 檔")
+        st.dataframe(
+            picked_rows[["name", "symbol", "group"]].rename(
+                columns={"name": "名稱", "symbol": "代號", "group": "分類"}
+            ),
+            hide_index=True,
+            use_container_width=True,
+        )
