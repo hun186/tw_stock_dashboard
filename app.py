@@ -406,8 +406,7 @@ with tab_watchlist:
                 st.success(f"已刪除 {symbol}")
                 (st.rerun() if hasattr(st, "rerun") else st.experimental_rerun())
 
-    with st.sidebar:
-        st.header("自選股設定")
+    with st.expander("⚙️ 自選股顯示設定", expanded=False):
         period = st.selectbox("資料期間", ["3mo", "6mo", "1y", "2y"], index=0, key="wl_period")
         interval = st.selectbox("K線週期", ["1d", "1wk"], index=0, key="wl_interval")
         max_cards = st.slider("最多顯示檔數", min_value=3, max_value=24, value=12, step=3, key="wl_max")
@@ -530,8 +529,7 @@ with tab_category:
     if universe.empty:
         st.warning("目前無法取得上市分類資料，請稍後再試。")
     else:
-        with st.sidebar:
-            st.header("分類股池設定")
+        with st.expander("⚙️ 分類股池顯示設定", expanded=False):
             cat_period = st.selectbox("資料期間", ["3mo", "6mo", "1y", "2y"], index=0, key="cat_period")
             cat_interval = st.selectbox("K線週期", ["1d", "1wk"], index=0, key="cat_interval")
             cat_max_cards = st.slider("最多顯示檔數", min_value=6, max_value=60, value=24, step=6, key="cat_max")
