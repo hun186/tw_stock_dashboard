@@ -73,3 +73,46 @@ symbol,name,group
 - 價格仍在 MA20 上且 RSI 未過熱：強勢整理
 
 這不是投資建議，只是幫你快速篩出該看的標的。
+
+
+## Vercel 線上部署
+
+本專案已加入 Vercel 部署設定（`Dockerfile` + `vercel.json`），可直接部署為線上服務。
+
+### 1) 本機先確認可執行
+
+```bash
+streamlit run app.py
+```
+
+### 2) 安裝並登入 Vercel CLI
+
+```bash
+npm i -g vercel
+vercel login
+```
+
+### 3) 部署
+
+在專案根目錄執行：
+
+```bash
+vercel
+```
+
+首次部署時建議選擇：
+
+- Framework Preset: `Other`
+- Root Directory: `./`
+
+正式版部署：
+
+```bash
+vercel --prod
+```
+
+### 4) 重要設定
+
+- Vercel 會使用 `Dockerfile` 啟動 Streamlit。
+- 容器啟動命令會自動讀取平台提供的 `PORT`。
+- 如需更改執行參數，可調整 `Dockerfile` 的 `CMD`。
