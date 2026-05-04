@@ -115,4 +115,5 @@ vercel --prod
 
 - Vercel 不會直接用 `Dockerfile` 跑 Streamlit；其 Python Runtime 需要可辨識的入口點。
 - 本專案提供 `api/main.py`（WSGI）作為 Vercel 入口，避免 build 階段出現「No python entrypoint found」。
+- `api/main.py` 目前會顯示說明頁；若設定 Vercel 環境變數 `STREAMLIT_PUBLIC_URL`，會自動跳轉到該 Streamlit 網址。
 - 若要完整執行互動式 Streamlit 介面，建議改用可長時間執行行程的容器平台（例如 Railway、Render、Fly.io）。
