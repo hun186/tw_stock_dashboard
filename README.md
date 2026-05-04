@@ -113,6 +113,6 @@ vercel --prod
 
 ### 4) 重要設定
 
-- Vercel 會使用 `Dockerfile` 啟動 Streamlit。
-- 容器啟動命令會自動讀取平台提供的 `PORT`。
-- 如需更改執行參數，可調整 `Dockerfile` 的 `CMD`。
+- Vercel 不會直接用 `Dockerfile` 跑 Streamlit；其 Python Runtime 需要可辨識的入口點。
+- 本專案提供 `api/main.py`（WSGI）作為 Vercel 入口，避免 build 階段出現「No python entrypoint found」。
+- 若要完整執行互動式 Streamlit 介面，建議改用可長時間執行行程的容器平台（例如 Railway、Render、Fly.io）。
