@@ -60,6 +60,28 @@ def fetch_price(symbol: str, period: str, interval: str) -> pd.DataFrame:
     return df
 
 
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def resolve_symbol_meta(symbol: str) -> tuple[str, str]:
+    try:
+        ticker = yf.Ticker(symbol)
+        fast_info = ticker.fast_info or {}
+        info = ticker.info or {}
+        name = info.get("shortName") or info.get("longName") or symbol
+        exchange = str(fast_info.get("exchange") or info.get("exchange") or "").upper()
+
+        if exchange in {"TWO", "OTC"}:
+            market_group = "上櫃"
+        elif exchange in {"TAI", "TWSE"}:
+            market_group = "上市"
+        else:
+            market_group = "臨時加入"
+
+        return str(name).strip() or symbol, market_group
+    except Exception:
+        return symbol, "臨時加入"
+
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["MA5"] = df["Close"].rolling(5).mean()
@@ -91,12 +113,12 @@ def classify_status(df: pd.DataFrame) -> tuple[str, str]:
     dist = (close - ma20) / ma20 * 100
 
     if close < ma20:
-        return f"跌破 MA20（{dist:.1f}%）", "🔴"
+        return f"跌破 MA20（{dist:.1f}%）", "🟢"
     if 0 <= dist <= 5:
         return f"回檔靠近 MA20（+{dist:.1f}%）", "🟡"
     if dist > 10 and not np.isnan(rsi) and rsi >= 70:
         return f"偏熱，勿追（MA20 +{dist:.1f}%, RSI {rsi:.0f}）", "🟠"
-    return f"強勢在 MA20 上（+{dist:.1f}%）", "🟢"
+    return f"強勢在 MA20 上（+{dist:.1f}%）", "🔴"
 
 
 UP_COLOR = "#d60000"  # 台股習慣：上漲紅色
@@ -119,6 +141,32 @@ def make_chart(df: pd.DataFrame, title: str, height: int = 330) -> go.Figure:
             increasing_fillcolor=UP_COLOR,
             decreasing_line_color=DOWN_COLOR,
             decreasing_fillcolor=DOWN_COLOR,
+            hovertemplate=(
+                "日期: %{x|%Y-%m-%d}<br>"
+                "開: %{open:.2f}<br>"
+                "高: %{high:.2f}<br>"
+                "低: %{low:.2f}<br>"
+                "收: %{close:.2f}<extra></extra>"
+            ),
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=df["Date"],
+            y=df["Close"],
+            mode="lines",
+            name="收盤線",
+            line=dict(width=0.8, color="#444"),
+            opacity=0.35,
+            customdata=df[["Open", "High", "Low", "Close"]],
+            hovertemplate=(
+                "日期: %{x|%Y-%m-%d}<br>"
+                "開: %{customdata[0]:.2f}<br>"
+                "高: %{customdata[1]:.2f}<br>"
+                "低: %{customdata[2]:.2f}<br>"
+                "收: %{customdata[3]:.2f}<extra></extra>"
+            ),
         )
     )
 
@@ -139,6 +187,7 @@ def make_chart(df: pd.DataFrame, title: str, height: int = 330) -> go.Figure:
         margin=dict(l=8, r=8, t=42, b=8),
         xaxis_rangeslider_visible=False,
         legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0),
+        hovermode="x unified",
     )
 
     return fig
@@ -210,6 +259,19 @@ def compact_metrics(df: pd.DataFrame) -> dict:
     }
 
 
+
+
+def status_tag(icon: str, status_text: str) -> str:
+    if icon == "🟡":
+        return "🟡 回檔"
+    if icon == "🔴":
+        return "🔴 強勢"
+    if icon == "🟠":
+        return "🟠 過熱"
+    if icon == "🟢":
+        return "🟢 跌破"
+    return "⚪ 資料不足/抓不到"
+
 st.title("📈 多台股監控 Dashboard")
 st.caption("一頁掌握多檔台股是否回檔、靠近均線、過熱或轉弱。資料來源：Yahoo Finance，可能有延遲。")
 
@@ -217,13 +279,16 @@ watchlist = load_watchlist(WATCHLIST_FILE)
 
 with st.sidebar:
     st.header("設定")
-    period = st.selectbox("資料期間", ["3mo", "6mo", "1y", "2y"], index=1)
+    period = st.selectbox("資料期間", ["3mo", "6mo", "1y", "2y"], index=0)
     interval = st.selectbox("K線週期", ["1d", "1wk"], index=0)
     max_cards = st.slider("最多顯示檔數", min_value=3, max_value=24, value=12, step=3)
     columns_per_row = st.selectbox("每列幾檔", [1, 2, 3, 4], index=2)
 
     groups = ["全部"] + sorted(watchlist["group"].dropna().unique().tolist())
     group = st.selectbox("分類", groups)
+
+    status_options = ["🟡 回檔", "🔴 強勢", "🟠 過熱", "🟢 跌破", "⚪ 資料不足/抓不到"]
+    selected_status = st.multiselect("狀態篩選", status_options, default=[])
 
     st.divider()
     st.subheader("快速加入代號")
@@ -237,7 +302,8 @@ manual_rows = []
 for line in manual_symbols.splitlines():
     symbol = line.strip()
     if symbol:
-        manual_rows.append({"symbol": symbol, "name": symbol, "group": "臨時加入"})
+        name, group_name = resolve_symbol_meta(symbol)
+        manual_rows.append({"symbol": symbol, "name": name, "group": group_name})
 if manual_rows:
     watchlist = pd.concat([watchlist, pd.DataFrame(manual_rows)], ignore_index=True)
 
@@ -269,6 +335,7 @@ for i, row in enumerate(watchlist.itertuples(index=False), start=1):
             "距MA60%": None if np.isnan(m["dist60"]) else round(m["dist60"], 2),
             "RSI14": None if np.isnan(m["rsi"]) else round(m["rsi"], 1),
             "判斷": status,
+            "篩選": status_tag(icon, status),
         })
     else:
         summary_rows.append({
@@ -282,19 +349,30 @@ for i, row in enumerate(watchlist.itertuples(index=False), start=1):
             "距MA60%": None,
             "RSI14": None,
             "判斷": "抓不到資料",
+            "篩選": "⚪ 資料不足/抓不到",
         })
     progress.progress(i / len(watchlist), text=f"下載股價資料中... {i}/{len(watchlist)}")
 progress.empty()
 
 summary = pd.DataFrame(summary_rows)
 
+if selected_status:
+    summary = summary[summary["篩選"].isin(selected_status)].copy()
+
 st.subheader("總覽")
-st.dataframe(summary, use_container_width=True, hide_index=True)
+st.dataframe(summary.drop(columns=["篩選"], errors="ignore"), use_container_width=True, hide_index=True)
+
+if summary.empty:
+    st.info("目前篩選條件下沒有符合的股票。")
+    st.stop()
+
+filtered_symbols = summary["代號"].tolist()
+filtered_watchlist = watchlist[watchlist["symbol"].isin(filtered_symbols)].copy()
 
 st.subheader("多股趨勢圖")
 cols = st.columns(columns_per_row)
 
-for idx, row in enumerate(watchlist.itertuples(index=False)):
+for idx, row in enumerate(filtered_watchlist.itertuples(index=False)):
     with cols[idx % columns_per_row]:
         df = data_cache.get(row.symbol)
         if df is None or df.empty:
