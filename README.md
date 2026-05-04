@@ -1,56 +1,49 @@
-# 多台股監控 Dashboard
+# 多台股監控 Dashboard（Vercel 版）
 
-這是一套用 Streamlit 製作的台股多檔監控儀表板，適合用來觀察多檔股票是否回檔、是否靠近均線、RSI 是否過熱或轉弱。
+這個專案已全面改為 **Vercel 部署版本**，統一使用 `api/main.py` 的 WSGI Dashboard。
+
+> 已移除 Streamlit 版本，避免雙軌維護造成重構與維運混亂。
 
 ## 功能
 
 - 一頁顯示多檔台股趨勢
-- 支援自訂 watchlist.csv
-- K 線 + MA5 / MA20 / MA60
+- 支援 `watchlist.csv`
+- K 線 + MA20
 - RSI 14
-- 成交量
-- 自動標示：
-  - 回檔靠近 MA20
-  - 跌破 MA20
-  - 強勢在 MA20 上
-  - 過熱 RSI
-- 可切換期間與 K 線週期
-- 支援 `.TW`、`.TWO` Yahoo Finance 股票代號
+- 狀態判斷與篩選（資料不足 / 可關注 / 回檔 / 偏熱 / 強勢）
+- 可切換期間、K 線週期、股池來源（自選 / 分類）
+- 支援設定儲存到瀏覽器、匯入 / 匯出 JSON 設定
 
-## 安裝
+## 本機開發
 
 ```bash
 cd tw_stock_dashboard
 python -m venv .venv
-```
-
-Windows：
-
-```bash
-.venv\Scripts\activate
-```
-
-macOS / Linux：
-
-```bash
-source .venv/bin/activate
-```
-
-安裝套件：
-
-```bash
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## 啟動
+## Vercel 部署
 
 ```bash
-streamlit run app.py
+vercel
+vercel --prod
 ```
 
-瀏覽器會開啟 dashboard。
+Vercel 會直接執行 `api/main.py`。
 
-## 修改股票清單
+## URL 參數
+
+可透過 QueryString 調整頁面狀態：
+
+- `tab`: `watchlist` / `category`
+- `industry`: 產業代碼（例如 `24`）
+- `period`: `3mo` / `6mo` / `1y`
+- `interval`: `1d` / `1wk`
+- `limit`: 顯示檔數
+- `status_filter`: `all` / `watch` / `buy` / `pullback` / `overheat` / `strong`
+
+## 自選股清單
 
 編輯 `watchlist.csv`：
 
@@ -63,31 +56,6 @@ symbol,name,group
 
 上市股票通常用 `.TW`，上櫃股票通常用 `.TWO`。
 
-## 回檔判斷邏輯
+## 免責聲明
 
-預設邏輯：
-
-- 價格在 MA20 上方 0%～5%：接近 MA20，可能是回檔觀察區
-- 價格跌破 MA20：轉弱 / 需要小心
-- 價格高於 MA20 超過 10% 且 RSI > 70：偏熱，不適合追
-- 價格仍在 MA20 上且 RSI 未過熱：強勢整理
-
-這不是投資建議，只是幫你快速篩出該看的標的。
-
-
-## Vercel 線上部署
-
-已改為可直接部署在 Vercel 的 **WSGI 單頁 Dashboard**（入口：`api/main.py`），不依賴 Streamlit 常駐行程。
-
-### 部署
-
-```bash
-vercel
-vercel --prod
-```
-
-### 說明
-
-- Vercel 會直接執行 `api/main.py`，頁面支援：自選股監控 / 分類股池、總覽表、多股 K 線圖。
-- URL Query 可調整：`tab`、`industry`、`period`、`interval`、`limit`。
-- 本機若要跑 Streamlit 版仍可用 `streamlit run app.py`；Vercel 線上則使用 `api/main.py` 版本。
+這不是投資建議，僅用於觀察與資料整理。
