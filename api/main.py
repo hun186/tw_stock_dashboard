@@ -52,6 +52,33 @@ def load_watchlist(path: Path) -> pd.DataFrame:
     return df[df["symbol"] != ""].copy()
 
 
+
+
+def normalize_symbol(raw: str) -> str:
+    symbol = str(raw or "").strip().upper()
+    if not symbol:
+        return ""
+    if "." not in symbol and symbol.isdigit():
+        symbol = f"{symbol}.TW"
+    return symbol
+
+
+def watchlist_from_symbols(symbols_text: str, universe: pd.DataFrame) -> pd.DataFrame:
+    symbols = [normalize_symbol(x) for x in str(symbols_text or "").replace("\n", ",").split(",")]
+    symbols = [s for s in symbols if s]
+    if not symbols:
+        return pd.DataFrame(columns=["symbol", "name", "group"])
+
+    base = universe[["symbol", "name", "group"]].drop_duplicates() if not universe.empty else pd.DataFrame(columns=["symbol", "name", "group"])
+    out_rows = []
+    for sym in dict.fromkeys(symbols):
+        hit = base[base["symbol"] == sym]
+        if not hit.empty:
+            out_rows.append(hit.iloc[0].to_dict())
+        else:
+            out_rows.append({"symbol": sym, "name": sym, "group": "自訂"})
+    return pd.DataFrame(out_rows)
+
 def load_twse_industry_map() -> pd.DataFrame:
     try:
         resp = requests.get(TWSE_LISTED_INFO_API, timeout=10)
@@ -129,10 +156,13 @@ def app(environ, start_response):
     period = params.get("period", ["3mo"])[0]
     interval = params.get("interval", ["1d"])[0]
     limit = int(params.get("limit", ["30"])[0])
+    cols = max(1, min(4, int(params.get("cols", ["3"])[0])))
     status_filter = params.get("status_filter", ["all"])[0]
 
-    watchlist = load_watchlist(WATCHLIST_FILE).head(limit)
     industry_df = load_twse_industry_map()
+    symbols_text = params.get("symbols", [""])[0]
+    watchlist = watchlist_from_symbols(symbols_text, industry_df) if symbols_text.strip() else load_watchlist(WATCHLIST_FILE)
+    watchlist = watchlist.head(limit)
     industries = industry_df[["industry", "industry_label"]].drop_duplicates().sort_values("industry")
     industry = params.get("industry", [industries.iloc[0]["industry"] if not industries.empty else ""])[0]
 
@@ -177,6 +207,8 @@ def app(environ, start_response):
         "interval": interval,
         "limit": limit,
         "status_filter": status_filter,
+        "symbols": symbols_text,
+        "cols": cols,
     }
 
     body = f"""<!doctype html><html lang='zh-Hant'><head><meta charset='utf-8'><title>TW Dashboard</title>
@@ -188,7 +220,9 @@ def app(environ, start_response):
     <label>期間</label><select name='period'><option {'selected' if period=='3mo' else ''}>3mo</option><option {'selected' if period=='6mo' else ''}>6mo</option><option {'selected' if period=='1y' else ''}>1y</option></select>
     <label>週期</label><select name='interval'><option {'selected' if interval=='1d' else ''}>1d</option><option {'selected' if interval=='1wk' else ''}>1wk</option></select>
     <label>檔數</label><input name='limit' value='{limit}' size='3'/>
+    <label>每列幾檔</label><select name='cols'><option value='1' {'selected' if cols==1 else ''}>1</option><option value='2' {'selected' if cols==2 else ''}>2</option><option value='3' {'selected' if cols==3 else ''}>3</option><option value='4' {'selected' if cols==4 else ''}>4</option></select>
     <label>判斷篩選</label><select name='status_filter'>{status_options}</select>
+    <label>自選代號(逗號分隔)</label><input name='symbols' value='{html.escape(symbols_text)}' size='40' placeholder='2330.TW,2317.TW'/>
     <button type='submit'>更新</button>
     <button type='button' onclick='saveLocal()'>存到瀏覽器</button>
     <button type='button' onclick='loadLocal()'>讀取瀏覽器設定</button>
@@ -196,9 +230,43 @@ def app(environ, start_response):
     <input type='file' id='cfgFile' accept='application/json' style='display:none' onchange='importConfig(event)'>
     <button type='button' onclick="document.getElementById('cfgFile').click()">匯入設定檔</button>
     </form>
+
+    <div style='margin:10px 0;padding:10px;border:1px solid #ddd;border-radius:8px'>
+      <b>自選管理（Vercel版）</b><br/>
+      <input id='pickSymbol' placeholder='輸入代號，例如 2330 或 2330.TW' style='width:240px'/>
+      <button type='button' onclick='addSymbol()'>加入</button>
+      <button type='button' onclick='removeSymbol()'>刪除</button>
+      <small>會寫回上方「自選代號」欄位，按更新後生效。</small>
+    </div>
+
     <h2>總覽</h2><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>判斷</th><th>收盤</th></tr>{''.join(rows) if rows else '<tr><td colspan="5">無符合條件資料</td></tr>'}</table>
-    <h2>多股趨勢圖</h2>{''.join([f"<div class='card'>{c}</div>" for c in cards])}
+    <h2>多股趨勢圖</h2><div class='grid' style='display:grid;grid-template-columns:repeat({cols},minmax(280px,1fr));gap:12px'>{''.join([f"<div class='card'>{c}</div>" for c in cards])}</div>
     <script>
+
+    function normalizeSymbol(v){{
+      v=(v||'').trim().toUpperCase();
+      if(!v) return '';
+      if(!v.includes('.') && /^\\d+$/.test(v)) v=v+'.TW';
+      return v;
+    }}
+    function addSymbol(){{
+      const el=document.querySelector("input[name='symbols']");
+      const v=normalizeSymbol(document.getElementById('pickSymbol').value);
+      if(!v) return alert('請輸入代號');
+      const arr=(el.value||'').split(',').map(x=>normalizeSymbol(x)).filter(Boolean);
+      if(!arr.includes(v)) arr.push(v);
+      el.value=arr.join(',');
+      document.getElementById('pickSymbol').value='';
+    }}
+    function removeSymbol(){{
+      const el=document.querySelector("input[name='symbols']");
+      const v=normalizeSymbol(document.getElementById('pickSymbol').value);
+      if(!v) return alert('請輸入要刪除代號');
+      const arr=(el.value||'').split(',').map(x=>normalizeSymbol(x)).filter(Boolean).filter(x=>x!==v);
+      el.value=arr.join(',');
+      document.getElementById('pickSymbol').value='';
+    }}
+
     const defaultConfig = {json.dumps(save_payload, ensure_ascii=False)};
     function serializeForm(){{
       const fd = new FormData(document.getElementById('cfgForm'));
