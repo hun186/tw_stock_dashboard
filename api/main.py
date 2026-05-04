@@ -86,7 +86,9 @@ def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.Da
 
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
+    df["MA5"] = df["Close"].rolling(5).mean()
     df["MA20"] = df["Close"].rolling(20).mean()
+    df["MA60"] = df["Close"].rolling(60).mean()
     delta = df["Close"].diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
@@ -118,7 +120,9 @@ def make_chart_html(df: pd.DataFrame, title: str) -> str:
     fig = go.Figure()
     fig.add_trace(go.Candlestick(x=df["Date"], open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"], name="K線",
                                  increasing_line_color=UP_COLOR, decreasing_line_color=DOWN_COLOR))
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA5"], mode="lines", name="MA5"))
     fig.add_trace(go.Scatter(x=df["Date"], y=df["MA20"], mode="lines", name="MA20"))
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA60"], mode="lines", name="MA60"))
     fig.update_layout(title=title, height=320, margin=dict(l=4, r=4, t=36, b=4), xaxis_rangeslider_visible=False)
     return fig.to_html(full_html=False, include_plotlyjs="cdn")
 
@@ -130,16 +134,34 @@ def app(environ, start_response):
     interval = params.get("interval", ["1d"])[0]
     limit = int(params.get("limit", ["30"])[0])
     status_filter = params.get("status_filter", ["all"])[0]
+    cards_per_row = int(params.get("cards_per_row", ["3"])[0])
+    cards_per_row = cards_per_row if cards_per_row in [1, 2, 3, 4] else 3
+    custom_watchlist_raw = params.get("custom_watchlist", [""])[0]
 
-    watchlist = load_watchlist(WATCHLIST_FILE).head(limit)
+    base_watchlist = load_watchlist(WATCHLIST_FILE)
     industry_df = load_twse_industry_map()
     industries = industry_df[["industry", "industry_label"]].drop_duplicates().sort_values("industry")
     industry = params.get("industry", [industries.iloc[0]["industry"] if not industries.empty else ""])[0]
 
+    all_stocks = pd.concat([
+        base_watchlist[["symbol", "name", "group"]],
+        industry_df[["symbol", "name", "group"]]
+    ], ignore_index=True).drop_duplicates(subset=["symbol"])
+
+    custom_symbols = [x.strip() for x in custom_watchlist_raw.split(",") if x.strip()]
+    custom_df = all_stocks[all_stocks["symbol"].isin(custom_symbols)][["symbol", "name", "group"]]
+    missing_symbols = [x for x in custom_symbols if x not in set(custom_df["symbol"]) ]
+    if missing_symbols:
+        custom_df = pd.concat([
+            custom_df,
+            pd.DataFrame([{"symbol": s, "name": s, "group": "自訂"} for s in missing_symbols])
+        ], ignore_index=True)
+    watchlist = custom_df if not custom_df.empty else base_watchlist
+
     if tab == "category" and industry:
         stocks = industry_df[industry_df["industry"] == industry][["symbol", "name", "group"]].head(limit)
     else:
-        stocks = watchlist
+        stocks = watchlist.head(limit)
 
     rows = []
     cards = []
@@ -156,8 +178,13 @@ def app(environ, start_response):
         if status_filter != "all" and bucket != status_filter:
             continue
 
+        action_btn = (
+            f"<button type='button' onclick=\"removeWatchlistStock('{html.escape(row.symbol)}')\">移出自選</button>"
+            if tab == "watchlist"
+            else f"<button type='button' onclick=\"addWatchlistStock('{html.escape(row.symbol)}')\">加入自選</button>"
+        )
         rows.append(
-            f"<tr><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(status)}</td><td>{close_text}</td></tr>"
+            f"<tr><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(row.group)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{action_btn}</td></tr>"
         )
         if not df.empty:
             cards.append(f"<h3>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 {close_text}</h3>{make_chart_html(df, row.name)}")
@@ -177,6 +204,8 @@ def app(environ, start_response):
         "interval": interval,
         "limit": limit,
         "status_filter": status_filter,
+        "cards_per_row": cards_per_row,
+        "custom_watchlist": ",".join(watchlist["symbol"].tolist()),
     }
 
     body = f"""<!doctype html><html lang='zh-Hant'><head><meta charset='utf-8'><title>TW Dashboard</title>
@@ -189,15 +218,24 @@ def app(environ, start_response):
     <label>週期</label><select name='interval'><option {'selected' if interval=='1d' else ''}>1d</option><option {'selected' if interval=='1wk' else ''}>1wk</option></select>
     <label>檔數</label><input name='limit' value='{limit}' size='3'/>
     <label>判斷篩選</label><select name='status_filter'>{status_options}</select>
+    <label>每列檔數</label><select name='cards_per_row'><option value='1' {'selected' if cards_per_row==1 else ''}>1</option><option value='2' {'selected' if cards_per_row==2 else ''}>2</option><option value='3' {'selected' if cards_per_row==3 else ''}>3</option><option value='4' {'selected' if cards_per_row==4 else ''}>4</option></select>
     <button type='submit'>更新</button>
     <button type='button' onclick='saveLocal()'>存到瀏覽器</button>
     <button type='button' onclick='loadLocal()'>讀取瀏覽器設定</button>
+    <button type='button' onclick='exportBrowserMemory()'>匯出瀏覽器記憶</button>
+    <input type='file' id='memoryFile' accept='application/json' style='display:none' onchange='importBrowserMemory(event)'>
+    <button type='button' onclick="document.getElementById('memoryFile').click()">匯入瀏覽器記憶</button>
     <button type='button' onclick='downloadConfig()'>下載設定檔</button>
     <input type='file' id='cfgFile' accept='application/json' style='display:none' onchange='importConfig(event)'>
     <button type='button' onclick="document.getElementById('cfgFile').click()">匯入設定檔</button>
+    <hr>
+    <label>關鍵字</label><input id='watchKeyword' placeholder='輸入名稱或代號'>
+    <label>加入自選</label><select id='stockPicker'></select>
+    <button type='button' onclick='addSelectedStock()'>加入</button>
+    <input type='hidden' name='custom_watchlist' id='customWatchlist' value='{html.escape(','.join(watchlist['symbol'].tolist()))}'>
     </form>
-    <h2>總覽</h2><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>判斷</th><th>收盤</th></tr>{''.join(rows) if rows else '<tr><td colspan="5">無符合條件資料</td></tr>'}</table>
-    <h2>多股趨勢圖</h2>{''.join([f"<div class='card'>{c}</div>" for c in cards])}
+    <h2>總覽</h2><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>判斷</th><th>收盤</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="7">無符合條件資料</td></tr>'}</table>
+    <h2>多股趨勢圖</h2><div id='cardsGrid' style='display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:12px'>{''.join([f"<div class='card'>{c}</div>" for c in cards])}</div>
     <script>
     const defaultConfig = {json.dumps(save_payload, ensure_ascii=False)};
     function serializeForm(){{
@@ -218,6 +256,72 @@ def app(environ, start_response):
       if(!raw) return alert('找不到瀏覽器設定');
       try {{ applyConfig(JSON.parse(raw)); }} catch(e) {{ alert('設定格式錯誤'); }}
     }}
+    function exportBrowserMemory(){{
+      const raw = localStorage.getItem('tw_dashboard_config');
+      if(!raw) return alert('找不到可匯出的瀏覽器記憶');
+      const payload = {{
+        key: 'tw_dashboard_config',
+        exported_at: new Date().toISOString(),
+        data: JSON.parse(raw),
+      }};
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {{type: 'application/json'}});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'tw-dashboard-browser-memory.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }}
+    function importBrowserMemory(evt){{
+      const file = evt.target.files[0];
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {{
+        try {{
+          const payload = JSON.parse(reader.result);
+          const cfg = payload?.data ?? payload;
+          if(typeof cfg !== 'object' || cfg === null) throw new Error('invalid');
+          localStorage.setItem('tw_dashboard_config', JSON.stringify(cfg));
+          applyConfig(cfg);
+        }} catch(e) {{
+          alert('匯入失敗：瀏覽器記憶格式錯誤');
+        }}
+      }};
+      reader.readAsText(file);
+      evt.target.value = '';
+    }}
+
+    const allStocks = {json.dumps(all_stocks[['symbol', 'name', 'group']].to_dict(orient='records'), ensure_ascii=False)};
+    function getWatchlistSymbols(){{
+      const raw = document.getElementById('customWatchlist').value.trim();
+      return raw ? raw.split(',').map(x=>x.trim()).filter(Boolean) : [];
+    }}
+    function setWatchlistSymbols(symbols){{
+      document.getElementById('customWatchlist').value = [...new Set(symbols)].join(',');
+    }}
+    function addWatchlistStock(symbol){{
+      const symbols = getWatchlistSymbols();
+      if(!symbols.includes(symbol)) symbols.push(symbol);
+      setWatchlistSymbols(symbols);
+      document.getElementById('cfgForm').submit();
+    }}
+    function removeWatchlistStock(symbol){{
+      const symbols = getWatchlistSymbols().filter(s => s !== symbol);
+      setWatchlistSymbols(symbols);
+      document.getElementById('cfgForm').submit();
+    }}
+    function fillStockPicker(keyword=''){{
+      const picker = document.getElementById('stockPicker');
+      const kw = keyword.trim().toLowerCase();
+      const rows = allStocks.filter(r => !kw || r.symbol.toLowerCase().includes(kw) || r.name.toLowerCase().includes(kw));
+      picker.innerHTML = rows.slice(0, 200).map(r => `<option value="${{r.symbol}}">${{r.symbol}} - ${{r.name}} (${{r.group}})</option>`).join('');
+    }}
+    function addSelectedStock(){{
+      const symbol = document.getElementById('stockPicker').value;
+      if(!symbol) return alert('請先選擇股票');
+      addWatchlistStock(symbol);
+    }}
+    document.getElementById('watchKeyword').addEventListener('input', (e)=>fillStockPicker(e.target.value));
+    fillStockPicker();
     function downloadConfig(){{
       const blob = new Blob([JSON.stringify(serializeForm(), null, 2)], {{type: 'application/json'}});
       const a = document.createElement('a');
