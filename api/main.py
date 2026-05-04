@@ -310,9 +310,10 @@ def app(environ, start_response):
             intraday_ref_close = float(df.iloc[-1]["RefClose"]) if show_ma is False and "RefClose" in df.columns else None
             prev_close = float(df.iloc[-2]["Close"]) if len(df) >= 2 else float(df.iloc[-1]["Close"])
             now_close = float(df.iloc[-1]["Close"])
-            close_color = UP_COLOR if now_close >= prev_close else DOWN_COLOR
-            if period == "intraday" and intraday_ref_close and intraday_ref_close != 0:
-                change_pct = ((now_close - intraday_ref_close) / intraday_ref_close) * 100
+            reference_close = intraday_ref_close if period == "intraday" and intraday_ref_close else prev_close
+            close_color = UP_COLOR if now_close >= reference_close else DOWN_COLOR
+            if period == "intraday" and reference_close != 0:
+                change_pct = ((now_close - reference_close) / reference_close) * 100
                 change_text = f" ({change_pct:+.2f}%)"
             else:
                 change_text = ""
