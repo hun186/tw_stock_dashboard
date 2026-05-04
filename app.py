@@ -35,6 +35,12 @@ def load_watchlist(path: Path) -> pd.DataFrame:
     return df[df["symbol"] != ""].copy()
 
 
+def save_watchlist(path: Path, df: pd.DataFrame) -> None:
+    out = df.copy()
+    out = out[["symbol", "name", "group"]].drop_duplicates(subset=["symbol"])
+    out.to_csv(path, index=False)
+
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_twse_industry_map() -> pd.DataFrame:
     try:
@@ -329,8 +335,74 @@ st.title("📈 多台股監控 Dashboard")
 st.caption("一頁掌握多檔台股是否回檔、靠近均線、過熱或轉弱。資料來源：Yahoo Finance，可能有延遲。")
 tab_watchlist, tab_category = st.tabs(["自選股監控", "分類股池"])
 
+if "watchlist_df" not in st.session_state:
+    st.session_state.watchlist_df = load_watchlist(WATCHLIST_FILE)
+
+
+def add_symbol_to_watchlist(symbol: str, name: str | None = None, group: str | None = None) -> tuple[bool, str]:
+    symbol = symbol.strip().upper()
+    if not symbol:
+        return False, "代號不可空白"
+    if "." not in symbol:
+        symbol = f"{symbol}.TW"
+
+    df = st.session_state.watchlist_df
+    if symbol in df["symbol"].values:
+        return False, f"{symbol} 已在自選清單"
+
+    if not name or not group:
+        resolved_name, resolved_group = resolve_symbol_meta(symbol)
+        name = name or resolved_name
+        group = group or resolved_group
+
+    new_row = pd.DataFrame([{"symbol": symbol, "name": name, "group": group}])
+    st.session_state.watchlist_df = pd.concat([df, new_row], ignore_index=True)
+    save_watchlist(WATCHLIST_FILE, st.session_state.watchlist_df)
+    return True, f"已加入 {name}（{symbol}）"
+
 with tab_watchlist:
-    watchlist = load_watchlist(WATCHLIST_FILE)
+    watchlist = st.session_state.watchlist_df.copy()
+
+    with st.expander("➕ 新增/刪除自選股", expanded=True):
+        add_col1, add_col2 = st.columns([2, 1])
+        with add_col1:
+            keyword = st.text_input("輸入代號或關鍵字", placeholder="例如 2330、台積、聯發科", key="wl_keyword")
+            candidates = load_twse_industry_map()
+            choice_options = []
+            if not candidates.empty and keyword.strip():
+                kw = keyword.strip().lower()
+                matched = candidates[
+                    candidates["symbol"].str.lower().str.contains(kw) | candidates["name"].str.lower().str.contains(kw)
+                ].head(20)
+                choice_options = [f"{r.symbol} | {r.name} | {r.group}" for r in matched.itertuples(index=False)]
+            selected_candidate = st.selectbox("下拉選單加入", [""] + choice_options, key="wl_candidate")
+        with add_col2:
+            manual_symbol = st.text_input("直接輸入代號", placeholder="2330 或 2330.TW", key="wl_manual_add")
+            if st.button("加入自選", key="wl_add_btn", use_container_width=True):
+                target = manual_symbol.strip()
+                if not target and selected_candidate:
+                    target = selected_candidate.split("|")[0].strip()
+                ok, msg = add_symbol_to_watchlist(target)
+                if ok:
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.warning(msg)
+
+        remove_symbol = st.selectbox(
+            "從自選股刪除",
+            [""] + [f"{r.symbol} | {r.name}" for r in watchlist.itertuples(index=False)],
+            key="wl_remove_symbol",
+        )
+        if st.button("刪除選取股票", key="wl_remove_btn"):
+            if remove_symbol:
+                symbol = remove_symbol.split("|")[0].strip()
+                st.session_state.watchlist_df = st.session_state.watchlist_df[
+                    st.session_state.watchlist_df["symbol"] != symbol
+                ].copy()
+                save_watchlist(WATCHLIST_FILE, st.session_state.watchlist_df)
+                st.success(f"已刪除 {symbol}")
+                st.rerun()
 
     with st.sidebar:
         st.header("自選股設定")
@@ -348,10 +420,6 @@ with tab_watchlist:
         status_options = ["🟡 回檔", "🔴 強勢", "🟠 過熱", "🟢 跌破", "⚪ 資料不足/抓不到"]
         selected_status = st.multiselect("狀態篩選", status_options, default=[], key="wl_status")
 
-        st.divider()
-        st.subheader("快速加入代號")
-        st.write("格式例：`2330.TW`、`4971.TWO`")
-        manual_symbols = st.text_area("臨時股票代號，一行一檔", value="", height=120, key="wl_manual")
 
     if group != "全部":
         watchlist = watchlist[watchlist["group"] == group].copy()
@@ -360,15 +428,6 @@ with tab_watchlist:
         watchlist = watchlist[
             watchlist["group"].apply(lambda g: any(tag in extract_theme_tags(g) for tag in selected_tags))
         ].copy()
-
-    manual_rows = []
-    for line in manual_symbols.splitlines():
-        symbol = line.strip()
-        if symbol:
-            name, group_name = resolve_symbol_meta(symbol)
-            manual_rows.append({"symbol": symbol, "name": name, "group": group_name})
-    if manual_rows:
-        watchlist = pd.concat([watchlist, pd.DataFrame(manual_rows)], ignore_index=True)
 
     watchlist = watchlist.drop_duplicates(subset=["symbol"]).head(max_cards)
 
@@ -531,6 +590,21 @@ with tab_category:
 
         st.subheader("總覽")
         st.dataframe(cat_summary.drop(columns=["篩選"], errors="ignore"), use_container_width=True, hide_index=True)
+
+        st.markdown("#### 加入到自選股")
+        pick_from_category = st.selectbox(
+            "從分類池加入",
+            [""] + [f"{r.symbol} | {r.name} | {r.group}" for r in picked_rows.itertuples(index=False)],
+            key="cat_add_pick",
+        )
+        if st.button("加入到自選清單", key="cat_add_btn"):
+            if pick_from_category:
+                symbol, name, group_name = [x.strip() for x in pick_from_category.split("|")]
+                ok, msg = add_symbol_to_watchlist(symbol, name, group_name)
+                if ok:
+                    st.success(msg)
+                else:
+                    st.warning(msg)
 
         if cat_summary.empty:
             st.info("目前篩選條件下沒有符合的股票。")
