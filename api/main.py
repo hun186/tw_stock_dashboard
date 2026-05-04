@@ -209,6 +209,24 @@ def make_chart_html(df: pd.DataFrame, title: str, show_volume: bool, show_ma: bo
         fig.update_yaxes(title_text="價格", row=1, col=1)
         fig.update_yaxes(title_text="成交量", row=2, col=1)
 
+    if intraday_ref_close is not None:
+        ref_close = float(intraday_ref_close)
+    elif len(df) >= 2:
+        ref_close = float(df.iloc[-2]["Close"])
+    else:
+        ref_close = float(df.iloc[-1]["Close"])
+    limit_up = ref_close * 1.1
+    limit_down = ref_close * 0.9
+    fig.update_yaxes(range=[limit_down, limit_up], row=1, col=1)
+    fig.update_yaxes(
+        tickmode="array",
+        tickvals=[limit_down, ref_close, limit_up],
+        ticktext=[f"跌停 {limit_down:.2f}", f"昨收 {ref_close:.2f}", f"漲停 {limit_up:.2f}"],
+        row=1,
+        col=1,
+    )
+    fig.add_hline(y=ref_close, line_color="#666", line_width=1, line_dash="dot", row=1, col=1)
+
     fig.update_layout(title=title, height=500 if show_volume else 320, margin=dict(l=4, r=4, t=36, b=4), xaxis_rangeslider_visible=False)
     return fig.to_html(full_html=False, include_plotlyjs="cdn")
 
@@ -263,12 +281,18 @@ def app(environ, start_response):
     cards = []
     for row in stocks.itertuples(index=False):
         df = fetch_price(row.symbol, fetch_period, fetch_interval)
+        signal_df = fetch_price(row.symbol, "6mo", "1d") if period == "intraday" else df.copy()
         if df.empty:
             bucket, status = "watch", "⚪ 抓不到資料"
             close_text = "-"
+            signal = {"score": -999}
         else:
             df = add_indicators(df)
-            signal = analyze_stock_signal(df)
+            if signal_df.empty:
+                signal = {"bucket": "watch", "message": "⚪ 抓不到判斷資料", "score": -999}
+            else:
+                signal_df = add_indicators(signal_df)
+                signal = analyze_stock_signal(signal_df)
             bucket, status = signal["bucket"], signal["message"]
             close_text = f"{float(df.iloc[-1]['Close']):.2f}"
 
@@ -284,7 +308,19 @@ def app(environ, start_response):
         if not df.empty:
             show_ma = period != "intraday"
             intraday_ref_close = float(df.iloc[-1]["RefClose"]) if show_ma is False and "RefClose" in df.columns else None
-            cards.append(f"<h3>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 {close_text}</h3>{make_chart_html(df, row.name, show_volume, show_ma, intraday_ref_close=intraday_ref_close)}")
+            prev_close = float(df.iloc[-2]["Close"]) if len(df) >= 2 else float(df.iloc[-1]["Close"])
+            now_close = float(df.iloc[-1]["Close"])
+            close_color = UP_COLOR if now_close >= prev_close else DOWN_COLOR
+            if period == "intraday" and intraday_ref_close and intraday_ref_close != 0:
+                change_pct = ((now_close - intraday_ref_close) / intraday_ref_close) * 100
+                change_text = f" ({change_pct:+.2f}%)"
+            else:
+                change_text = ""
+            cards.append(
+                f"<h3>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 "
+                f"<span style='color:{close_color};font-weight:700'>{close_text}{change_text}</span></h3>"
+                f"{make_chart_html(df, row.name, show_volume, show_ma, intraday_ref_close=intraday_ref_close)}"
+            )
 
     rows_data.sort(key=lambda x: x["score"], reverse=True)
     rows = [x["row_html"] for x in rows_data]
@@ -334,7 +370,7 @@ def app(environ, start_response):
     <form id='cfgForm'>
     <label>頁籤</label><select name='tab'><option value='watchlist' {'selected' if tab=='watchlist' else ''}>自選股監控</option><option value='category' {'selected' if tab=='category' else ''}>分類股池</option></select>
     <label>產業</label><select name='industry'>{industry_options}</select>
-    <label>期間</label><select name='period'><option value='intraday' {'selected' if period=='intraday' else ''}>當日即時K</option><option {'selected' if period=='3mo' else ''}>3mo</option><option {'selected' if period=='6mo' else ''}>6mo</option><option {'selected' if period=='1y' else ''}>1y</option></select>
+    <label>期間</label><select name='period'><option value='intraday' {'selected' if period=='intraday' else ''}>當日即時K</option><option value='1mo' {'selected' if period=='1mo' else ''}>1個月</option><option value='2mo' {'selected' if period=='2mo' else ''}>2個月</option><option {'selected' if period=='3mo' else ''}>3mo</option><option {'selected' if period=='6mo' else ''}>6mo</option><option {'selected' if period=='1y' else ''}>1y</option><option value='5y' {'selected' if period=='5y' else ''}>5年</option></select>
     <label>週期</label><select name='interval'><option {'selected' if interval=='1m' else ''}>1m</option><option {'selected' if interval=='5m' else ''}>5m</option><option {'selected' if interval=='15m' else ''}>15m</option><option {'selected' if interval=='1d' else ''}>1d</option><option {'selected' if interval=='1wk' else ''}>1wk</option></select>
     <label>檔數</label><input name='limit' value='{limit}' size='3'/>
     <label>判斷篩選</label><select name='status_filter'>{status_options}</select>
