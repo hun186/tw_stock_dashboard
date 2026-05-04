@@ -211,21 +211,17 @@ def make_chart_html(df: pd.DataFrame, title: str, show_volume: bool, show_ma: bo
 
     if intraday_ref_close is not None:
         ref_close = float(intraday_ref_close)
-    elif len(df) >= 2:
-        ref_close = float(df.iloc[-2]["Close"])
-    else:
-        ref_close = float(df.iloc[-1]["Close"])
-    limit_up = ref_close * 1.1
-    limit_down = ref_close * 0.9
-    fig.update_yaxes(range=[limit_down, limit_up], row=1, col=1)
-    fig.update_yaxes(
-        tickmode="array",
-        tickvals=[limit_down, ref_close, limit_up],
-        ticktext=[f"跌停 {limit_down:.2f}", f"昨收 {ref_close:.2f}", f"漲停 {limit_up:.2f}"],
-        row=1,
-        col=1,
-    )
-    fig.add_hline(y=ref_close, line_color="#666", line_width=1, line_dash="dot", row=1, col=1)
+        limit_up = ref_close * 1.1
+        limit_down = ref_close * 0.9
+        fig.update_yaxes(range=[limit_down, limit_up], row=1, col=1)
+        fig.update_yaxes(
+            tickmode="array",
+            tickvals=[limit_down, ref_close, limit_up],
+            ticktext=[f"跌停 {limit_down:.2f}", f"昨收 {ref_close:.2f}", f"漲停 {limit_up:.2f}"],
+            row=1,
+            col=1,
+        )
+        fig.add_hline(y=ref_close, line_color="#666", line_width=1, line_dash="dot", row=1, col=1)
 
     fig.update_layout(title=title, height=500 if show_volume else 320, margin=dict(l=4, r=4, t=36, b=4), xaxis_rangeslider_visible=False)
     return fig.to_html(full_html=False, include_plotlyjs="cdn")
