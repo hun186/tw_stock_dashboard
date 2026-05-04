@@ -1,81 +1,150 @@
-"""Vercel Python entrypoint.
-
-Vercel's Python runtime is request/response based and does not run Streamlit's
-long-lived server process. This endpoint returns a helpful HTML page and can
-optionally redirect users to a hosted Streamlit URL via STREAMLIT_PUBLIC_URL.
-"""
-
 from __future__ import annotations
 
-import html
-import os
+from pathlib import Path
+from urllib.parse import parse_qs
+
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import requests
+import yfinance as yf
+
+APP_DIR = Path(__file__).resolve().parent.parent
+WATCHLIST_FILE = APP_DIR / "watchlist.csv"
+TWSE_LISTED_INFO_API = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
+
+UP_COLOR = "#d60000"
+DOWN_COLOR = "#008a00"
 
 
-STREAMLIT_PUBLIC_URL = os.getenv("STREAMLIT_PUBLIC_URL", "").strip()
+def load_watchlist(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame(columns=["symbol", "name", "group"])
+    df = pd.read_csv(path)
+    for col in ["symbol", "name", "group"]:
+        if col not in df.columns:
+            return pd.DataFrame(columns=["symbol", "name", "group"])
+    df["symbol"] = df["symbol"].astype(str).str.strip()
+    df["name"] = df["name"].astype(str).str.strip()
+    df["group"] = df["group"].astype(str).str.strip()
+    return df[df["symbol"] != ""].copy()
 
 
-def _render_html() -> str:
-    safe_url = html.escape(STREAMLIT_PUBLIC_URL, quote=True)
+def load_twse_industry_map() -> pd.DataFrame:
+    try:
+        resp = requests.get(TWSE_LISTED_INFO_API, timeout=10)
+        resp.raise_for_status()
+        df = pd.DataFrame(resp.json())
+    except Exception:
+        return pd.DataFrame(columns=["industry", "symbol", "name", "group"])
 
-    if STREAMLIT_PUBLIC_URL:
-        return f"""<!doctype html>
-<html lang=\"zh-Hant\">
-<head>
-  <meta charset=\"utf-8\" />
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-  <meta http-equiv=\"refresh\" content=\"2;url={safe_url}\" />
-  <title>tw_stock_dashboard</title>
-  <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 2rem; line-height: 1.6; }}
-    .card {{ max-width: 720px; padding: 1.25rem 1.5rem; border: 1px solid #ddd; border-radius: 12px; }}
-    a.btn {{ display: inline-block; margin-top: 0.8rem; padding: 0.55rem 0.9rem; background: #111; color: #fff; border-radius: 8px; text-decoration: none; }}
-  </style>
-</head>
-<body>
-  <div class=\"card\">
-    <h1>tw_stock_dashboard</h1>
-    <p>正在導向到 Streamlit 儀表板…</p>
-    <p>若未自動跳轉，請點下面按鈕：</p>
-    <a class=\"btn\" href=\"{safe_url}\">開啟 Dashboard</a>
-  </div>
-</body>
-</html>"""
+    if not {"公司代號", "公司簡稱", "產業別"}.issubset(df.columns):
+        return pd.DataFrame(columns=["industry", "symbol", "name", "group"])
 
-    return """<!doctype html>
-<html lang=\"zh-Hant\">
-<head>
-  <meta charset=\"utf-8\" />
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-  <title>tw_stock_dashboard</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 2rem; line-height: 1.7; }
-    .card { max-width: 760px; padding: 1.25rem 1.5rem; border: 1px solid #ddd; border-radius: 12px; }
-    code { background: #f5f5f5; padding: 0.1rem 0.35rem; border-radius: 4px; }
-  </style>
-</head>
-<body>
-  <div class=\"card\">
-    <h1>tw_stock_dashboard</h1>
-    <p>這個專案是 <strong>Streamlit</strong> 應用，Vercel Python Runtime 無法直接執行長時間常駐的 Streamlit 服務。</p>
-    <p>你可以：</p>
-    <ol>
-      <li>本機執行：<code>streamlit run app.py</code></li>
-      <li>部署到支援長時間行程的容器平台（Railway / Render / Fly.io）</li>
-      <li>若你已有外部 Streamlit 網址，請在 Vercel 設定環境變數 <code>STREAMLIT_PUBLIC_URL</code>，此頁會自動導向。</li>
-    </ol>
-  </div>
-</body>
-</html>"""
+    df["industry"] = df["產業別"].astype(str).str.strip()
+    df["symbol"] = df["公司代號"].astype(str).str.strip() + ".TW"
+    df["name"] = df["公司簡稱"].astype(str).str.strip()
+    df["group"] = "上市-" + df["industry"]
+    return df[df["industry"] != ""][ ["industry", "symbol", "name", "group"] ].drop_duplicates()
+
+
+def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.DataFrame:
+    df = yf.download(symbol, period=period, interval=interval, auto_adjust=False, progress=False, threads=False)
+    if df is None or df.empty:
+        return pd.DataFrame()
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df = df.rename_axis("Date").reset_index()
+    need = ["Date", "Open", "High", "Low", "Close", "Volume"]
+    if not set(need).issubset(df.columns):
+        return pd.DataFrame()
+    return df[need].dropna(subset=["Close"])
+
+
+def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["MA20"] = df["Close"].rolling(20).mean()
+    delta = df["Close"].diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    rs = gain.rolling(14).mean() / loss.rolling(14).mean().replace(0, np.nan)
+    df["RSI14"] = 100 - (100 / (1 + rs))
+    return df
+
+
+def classify_status(df: pd.DataFrame) -> str:
+    if len(df) < 25:
+        return "⚪ 資料不足"
+    last = df.iloc[-1]
+    close = float(last["Close"])
+    ma20 = float(last["MA20"]) if not pd.isna(last["MA20"]) else np.nan
+    rsi = float(last["RSI14"]) if not pd.isna(last["RSI14"]) else np.nan
+    if np.isnan(ma20):
+        return "⚪ 資料不足"
+    dist = (close - ma20) / ma20 * 100
+    if close < ma20:
+        return f"🟢 跌破 ({dist:.1f}%)"
+    if 0 <= dist <= 5:
+        return f"🟡 回檔 (+{dist:.1f}%)"
+    if dist > 10 and not np.isnan(rsi) and rsi >= 70:
+        return f"🟠 過熱 (RSI {rsi:.0f})"
+    return f"🔴 強勢 (+{dist:.1f}%)"
+
+
+def make_chart_html(df: pd.DataFrame, title: str) -> str:
+    fig = go.Figure()
+    fig.add_trace(go.Candlestick(x=df["Date"], open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"], name="K線",
+                                 increasing_line_color=UP_COLOR, decreasing_line_color=DOWN_COLOR))
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA20"], mode="lines", name="MA20"))
+    fig.update_layout(title=title, height=320, margin=dict(l=4, r=4, t=36, b=4), xaxis_rangeslider_visible=False)
+    return fig.to_html(full_html=False, include_plotlyjs="cdn")
 
 
 def app(environ, start_response):
-    body = _render_html().encode("utf-8")
+    params = parse_qs(environ.get("QUERY_STRING", ""))
+    tab = params.get("tab", ["watchlist"])[0]
+    period = params.get("period", ["3mo"])[0]
+    interval = params.get("interval", ["1d"])[0]
+    limit = int(params.get("limit", ["8"])[0])
 
-    status = "200 OK"
-    headers = [
-        ("Content-Type", "text/html; charset=utf-8"),
-        ("Content-Length", str(len(body))),
-        ("Cache-Control", "no-store"),
-    ]
-    start_response(status, headers)
-    return [body]
+    watchlist = load_watchlist(WATCHLIST_FILE).head(limit)
+    industry_df = load_twse_industry_map()
+    industries = sorted(industry_df["industry"].dropna().unique().tolist())
+    industry = params.get("industry", [industries[0] if industries else ""])[0]
+
+    if tab == "category" and industry:
+        stocks = industry_df[industry_df["industry"] == industry][["symbol", "name", "group"]].head(limit)
+    else:
+        stocks = watchlist
+
+    rows = []
+    cards = []
+    for row in stocks.itertuples(index=False):
+        df = fetch_price(row.symbol, period, interval)
+        if df.empty:
+            rows.append(f"<tr><td>⚪</td><td>{row.symbol}</td><td>{row.name}</td><td>抓不到資料</td></tr>")
+            continue
+        df = add_indicators(df)
+        status = classify_status(df)
+        close = float(df.iloc[-1]["Close"])
+        rows.append(f"<tr><td>{status.split()[0]}</td><td>{row.symbol}</td><td>{row.name}</td><td>{status}</td></tr>")
+        cards.append(f"<h3>{row.name} ({row.symbol}) 收盤 {close:.2f}</h3>{make_chart_html(df, row.name)}")
+
+    industry_options = "".join([f"<option {'selected' if i==industry else ''}>{i}</option>" for i in industries])
+    body = f"""<!doctype html><html lang='zh-Hant'><head><meta charset='utf-8'><title>TW Dashboard</title>
+    <style>body{{font-family:Arial;margin:20px}} table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #ddd;padding:6px}} .card{{margin:18px 0;padding:10px;border:1px solid #ddd;border-radius:8px}}</style></head><body>
+    <h1>多台股監控 Dashboard（Vercel 版）</h1>
+    <form>
+    <label>頁籤</label><select name='tab'><option value='watchlist' {'selected' if tab=='watchlist' else ''}>自選股監控</option><option value='category' {'selected' if tab=='category' else ''}>分類股池</option></select>
+    <label>產業</label><select name='industry'>{industry_options}</select>
+    <label>期間</label><select name='period'><option>3mo</option><option>6mo</option><option>1y</option></select>
+    <label>週期</label><select name='interval'><option>1d</option><option>1wk</option></select>
+    <label>檔數</label><input name='limit' value='{limit}' size='3'/>
+    <button type='submit'>更新</button></form>
+    <h2>總覽</h2><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>判斷</th></tr>{''.join(rows)}</table>
+    <h2>多股趨勢圖</h2>{''.join([f"<div class='card'>{c}</div>" for c in cards])}
+    </body></html>"""
+
+    data = body.encode("utf-8")
+    start_response("200 OK", [("Content-Type", "text/html; charset=utf-8"), ("Content-Length", str(len(data)))])
+    return [data]
