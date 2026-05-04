@@ -95,6 +95,13 @@ def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.Da
         df["Date"] = date_col.dt.tz_localize(None)
         intraday_mask = (df["Date"].dt.time >= pd.Timestamp("09:00").time()) & (df["Date"].dt.time <= pd.Timestamp("13:30").time())
         df = df[intraday_mask].copy()
+        if not df.empty:
+            trade_dates = df["Date"].dt.date
+            latest_date = trade_dates.max()
+            prev_day_close = df.loc[trade_dates < latest_date, "Close"].dropna()
+            reference_close = float(prev_day_close.iloc[-1]) if not prev_day_close.empty else float(df.iloc[0]["Open"])
+            df = df[trade_dates == latest_date].copy()
+            df["RefClose"] = reference_close
     return df
 
 
@@ -126,7 +133,7 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def analyze_stock_signal(df: pd.DataFrame) -> dict:
-    if len(df) < 60:
+    if len(df) < 20:
         return {"emoji": "⚪", "label": "資料不足", "message": "⚪ 資料不足", "code": "INSUFFICIENT_DATA", "score": 0, "risk": "low", "bucket": "watch"}
 
     last = df.iloc[-1]
@@ -140,7 +147,7 @@ def analyze_stock_signal(df: pd.DataFrame) -> dict:
     rsi14 = float(last["RSI14"]) if not pd.isna(last["RSI14"]) else np.nan
     close_change_pct = round(float(last["close_change_pct"]), 1) if not pd.isna(last["close_change_pct"]) else 0.0
     volume_ratio = round(float(last["volume_ratio"]), 1) if not pd.isna(last["volume_ratio"]) else 0.0
-    ma20_distance_pct = round(float(last["ma20_distance_pct"]), 1) if not pd.isna(last["ma20_distance_pct"]) else 0.0
+    ma20_distance_pct = round(float(last["ma20_distance_pct"]), 1) if not pd.isna(last["ma20_distance_pct"]) else np.nan
     prev_high_20 = float(prev["high_20"]) if not pd.isna(prev["high_20"]) else np.nan
     prev_close = float(prev["Close"])
     prev_ma20 = float(prev["MA20"]) if not pd.isna(prev["MA20"]) else np.nan
@@ -165,28 +172,35 @@ def analyze_stock_signal(df: pd.DataFrame) -> dict:
         return {"emoji": "🟡", "label": "回測 MA20 不破", "message": f"🟡 回測 MA20 不破 ({close_change_pct:+.1f}%, 量{volume_ratio:.1f}x)", "code": "MA20_SUPPORT", "score": 45, "risk": "medium", "bucket": "observe"}
     if close_change_pct <= -1.5 and volume_ratio <= 0.8 and close > ma20:
         return {"emoji": "🟡", "label": "縮量回檔", "message": f"🟡 縮量回檔 ({close_change_pct:+.1f}%, 量{volume_ratio:.1f}x)", "code": "LOW_VOLUME_PULLBACK", "score": 30, "risk": "low", "bucket": "observe"}
-    if (not np.isnan(rsi14) and rsi14 >= 75) or ma20_distance_pct >= 15:
+    if (not np.isnan(rsi14) and rsi14 >= 75) or (not np.isnan(ma20_distance_pct) and ma20_distance_pct >= 15):
         rsi_text = f"{round(rsi14,1):.1f}" if not np.isnan(rsi14) else "-"
         return {"emoji": "🟠", "label": "過熱", "message": f"🟠 過熱 (RSI {rsi_text}, 距MA20 {ma20_distance_pct:+.1f}%)", "code": "OVERHEATED", "score": -20, "risk": "medium", "bucket": "warn"}
-    if close > ma20 and ma20_distance_pct >= 5 and (np.isnan(rsi14) or rsi14 < 75):
+    if close > ma20 and (not np.isnan(ma20_distance_pct)) and ma20_distance_pct >= 5 and (np.isnan(rsi14) or rsi14 < 75):
         return {"emoji": "🔴", "label": "強勢", "message": f"🔴 強勢 (距MA20 {ma20_distance_pct:+.1f}%)", "code": "STRONG", "score": 55, "risk": "low", "bucket": "bull"}
     if range_5_pct <= 8 and (not np.isnan(vol_ma20)) and recent5_avg_vol <= vol_ma20 * 0.8:
         return {"emoji": "⚪", "label": "縮量盤整", "message": f"⚪ 縮量盤整 (5日區間 {round(range_5_pct,1):.1f}%)", "code": "CONSOLIDATION", "score": 0, "risk": "low", "bucket": "neutral"}
     return {"emoji": "⚪", "label": "中性", "message": "⚪ 中性", "code": "NEUTRAL", "score": 0, "risk": "low", "bucket": "neutral"}
 
 
-def make_chart_html(df: pd.DataFrame, title: str, show_volume: bool, show_ma: bool) -> str:
+def make_chart_html(df: pd.DataFrame, title: str, show_volume: bool, show_ma: bool, intraday_ref_close: float | None = None) -> str:
     row_heights = [0.7, 0.3] if show_volume else [1.0]
     fig = make_subplots(rows=2 if show_volume else 1, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=row_heights)
-    fig.add_trace(go.Candlestick(x=df["Date"], open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"], name="價格K線",
-                                 increasing_line_color=UP_COLOR, decreasing_line_color=DOWN_COLOR), row=1, col=1)
+    price_open = df["Open"] if intraday_ref_close is None else np.full(len(df), intraday_ref_close)
+    fig.add_trace(go.Candlestick(
+        x=df["Date"], open=price_open, high=df["High"], low=df["Low"], close=df["Close"], name="價格K線",
+        increasing_line_color=UP_COLOR, decreasing_line_color=DOWN_COLOR,
+        increasing_fillcolor=UP_COLOR, decreasing_fillcolor=DOWN_COLOR,
+        increasing=dict(line=dict(color=UP_COLOR), fillcolor=UP_COLOR),
+        decreasing=dict(line=dict(color=DOWN_COLOR), fillcolor=DOWN_COLOR),
+    ), row=1, col=1)
     if show_ma:
         fig.add_trace(go.Scatter(x=df["Date"], y=df["MA5"], mode="lines", name="MA5", line=dict(color=MA5_COLOR)), row=1, col=1)
         fig.add_trace(go.Scatter(x=df["Date"], y=df["MA20"], mode="lines", name="MA20", line=dict(color=MA20_COLOR)), row=1, col=1)
         fig.add_trace(go.Scatter(x=df["Date"], y=df["MA60"], mode="lines", name="MA60", line=dict(color=MA60_COLOR)), row=1, col=1)
 
     if show_volume:
-        volume_colors = np.where(df["Close"] >= df["Open"], UP_COLOR, DOWN_COLOR)
+        ref_series = df["RefClose"] if "RefClose" in df.columns else df["Open"]
+        volume_colors = np.where(df["Close"] >= ref_series, UP_COLOR, DOWN_COLOR)
         fig.add_trace(go.Bar(x=df["Date"], y=df["Volume"], name="量K線", marker_color=volume_colors, opacity=0.8), row=2, col=1)
         if show_ma:
             fig.add_trace(go.Scatter(x=df["Date"], y=df["VMA5"], mode="lines", name="VMA5", line=dict(color=MA5_COLOR)), row=2, col=1)
@@ -203,7 +217,7 @@ def make_chart_html(df: pd.DataFrame, title: str, show_volume: bool, show_ma: bo
 
 def resolve_price_params(period: str, interval: str) -> tuple[str, str]:
     if period == "intraday":
-        return "1d", "1m"
+        return "2d", "1m"
     return period, interval
 
 
@@ -269,7 +283,8 @@ def app(environ, start_response):
         rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(row.group)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{action_btn}</td></tr>"})
         if not df.empty:
             show_ma = period != "intraday"
-            cards.append(f"<h3>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 {close_text}</h3>{make_chart_html(df, row.name, show_volume, show_ma)}")
+            intraday_ref_close = float(df.iloc[-1]["RefClose"]) if show_ma is False and "RefClose" in df.columns else None
+            cards.append(f"<h3>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 {close_text}</h3>{make_chart_html(df, row.name, show_volume, show_ma, intraday_ref_close=intraday_ref_close)}")
 
     rows_data.sort(key=lambda x: x["score"], reverse=True)
     rows = [x["row_html"] for x in rows_data]
@@ -344,6 +359,8 @@ def app(environ, start_response):
     <h2>多股趨勢圖</h2><div id='cardsGrid' style='display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:8px'>{''.join([f"<div class='card'>{c}</div>" for c in cards])}</div>
     <script>
     const defaultConfig = {json.dumps(save_payload, ensure_ascii=False)};
+    const autoRefreshMs = 20000;
+    const isIntradayMode = defaultConfig.period === 'intraday';
     function serializeForm(){{
       const fd = new FormData(document.getElementById('cfgForm'));
       return Object.fromEntries(fd.entries());
@@ -428,6 +445,23 @@ def app(environ, start_response):
     }}
     document.getElementById('watchKeyword').addEventListener('input', (e)=>fillStockPicker(e.target.value));
     fillStockPicker();
+    function autoSubmitConfig(){{
+      document.getElementById('cfgForm').submit();
+    }}
+    ['tab','industry','period','interval','status_filter','cards_per_row','show_volume'].forEach((name)=>{{
+      const el = document.querySelector(`[name="${{name}}"]`);
+      if(el) el.addEventListener('change', autoSubmitConfig);
+    }});
+    const limitInput = document.querySelector('[name="limit"]');
+    if(limitInput){{
+      limitInput.addEventListener('change', autoSubmitConfig);
+      limitInput.addEventListener('blur', autoSubmitConfig);
+    }}
+    if(isIntradayMode){{
+      setInterval(()=>{{
+        if(!document.hidden) window.location.reload();
+      }}, autoRefreshMs);
+    }}
     function updateResponsiveGrid(){{
       const grid = document.getElementById('cardsGrid');
       const w = window.innerWidth;
