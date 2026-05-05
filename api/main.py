@@ -487,7 +487,7 @@ def app(environ, start_response):
       .card{{margin:8px 0;padding:8px;border:1px solid #ddd;border-radius:8px}}
       .card h3{{font-size:.95rem;margin:4px 0 6px}}
       .note-editor{{display:flex;gap:2px;align-items:center;white-space:nowrap}}
-      .note-editor .note-preset-select{width:72px;min-width:0;padding:2px 3px;text-align:left;text-align-last:left}
+      .note-editor .note-preset-select{{width:72px;min-width:0;padding:2px 3px;text-align:left;text-align-last:left}}
       @media (max-width: 900px){{ body{{margin:10px}} }}
       @media (max-width: 720px){{
         form{{gap:4px 6px}}
