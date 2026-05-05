@@ -59,3 +59,28 @@ symbol,name,group
 ## 免責聲明
 
 這不是投資建議，僅用於觀察與資料整理。
+
+## 預先產生快取（適合 Vercel 唯讀檔案系統）
+
+Vercel 執行環境是唯讀，不適合在使用者操作時動態落盤快取。
+本專案改為支援「**先在本機或 CI 預產生快取檔，再跟程式一起 deploy**」。
+
+### 1) 產生快取檔
+
+```bash
+python scripts/prebuild_price_cache.py
+```
+
+會將自選股的歷史資料輸出到 `prebuilt_cache/`。
+
+### 2) 提交到 GitHub
+
+```bash
+git add prebuilt_cache scripts/prebuild_price_cache.py
+git commit -m "chore: refresh prebuilt price cache"
+git push
+```
+
+### 3) Vercel 自動部署
+
+push 後由 Vercel 自動部署，`api/main.py` 會優先讀取 `prebuilt_cache/` 的資料，降低使用者操作時等待。
