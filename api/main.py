@@ -569,3 +569,22 @@ def app(environ, start_response):
     data = body.encode("utf-8")
     start_response("200 OK", [("Content-Type", "text/html; charset=utf-8"), ("Content-Length", str(len(data)))])
     return [data]
+
+if __name__ == "__main__":
+    import os
+
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "8000"))
+
+    try:
+        from waitress import serve
+
+        print(f"Serving with waitress on http://{host}:{port}")
+        serve(app, host=host, port=port)
+    except ImportError:
+        from wsgiref.simple_server import make_server
+
+        print("waitress not installed, fallback to wsgiref (development only).")
+        print(f"Serving on http://{host}:{port}")
+        with make_server(host, port, app) as httpd:
+            httpd.serve_forever()
