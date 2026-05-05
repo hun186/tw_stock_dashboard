@@ -403,7 +403,6 @@ def app(environ, start_response):
         note_editor = (
             f"<div class='note-editor' data-symbol='{html.escape(row.symbol)}'>"
             "<select class='note-preset-select' onchange=\"saveInlineNote(this)\"></select>"
-            "<span class='note-text'>-</span>"
             "</div>"
         )
         rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr data-symbol='{html.escape(row.symbol)}'><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td class='note-cell'>{note_editor}</td><td>{action_btn}</td></tr>"})
@@ -488,8 +487,8 @@ def app(environ, start_response):
       .card{{margin:8px 0;padding:8px;border:1px solid #ddd;border-radius:8px}}
       .card h3{{font-size:.95rem;margin:4px 0 6px}}
       .note-editor{{display:flex;gap:2px;align-items:center;white-space:nowrap}}
-      .note-editor .note-preset-select{{width:64px;min-width:0;padding:2px 3px;text-align:left;text-align-last:left}}
-            .note-editor .note-text{{color:#444;max-width:48px;overflow:hidden;text-overflow:ellipsis}}
+      .note-editor .note-preset-select{{width:calc(72px + 16pt);min-width:0;padding:2px 3px;text-align:left;text-align-last:left}}
+      table th:nth-child(8), table td:nth-child(8), table th:nth-child(9), table td:nth-child(9){{width:96px;min-width:96px;max-width:96px}}
       @media (max-width: 900px){{ body{{margin:10px}} }}
       @media (max-width: 720px){{
         form{{gap:4px 6px}}
@@ -671,10 +670,8 @@ def app(environ, start_response):
         const symbol = tr.dataset.symbol;
         const note = (notes[symbol] || '').trim();
         tr.dataset.note = note || 'none';
-        const textEl = tr.querySelector('.note-text');
-        if(textEl) textEl.textContent = note || '-';
         const presetSelect = tr.querySelector('.note-preset-select');
-        if(presetSelect) presetSelect.value = NOTE_PRESETS.includes(note) ? note : (note ? '__custom__' : '');
+        if(presetSelect) presetSelect.value = NOTE_PRESETS.includes(note) ? note : '';
       }});
       applyNoteFilter();
     }}
@@ -704,21 +701,12 @@ def app(environ, start_response):
       if(!editor) return;
       const symbol = editor.dataset.symbol;
       const preset = (selectEl.value || '').trim();
-      if(preset === '__custom__'){{
-        const typed = prompt('請輸入自訂註記');
-        if(typed === null){{
-          applyNotesToTableAndCards();
-          return;
-        }}
-        saveNoteBySymbol(symbol, typed.trim());
-        return;
-      }}
       saveNoteBySymbol(symbol, preset);
     }}
     document.getElementById('watchKeyword').addEventListener('input', (e)=>fillStockPicker(e.target.value));
     fillStockPicker();
     document.querySelectorAll('.note-preset-select').forEach((el)=>{{
-      el.innerHTML = "<option value=''>清除註記</option>" + NOTE_PRESETS.map(v => `<option value="${{v}}">${{v}}</option>`).join('') + "<option value='__custom__'>自訂輸入</option>";
+      el.innerHTML = "<option value=''>清除註記</option>" + NOTE_PRESETS.map(v => `<option value="${{v}}">${{v}}</option>`).join('');
     }});
     refreshNoteFilterOptions();
     applyNotesToTableAndCards();
