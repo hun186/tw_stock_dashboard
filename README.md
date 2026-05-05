@@ -23,6 +23,22 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+
+
+## Windows 本機啟動（PowerShell）
+
+```powershell
+cd D:\shared\tw_stock_dashboard
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python api\main.py
+```
+
+啟動後打開：<http://127.0.0.1:8000>。
+
+> 你直接執行 `python api/main.py` 會立刻結束，通常是因為先前程式沒有啟動本機 WSGI server。現在已補上內建 `wsgiref` 本機啟動流程。
+
 ## Vercel 部署
 
 ```bash
