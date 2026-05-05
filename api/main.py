@@ -299,7 +299,7 @@ def make_chart_html(df: pd.DataFrame, title: str, show_volume: bool, show_ma: bo
         inner_down_ticks = [ref_close - step * i for i in range(1, 6)]
         inner_up_ticks = [ref_close + step * i for i in range(1, 6)]
         tickvals = [limit_down] + list(reversed(inner_down_ticks)) + [ref_close] + inner_up_ticks + [limit_up]
-        ticktext = [f"跌停 {limit_down:.2f}"] + [f"-{i * 2:.0f}%" for i in range(5, 0, -1)] + [f"昨收 {ref_close:.2f}"] + [f"+{i * 2:.0f}%" for i in range(1, 6)] + [f"漲停 {limit_up:.2f}"]
+        ticktext = [f"{limit_down:.2f}"] + [f"{v:.2f}" for v in reversed(inner_down_ticks)] + [f"{ref_close:.2f}"] + [f"{v:.2f}" for v in inner_up_ticks] + [f"{limit_up:.2f}"]
         fig.update_yaxes(
             tickmode="array",
             tickvals=tickvals,
@@ -376,7 +376,7 @@ def app(environ, start_response):
     group_filter = params.get("group_filter", ["all"])[0]
     subgroup_filter = params.get("subgroup_filter", ["all"])[0]
     cards_per_row = int(params.get("cards_per_row", ["3"])[0])
-    cards_per_row = cards_per_row if cards_per_row in [1, 2, 3, 4] else 3
+    cards_per_row = cards_per_row if cards_per_row in list(range(1, 16)) else 3
     custom_watchlist_raw = params.get("custom_watchlist", [""])[0]
     show_volume = params.get("show_volume", ["1"])[0] == "1"
     card_sort = params.get("card_sort", ["symbol"])[0]
@@ -575,7 +575,7 @@ def app(environ, start_response):
     <label>主題</label><select name='group_filter'>{group_options}</select>
     <label>次題材</label><select name='subgroup_filter'>{subgroup_options}</select>
     <label>判斷篩選</label><select name='status_filter'>{status_options}</select>
-    <label>每列檔數</label><select name='cards_per_row'><option value='1' {'selected' if cards_per_row==1 else ''}>1</option><option value='2' {'selected' if cards_per_row==2 else ''}>2</option><option value='3' {'selected' if cards_per_row==3 else ''}>3</option><option value='4' {'selected' if cards_per_row==4 else ''}>4</option></select>
+    <label>每列檔數</label><select name='cards_per_row'>{''.join([f"<option value='{n}' {'selected' if cards_per_row==n else ''}>{n}</option>" for n in range(1, 16)])}</select>
     <label>顯示量K線</label><select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select>
     <label>圖塊排序</label><select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option></select>
     <button type='submit'>更新</button>
@@ -693,15 +693,10 @@ def app(environ, start_response):
     function autoSubmitConfig(){{
       document.getElementById('cfgForm').submit();
     }}
-    ['tab','industry','period','interval','status_filter','group_filter','subgroup_filter','cards_per_row','show_volume'].forEach((name)=>{{
+    ['tab','industry','period','interval','limit','status_filter','group_filter','subgroup_filter','cards_per_row','show_volume','card_sort'].forEach((name)=>{{
       const el = document.querySelector(`[name="${{name}}"]`);
       if(el) el.addEventListener('change', autoSubmitConfig);
     }});
-    const limitInput = document.querySelector('[name="limit"]');
-    if(limitInput){{
-      limitInput.addEventListener('change', autoSubmitConfig);
-      limitInput.addEventListener('blur', autoSubmitConfig);
-    }}
     if(isIntradayMode){{
       setInterval(()=>{{
         if(!document.hidden && isTwTradingHours()) window.location.reload();
