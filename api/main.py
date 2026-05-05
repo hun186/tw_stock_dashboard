@@ -533,6 +533,7 @@ def app(environ, start_response):
     const WATCHLIST_STORAGE_KEY = 'tw_dashboard_watchlist';
     const NOTE_STORAGE_KEY = 'tw_dashboard_stock_notes';
     const NOTE_PRESETS = ['續抱', '買進', '賣出', '停損觀察', '分批加碼', '減碼鎖利'];
+    const CUSTOM_NOTE_PREFIX = '自訂：';
     function isTwTradingHours(){{
       const twNow = new Date(new Date().toLocaleString('en-US', {{ timeZone: 'Asia/Taipei' }}));
       const day = twNow.getDay();
