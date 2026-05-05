@@ -402,9 +402,7 @@ def app(environ, start_response):
         subgroup_text = row.subgroup if isinstance(row.subgroup, str) and row.subgroup else "-"
         note_editor = (
             f"<div class='note-editor' data-symbol='{html.escape(row.symbol)}'>"
-            "<select class='note-preset-select'></select>"
-            "<input class='note-custom-input' placeholder='自訂註記'>"
-            "<button type='button' onclick=\"saveInlineNote(this)\">儲存</button>"
+            "<select class='note-preset-select' onchange=\"saveInlineNote(this)\"></select>"
             "<span class='note-text'>-</span>"
             "</div>"
         )
@@ -489,10 +487,9 @@ def app(environ, start_response):
       .table-wrap{{overflow-x:auto}}
       .card{{margin:8px 0;padding:8px;border:1px solid #ddd;border-radius:8px}}
       .card h3{{font-size:.95rem;margin:4px 0 6px}}
-      .note-editor{{display:flex;gap:3px;align-items:center;white-space:nowrap}}
-      .note-editor .note-preset-select{{width:84px;min-width:0;padding:2px 4px}}
-      .note-editor .note-custom-input{{width:84px;min-width:0;padding:2px 4px}}
-      .note-editor .note-text{{color:#444;max-width:56px;overflow:hidden;text-overflow:ellipsis}}
+      .note-editor{{display:flex;gap:2px;align-items:center;white-space:nowrap}}
+      .note-editor .note-preset-select{{width:64px;min-width:0;padding:2px 3px;text-align:left;text-align-last:left}}
+            .note-editor .note-text{{color:#444;max-width:48px;overflow:hidden;text-overflow:ellipsis}}
       @media (max-width: 900px){{ body{{margin:10px}} }}
       @media (max-width: 720px){{
         form{{gap:4px 6px}}
@@ -536,7 +533,7 @@ def app(environ, start_response):
     const isIntradayMode = defaultConfig.period === 'intraday';
     const WATCHLIST_STORAGE_KEY = 'tw_dashboard_watchlist';
     const NOTE_STORAGE_KEY = 'tw_dashboard_stock_notes';
-    const NOTE_PRESETS = ['挑選買進時機', '挑選賣出時機', '續抱', '買進', '賣出', '停損觀察', '分批加碼', '減碼鎖利'];
+    const NOTE_PRESETS = ['續抱', '買進', '賣出', '停損觀察', '分批加碼', '減碼鎖利'];
     function isTwTradingHours(){{
       const twNow = new Date(new Date().toLocaleString('en-US', {{ timeZone: 'Asia/Taipei' }}));
       const day = twNow.getDay();
@@ -676,10 +673,8 @@ def app(environ, start_response):
         tr.dataset.note = note || 'none';
         const textEl = tr.querySelector('.note-text');
         if(textEl) textEl.textContent = note || '-';
-        const customInput = tr.querySelector('.note-custom-input');
-        if(customInput) customInput.value = note;
         const presetSelect = tr.querySelector('.note-preset-select');
-        if(presetSelect) presetSelect.value = NOTE_PRESETS.includes(note) ? note : '';
+        if(presetSelect) presetSelect.value = NOTE_PRESETS.includes(note) ? note : (note ? '__custom__' : '');
       }});
       applyNoteFilter();
     }}
@@ -704,18 +699,26 @@ def app(environ, start_response):
       refreshNoteFilterOptions();
       applyNotesToTableAndCards();
     }}
-    function saveInlineNote(btn){{
-      const editor = btn.closest('.note-editor');
+    function saveInlineNote(selectEl){{
+      const editor = selectEl.closest('.note-editor');
       if(!editor) return;
       const symbol = editor.dataset.symbol;
-      const preset = (editor.querySelector('.note-preset-select')?.value || '').trim();
-      const custom = (editor.querySelector('.note-custom-input')?.value || '').trim();
-      saveNoteBySymbol(symbol, custom || preset);
+      const preset = (selectEl.value || '').trim();
+      if(preset === '__custom__'){{
+        const typed = prompt('請輸入自訂註記');
+        if(typed === null){{
+          applyNotesToTableAndCards();
+          return;
+        }}
+        saveNoteBySymbol(symbol, typed.trim());
+        return;
+      }}
+      saveNoteBySymbol(symbol, preset);
     }}
     document.getElementById('watchKeyword').addEventListener('input', (e)=>fillStockPicker(e.target.value));
     fillStockPicker();
     document.querySelectorAll('.note-preset-select').forEach((el)=>{{
-      el.innerHTML = "<option value=''>（清除註記）</option>" + NOTE_PRESETS.map(v => `<option value="${{v}}">${{v}}</option>`).join('');
+      el.innerHTML = "<option value=''>清除註記</option>" + NOTE_PRESETS.map(v => `<option value="${{v}}">${{v}}</option>`).join('') + "<option value='__custom__'>自訂輸入</option>";
     }});
     refreshNoteFilterOptions();
     applyNotesToTableAndCards();
