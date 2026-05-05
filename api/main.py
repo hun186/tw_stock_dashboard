@@ -30,6 +30,7 @@ from api.data_loader import load_llm_group_map, load_twse_industry_map, load_wat
 
 
 PRICE_CACHE: dict[tuple[str, str, str], tuple[float, pd.DataFrame]] = {}
+TARGET_PRICE_CACHE: dict[str, tuple[float, str]] = {}
 SERVER_CONFIG_DIR = Path(__file__).resolve().parent.parent / "data" / "dashboard_configs"
 
 
@@ -112,6 +113,28 @@ def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.Da
             df["RefClose"] = reference_close
     PRICE_CACHE[cache_key] = (now, df.copy())
     return df
+
+
+def fetch_target_price(symbol: str) -> str:
+    now = time.time()
+    cache_ttl = 60 * 60 * 6
+    cached = TARGET_PRICE_CACHE.get(symbol)
+    if cached and now - cached[0] < cache_ttl:
+        return cached[1]
+    try:
+        ticker = yf.Ticker(symbol)
+        info = ticker.get_info()
+    except Exception:
+        info = {}
+    target_keys = ("targetMeanPrice", "targetMedianPrice", "targetHighPrice", "targetLowPrice")
+    for key in target_keys:
+        value = info.get(key) if isinstance(info, dict) else None
+        if value is not None and not pd.isna(value):
+            text = f"{float(value):.2f}"
+            TARGET_PRICE_CACHE[symbol] = (now, text)
+            return text
+    TARGET_PRICE_CACHE[symbol] = (now, "-")
+    return "-"
 
 
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -446,7 +469,17 @@ def app(environ, start_response):
             "<select class='note-preset-select' onchange=\"saveInlineNote(this)\"></select>"
             "</div>"
         )
-        rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr data-symbol='{html.escape(row.symbol)}'><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td class='note-cell'>{note_editor}</td><td>{action_btn}</td></tr>"})
+        target_price_text = fetch_target_price(row.symbol)
+        target_ratio_text = "-"
+        if target_price_text != "-" and close_text != "-":
+            try:
+                target_price_value = float(target_price_text)
+                close_value = float(close_text)
+                if close_value != 0:
+                    target_ratio_text = f"{(target_price_value / close_value) * 100:.1f}%"
+            except (TypeError, ValueError):
+                target_ratio_text = "-"
+        rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr data-symbol='{html.escape(row.symbol)}'><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td><td class='note-cell'>{note_editor}</td><td>{action_btn}</td></tr>"})
         if not df.empty:
             show_ma = period != "intraday"
             intraday_ref_close = float(df.iloc[-1]["RefClose"]) if show_ma is False and "RefClose" in df.columns else None
@@ -525,13 +558,13 @@ def app(environ, start_response):
       input,select,button{{font-size:.9rem;padding:4px 6px}}
       table{{border-collapse:collapse;width:100%;font-size:.88rem}}
       td,th{{border:1px solid #ddd;padding:5px;white-space:nowrap}}
-      table th:nth-child(7), table td:nth-child(7){{text-align:right}}
+      table th:nth-child(7), table td:nth-child(7), table th:nth-child(8), table td:nth-child(8), table th:nth-child(9), table td:nth-child(9){{text-align:right}}
       .table-wrap{{overflow-x:auto}}
       .card{{margin:8px 0;padding:8px;border:1px solid #ddd;border-radius:8px}}
       .card h3{{font-size:.95rem;margin:4px 0 6px}}
       .note-editor{{display:flex;gap:2px;align-items:center;white-space:nowrap}}
       .note-editor .note-preset-select{{width:calc(72px + 16pt);min-width:0;padding:2px 3px;text-align:left;text-align-last:left}}
-      table th:nth-child(8), table td:nth-child(8), table th:nth-child(9), table td:nth-child(9){{width:96px;min-width:96px;max-width:96px}}
+      table th:nth-child(10), table td:nth-child(10), table th:nth-child(11), table td:nth-child(11){{width:96px;min-width:96px;max-width:96px}}
       @media (max-width: 900px){{ body{{margin:10px}} }}
       @media (max-width: 720px){{
         form{{gap:4px 6px}}
@@ -569,7 +602,7 @@ def app(environ, start_response):
     <button type='button' onclick='addSelectedStock()'>加入</button>
     <input type='hidden' name='custom_watchlist' id='customWatchlist' value='{html.escape(','.join(watchlist['symbol'].tolist()))}'>
     </form>
-    <h2>總覽</h2><div class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>判斷</th><th>收盤</th><th>註記</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="9">無符合條件資料</td></tr>'}</table></div>
+    <h2>總覽</h2><div class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>註記</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="11">無符合條件資料</td></tr>'}</table></div>
     <h2>多股趨勢圖</h2><div id='cardsGrid' style='display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:8px'>{''.join([f"<div class='card' data-symbol='{html.escape(cd['symbol'])}'>{cd['card_html']}</div>" for cd in cards_data])}</div>
     <script>
     const defaultConfig = {json.dumps(save_payload, ensure_ascii=False)};
