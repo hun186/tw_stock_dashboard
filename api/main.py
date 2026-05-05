@@ -400,7 +400,15 @@ def app(environ, start_response):
             else f"<button type='button' onclick=\"addWatchlistStock('{html.escape(row.symbol)}')\">加入自選</button>"
         )
         subgroup_text = row.subgroup if isinstance(row.subgroup, str) and row.subgroup else "-"
-        rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr data-symbol='{html.escape(row.symbol)}'><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td class='note-cell'>-</td><td>{action_btn}</td></tr>"})
+        note_editor = (
+            f"<div class='note-editor' data-symbol='{html.escape(row.symbol)}'>"
+            "<select class='note-preset-select'></select>"
+            "<input class='note-custom-input' placeholder='自訂註記'>"
+            "<button type='button' onclick=\"saveInlineNote(this)\">儲存</button>"
+            "<span class='note-text'>-</span>"
+            "</div>"
+        )
+        rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr data-symbol='{html.escape(row.symbol)}'><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td class='note-cell'>{note_editor}</td><td>{action_btn}</td></tr>"})
         if not df.empty:
             show_ma = period != "intraday"
             intraday_ref_close = float(df.iloc[-1]["RefClose"]) if show_ma is False and "RefClose" in df.columns else None
@@ -481,6 +489,9 @@ def app(environ, start_response):
       .table-wrap{{overflow-x:auto}}
       .card{{margin:8px 0;padding:8px;border:1px solid #ddd;border-radius:8px}}
       .card h3{{font-size:.95rem;margin:4px 0 6px}}
+      .note-editor{{display:flex;gap:4px;align-items:center;min-width:320px}}
+      .note-editor .note-preset-select,.note-editor .note-custom-input{{max-width:120px}}
+      .note-editor .note-text{{color:#444}}
       @media (max-width: 900px){{ body{{margin:10px}} }}
       @media (max-width: 720px){{
         form{{gap:4px 6px}}
@@ -518,10 +529,6 @@ def app(environ, start_response):
     <button type='button' onclick='addSelectedStock()'>加入</button>
     <button type='button' onclick='saveWatchlistToBrowser()'>儲存自選到瀏覽器</button>
     <button type='button' onclick='loadWatchlistFromBrowser()'>讀取瀏覽器自選</button>
-    <label>個股註記</label><select id='noteSymbolPicker'></select>
-    <select id='notePreset'></select>
-    <input id='noteCustomText' placeholder='自訂註記（可留空）'>
-    <button type='button' onclick='saveSymbolNote()'>儲存註記</button>
     <input type='hidden' name='custom_watchlist' id='customWatchlist' value='{html.escape(','.join(watchlist['symbol'].tolist()))}'>
     </form>
     <h2>總覽</h2><div class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>判斷</th><th>收盤</th><th>註記</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="9">無符合條件資料</td></tr>'}</table></div>
@@ -665,8 +672,12 @@ def app(environ, start_response):
         const symbol = tr.dataset.symbol;
         const note = (notes[symbol] || '').trim();
         tr.dataset.note = note || 'none';
-        const cell = tr.querySelector('.note-cell');
-        if(cell) cell.textContent = note || '-';
+        const textEl = tr.querySelector('.note-text');
+        if(textEl) textEl.textContent = note || '-';
+        const customInput = tr.querySelector('.note-custom-input');
+        if(customInput) customInput.value = note;
+        const presetSelect = tr.querySelector('.note-preset-select');
+        if(presetSelect) presetSelect.value = NOTE_PRESETS.includes(note) ? note : '';
       }});
       applyNoteFilter();
     }}
@@ -683,12 +694,7 @@ def app(environ, start_response):
         card.style.display = visibleSymbols.has(card.dataset.symbol) ? '' : 'none';
       }});
     }}
-    function saveSymbolNote(){{
-      const symbol = document.getElementById('noteSymbolPicker').value;
-      if(!symbol) return alert('請先選擇股票代號');
-      const preset = document.getElementById('notePreset').value.trim();
-      const custom = document.getElementById('noteCustomText').value.trim();
-      const note = custom || preset;
+    function saveNoteBySymbol(symbol, note){{
       const notes = getStockNotes();
       if(note) notes[symbol] = note;
       else delete notes[symbol];
@@ -696,14 +702,19 @@ def app(environ, start_response):
       refreshNoteFilterOptions();
       applyNotesToTableAndCards();
     }}
+    function saveInlineNote(btn){{
+      const editor = btn.closest('.note-editor');
+      if(!editor) return;
+      const symbol = editor.dataset.symbol;
+      const preset = (editor.querySelector('.note-preset-select')?.value || '').trim();
+      const custom = (editor.querySelector('.note-custom-input')?.value || '').trim();
+      saveNoteBySymbol(symbol, custom || preset);
+    }}
     document.getElementById('watchKeyword').addEventListener('input', (e)=>fillStockPicker(e.target.value));
     fillStockPicker();
-    const notePresetEl = document.getElementById('notePreset');
-    notePresetEl.innerHTML = "<option value=''>（清除註記）</option>" + NOTE_PRESETS.map(v => `<option value="${{v}}">${{v}}</option>`).join('');
-    const noteSymbolPickerEl = document.getElementById('noteSymbolPicker');
-    noteSymbolPickerEl.innerHTML = document.querySelectorAll('tr[data-symbol] td:nth-child(2)').length
-      ? [...document.querySelectorAll('tr[data-symbol]')].map(tr => tr.dataset.symbol).map(s => `<option value="${{s}}">${{s}}</option>`).join('')
-      : '';
+    document.querySelectorAll('.note-preset-select').forEach((el)=>{{
+      el.innerHTML = "<option value=''>（清除註記）</option>" + NOTE_PRESETS.map(v => `<option value="${{v}}">${{v}}</option>`).join('');
+    }});
     refreshNoteFilterOptions();
     applyNotesToTableAndCards();
     document.getElementById('noteFilter').addEventListener('change', applyNoteFilter);
