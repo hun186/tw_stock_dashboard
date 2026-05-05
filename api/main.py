@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import html
+from io import StringIO
 import json
+import os
 from pathlib import Path
 from urllib.parse import parse_qs
 
@@ -14,6 +16,7 @@ import yfinance as yf
 
 APP_DIR = Path(__file__).resolve().parent.parent
 WATCHLIST_FILE = APP_DIR / "watchlist.csv"
+GROUP_MAP_FILE = APP_DIR / "group_map.csv"
 TWSE_LISTED_INFO_API = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
 
 UP_COLOR = "#d60000"
@@ -46,14 +49,17 @@ STATUS_FILTERS = {
 
 def load_watchlist(path: Path) -> pd.DataFrame:
     if not path.exists():
-        return pd.DataFrame(columns=["symbol", "name", "group"])
+        return pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
     df = pd.read_csv(path)
     for col in ["symbol", "name", "group"]:
         if col not in df.columns:
-            return pd.DataFrame(columns=["symbol", "name", "group"])
+            return pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+    if "subgroup" not in df.columns:
+        df["subgroup"] = ""
     df["symbol"] = df["symbol"].astype(str).str.strip()
     df["name"] = df["name"].astype(str).str.strip()
     df["group"] = df["group"].astype(str).str.strip()
+    df["subgroup"] = df["subgroup"].astype(str).str.strip()
     return df[df["symbol"] != ""].copy()
 
 
@@ -63,17 +69,53 @@ def load_twse_industry_map() -> pd.DataFrame:
         resp.raise_for_status()
         df = pd.DataFrame(resp.json())
     except Exception:
-        return pd.DataFrame(columns=["industry", "industry_label", "symbol", "name", "group"])
+        return pd.DataFrame(columns=["industry", "industry_label", "symbol", "name", "group", "subgroup"])
 
     if not {"公司代號", "公司簡稱", "產業別"}.issubset(df.columns):
-        return pd.DataFrame(columns=["industry", "industry_label", "symbol", "name", "group"])
+        return pd.DataFrame(columns=["industry", "industry_label", "symbol", "name", "group", "subgroup"])
 
     df["industry"] = df["產業別"].astype(str).str.strip()
     df["industry_label"] = df["industry"].apply(lambda x: f"{x} - {INDUSTRY_CODE_NAME.get(x, '未分類')}")
     df["symbol"] = df["公司代號"].astype(str).str.strip() + ".TW"
     df["name"] = df["公司簡稱"].astype(str).str.strip()
-    df["group"] = "上市-" + df["industry"]
-    return df[df["industry"] != ""][["industry", "industry_label", "symbol", "name", "group"]].drop_duplicates()
+    df["group"] = "上市-" + df["industry_label"]
+    df["subgroup"] = ""
+    return df[df["industry"] != ""][["industry", "industry_label", "symbol", "name", "group", "subgroup"]].drop_duplicates()
+
+
+def load_group_map(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame(columns=["symbol", "group"])
+    df = pd.read_csv(path)
+    if not {"symbol", "group"}.issubset(df.columns):
+        return pd.DataFrame(columns=["symbol", "group"])
+    df["symbol"] = df["symbol"].astype(str).str.strip()
+    df["group"] = df["group"].astype(str).str.strip()
+    return df[(df["symbol"] != "") & (df["group"] != "")][["symbol", "group"]].drop_duplicates()
+
+
+def load_remote_group_map(url: str) -> pd.DataFrame:
+    if not url:
+        return pd.DataFrame(columns=["symbol", "group"])
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        df = pd.read_csv(StringIO(resp.text))
+    except Exception:
+        return pd.DataFrame(columns=["symbol", "group"])
+    if not {"symbol", "group"}.issubset(df.columns):
+        return pd.DataFrame(columns=["symbol", "group"])
+    df["symbol"] = df["symbol"].astype(str).str.strip()
+    df["group"] = df["group"].astype(str).str.strip()
+    return df[(df["symbol"] != "") & (df["group"] != "")][["symbol", "group"]].drop_duplicates()
+
+
+def apply_group_overrides(stocks: pd.DataFrame, group_map: pd.DataFrame) -> pd.DataFrame:
+    if stocks.empty or group_map.empty:
+        return stocks
+    merged = stocks.merge(group_map, on="symbol", how="left", suffixes=("", "_override"))
+    merged["group"] = merged["group_override"].fillna(merged["group"])
+    return merged.drop(columns=["group_override"])
 
 
 def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.DataFrame:
@@ -282,6 +324,8 @@ def app(environ, start_response):
     interval = params.get("interval", ["1d"])[0]
     limit = int(params.get("limit", ["30"])[0])
     status_filter = params.get("status_filter", ["all"])[0]
+    group_filter = params.get("group_filter", ["all"])[0]
+    subgroup_filter = params.get("subgroup_filter", ["all"])[0]
     cards_per_row = int(params.get("cards_per_row", ["3"])[0])
     cards_per_row = cards_per_row if cards_per_row in [1, 2, 3, 4] else 3
     custom_watchlist_raw = params.get("custom_watchlist", [""])[0]
@@ -289,29 +333,38 @@ def app(environ, start_response):
     fetch_period, fetch_interval, display_period = resolve_price_params(period, interval)
 
     base_watchlist = load_watchlist(WATCHLIST_FILE)
+    group_map_local = load_group_map(GROUP_MAP_FILE)
+    group_map_remote = load_remote_group_map(os.getenv("GROUP_MAP_URL", "").strip())
+    group_map = pd.concat([group_map_remote, group_map_local], ignore_index=True).drop_duplicates(subset=["symbol"], keep="first")
     industry_df = load_twse_industry_map()
     industries = industry_df[["industry", "industry_label"]].drop_duplicates().sort_values("industry")
     industry = params.get("industry", [industries.iloc[0]["industry"] if not industries.empty else ""])[0]
 
     all_stocks = pd.concat([
-        base_watchlist[["symbol", "name", "group"]],
-        industry_df[["symbol", "name", "group"]]
+        base_watchlist[["symbol", "name", "group", "subgroup"]],
+        industry_df[["symbol", "name", "group", "subgroup"]]
     ], ignore_index=True).drop_duplicates(subset=["symbol"])
 
     custom_symbols = [x.strip() for x in custom_watchlist_raw.split(",") if x.strip()]
-    custom_df = all_stocks[all_stocks["symbol"].isin(custom_symbols)][["symbol", "name", "group"]]
+    custom_df = all_stocks[all_stocks["symbol"].isin(custom_symbols)][["symbol", "name", "group", "subgroup"]]
     missing_symbols = [x for x in custom_symbols if x not in set(custom_df["symbol"]) ]
     if missing_symbols:
         custom_df = pd.concat([
             custom_df,
-            pd.DataFrame([{"symbol": s, "name": s, "group": "自訂"} for s in missing_symbols])
+            pd.DataFrame([{"symbol": s, "name": s, "group": "自訂", "subgroup": ""} for s in missing_symbols])
         ], ignore_index=True)
     watchlist = custom_df if not custom_df.empty else base_watchlist
 
     if tab == "category" and industry:
-        stocks = industry_df[industry_df["industry"] == industry][["symbol", "name", "group"]].head(limit)
+        stocks = industry_df[industry_df["industry"] == industry][["symbol", "name", "group", "subgroup"]].head(limit)
     else:
         stocks = watchlist.head(limit)
+    stocks = apply_group_overrides(stocks, group_map)
+    filter_source = stocks.copy()
+    if group_filter != "all":
+        stocks = stocks[stocks["group"] == group_filter]
+    if subgroup_filter != "all":
+        stocks = stocks[stocks["subgroup"] == subgroup_filter]
 
     rows_data = []
     cards = []
@@ -341,7 +394,8 @@ def app(environ, start_response):
             if tab == "watchlist"
             else f"<button type='button' onclick=\"addWatchlistStock('{html.escape(row.symbol)}')\">加入自選</button>"
         )
-        rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(row.group)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{action_btn}</td></tr>"})
+        subgroup = getattr(row, "subgroup", "") or "-"
+        rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{action_btn}</td></tr>"})
         if not df.empty:
             show_ma = period != "intraday"
             intraday_ref_close = float(df.iloc[-1]["RefClose"]) if show_ma is False and "RefClose" in df.columns else None
@@ -370,6 +424,14 @@ def app(environ, start_response):
     status_options = "".join([
         f"<option value='{k}' {'selected' if k == status_filter else ''}>{v}</option>" for k, v in STATUS_FILTERS.items()
     ])
+    group_values = sorted([x for x in filter_source["group"].dropna().astype(str).unique().tolist() if x])
+    subgroup_values = sorted([x for x in filter_source["subgroup"].dropna().astype(str).unique().tolist() if x])
+    group_filter_options = "<option value='all'>全部</option>" + "".join([
+        f"<option value='{html.escape(v)}' {'selected' if v == group_filter else ''}>{html.escape(v)}</option>" for v in group_values
+    ])
+    subgroup_filter_options = "<option value='all'>全部</option>" + "".join([
+        f"<option value='{html.escape(v)}' {'selected' if v == subgroup_filter else ''}>{html.escape(v)}</option>" for v in subgroup_values
+    ])
 
     save_payload = {
         "tab": tab,
@@ -378,6 +440,8 @@ def app(environ, start_response):
         "interval": interval,
         "limit": limit,
         "status_filter": status_filter,
+        "group_filter": group_filter,
+        "subgroup_filter": subgroup_filter,
         "cards_per_row": cards_per_row,
         "custom_watchlist": ",".join(watchlist["symbol"].tolist()),
         "show_volume": "1" if show_volume else "0",
@@ -412,6 +476,8 @@ def app(environ, start_response):
     <label>週期</label><select name='interval'><option value='1m' {'selected' if interval=='1m' else ''}>1 分鐘</option><option value='5m' {'selected' if interval=='5m' else ''}>5 分鐘</option><option value='15m' {'selected' if interval=='15m' else ''}>15 分鐘</option><option value='1d' {'selected' if interval=='1d' else ''}>日線</option><option value='1wk' {'selected' if interval=='1wk' else ''}>週線</option></select>
     <label>檔數</label><input name='limit' value='{limit}' size='3'/>
     <label>判斷篩選</label><select name='status_filter'>{status_options}</select>
+    <label>族群篩選</label><select name='group_filter'>{group_filter_options}</select>
+    <label>子族群篩選</label><select name='subgroup_filter'>{subgroup_filter_options}</select>
     <label>每列檔數</label><select name='cards_per_row'><option value='1' {'selected' if cards_per_row==1 else ''}>1</option><option value='2' {'selected' if cards_per_row==2 else ''}>2</option><option value='3' {'selected' if cards_per_row==3 else ''}>3</option><option value='4' {'selected' if cards_per_row==4 else ''}>4</option></select>
     <label>顯示量K線</label><select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select>
     <button type='submit'>更新</button>
@@ -429,7 +495,7 @@ def app(environ, start_response):
     <button type='button' onclick='addSelectedStock()'>加入</button>
     <input type='hidden' name='custom_watchlist' id='customWatchlist' value='{html.escape(','.join(watchlist['symbol'].tolist()))}'>
     </form>
-    <h2>總覽</h2><div class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>判斷</th><th>收盤</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="7">無符合條件資料</td></tr>'}</table></div>
+    <h2>總覽</h2><div class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>子族群</th><th>判斷</th><th>收盤</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="8">無符合條件資料</td></tr>'}</table></div>
     <h2>多股趨勢圖</h2><div id='cardsGrid' style='display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:8px'>{''.join([f"<div class='card'>{c}</div>" for c in cards])}</div>
     <script>
     const defaultConfig = {json.dumps(save_payload, ensure_ascii=False)};
@@ -487,7 +553,7 @@ def app(environ, start_response):
       evt.target.value = '';
     }}
 
-    const allStocks = {json.dumps(all_stocks[['symbol', 'name', 'group']].to_dict(orient='records'), ensure_ascii=False)};
+    const allStocks = {json.dumps(all_stocks[['symbol', 'name', 'group', 'subgroup']].to_dict(orient='records'), ensure_ascii=False)};
     function getWatchlistSymbols(){{
       const raw = document.getElementById('customWatchlist').value.trim();
       return raw ? raw.split(',').map(x=>x.trim()).filter(Boolean) : [];
@@ -510,7 +576,7 @@ def app(environ, start_response):
       const picker = document.getElementById('stockPicker');
       const kw = keyword.trim().toLowerCase();
       const rows = allStocks.filter(r => !kw || r.symbol.toLowerCase().includes(kw) || r.name.toLowerCase().includes(kw));
-      picker.innerHTML = rows.slice(0, 200).map(r => `<option value="${{r.symbol}}">${{r.symbol}} - ${{r.name}} (${{r.group}})</option>`).join('');
+      picker.innerHTML = rows.slice(0, 200).map(r => `<option value="${{r.symbol}}">${{r.symbol}} - ${{r.name}} (${{r.group}}/${{r.subgroup || '-'}})</option>`).join('');
     }}
     function addSelectedStock(){{
       const symbol = document.getElementById('stockPicker').value;
@@ -522,7 +588,7 @@ def app(environ, start_response):
     function autoSubmitConfig(){{
       document.getElementById('cfgForm').submit();
     }}
-    ['tab','industry','period','interval','status_filter','cards_per_row','show_volume'].forEach((name)=>{{
+    ['tab','industry','period','interval','status_filter','group_filter','subgroup_filter','cards_per_row','show_volume'].forEach((name)=>{{
       const el = document.querySelector(`[name="${{name}}"]`);
       if(el) el.addEventListener('change', autoSubmitConfig);
     }});
