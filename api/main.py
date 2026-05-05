@@ -90,7 +90,8 @@ def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.Da
     if interval.endswith("m"):
         date_col = pd.to_datetime(df["Date"], errors="coerce")
         if getattr(date_col.dt, "tz", None) is None:
-            date_col = date_col.dt.tz_localize("UTC")
+            source_tz = "Asia/Taipei" if symbol.endswith((".TW", ".TWO")) else "UTC"
+            date_col = date_col.dt.tz_localize(source_tz)
         date_col = date_col.dt.tz_convert("Asia/Taipei")
         df["Date"] = date_col.dt.tz_localize(None)
         intraday_mask = (df["Date"].dt.time >= pd.Timestamp("09:00").time()) & (df["Date"].dt.time <= pd.Timestamp("13:30").time())
@@ -213,6 +214,12 @@ def make_chart_html(df: pd.DataFrame, title: str, show_volume: bool, show_ma: bo
         ref_close = float(intraday_ref_close)
         limit_up = ref_close * 1.1
         limit_down = ref_close * 0.9
+        session_date = pd.to_datetime(df["Date"]).max().normalize()
+        session_start = session_date + pd.Timedelta(hours=9)
+        session_end = session_date + pd.Timedelta(hours=13, minutes=30)
+        fig.update_xaxes(range=[session_start, session_end], row=1, col=1)
+        if show_volume:
+            fig.update_xaxes(range=[session_start, session_end], row=2, col=1)
         fig.update_yaxes(range=[limit_down, limit_up], row=1, col=1)
         fig.update_yaxes(
             tickmode="array",
