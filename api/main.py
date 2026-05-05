@@ -523,6 +523,9 @@ def app(environ, start_response):
             else:
                 change_text = ""
             last_volume = float(df.iloc[-1]["Volume"]) if "Volume" in df.columns else 0.0
+            signal_label = str(signal.get("label") or "").strip()
+            signal_brief_text = signal_label[:8] + "…" if len(signal_label) > 8 else signal_label
+            signal_brief = f"・{signal_brief_text}" if signal_brief_text else ""
             change_pct_value = ((now_close - reference_close) / reference_close) * 100 if reference_close else 0.0
             target_ratio_value = -1.0
             target_ratio_color = "#666"
@@ -549,7 +552,7 @@ def app(environ, start_response):
                 "card_html": (
                     "<h3 style='display:flex;justify-content:space-between;align-items:center;gap:8px'>"
                     f"<span>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 "
-                    f"<span style='color:{close_color};font-weight:700'>{close_text}{change_text}</span></span>"
+                    f"<span style='color:{close_color};font-weight:700'>{close_text}{change_text}</span>{html.escape(signal_brief)}</span>"
                     f"<span style='font-size:.82rem;color:{target_ratio_color};font-weight:700'>目標價/現價：{target_ratio_text}</span>"
                     "</h3>"
                     f"{make_chart_html(df, row.name, show_volume, show_ma, intraday_ref_close=intraday_ref_close)}"
