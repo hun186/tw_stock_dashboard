@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -370,6 +371,8 @@ def app(environ, start_response):
     period = params.get("period", ["3mo"])[0]
     interval = params.get("interval", ["1d"])[0]
     limit = int(params.get("limit", ["30"])[0])
+    limit = limit if limit > 0 else 30
+    page = int(params.get("page", ["1"])[0])
     status_filter = params.get("status_filter", ["all"])[0]
     group_filter = params.get("group_filter", ["all"])[0]
     subgroup_filter = params.get("subgroup_filter", ["all"])[0]
@@ -452,7 +455,12 @@ def app(environ, start_response):
         stocks = stocks[stocks["group"] == group_filter]
     if subgroup_filter != "all":
         stocks = stocks[stocks["subgroup"] == subgroup_filter]
-    stocks = stocks.head(limit)
+    total_stocks = len(stocks)
+    total_pages = max(1, math.ceil(total_stocks / limit)) if total_stocks else 1
+    page = min(max(page, 1), total_pages)
+    start_idx = (page - 1) * limit
+    end_idx = start_idx + limit
+    stocks = stocks.iloc[start_idx:end_idx].copy()
 
     rows_data = []
     cards_data = []
@@ -587,6 +595,7 @@ def app(environ, start_response):
         "custom_watchlist": ",".join(watchlist["symbol"].tolist()),
         "show_volume": "1" if show_volume else "0",
         "card_sort": card_sort,
+        "page": page,
     }
     server_config_presets = load_server_config_presets()
 
@@ -622,6 +631,7 @@ def app(environ, start_response):
     <label>期間</label><select name='period'><option value='intraday' {'selected' if period=='intraday' else ''}>當日即時K</option><option value='1mo' {'selected' if period=='1mo' else ''}>1個月</option><option value='2mo' {'selected' if period=='2mo' else ''}>2個月</option><option value='3mo' {'selected' if period=='3mo' else ''}>3個月</option><option value='6mo' {'selected' if period=='6mo' else ''}>6個月</option><option value='1y' {'selected' if period=='1y' else ''}>1年</option><option value='5y' {'selected' if period=='5y' else ''}>5年</option></select>
     <label>週期</label><select name='interval'><option value='1m' {'selected' if interval=='1m' else ''}>1 分鐘</option><option value='5m' {'selected' if interval=='5m' else ''}>5 分鐘</option><option value='15m' {'selected' if interval=='15m' else ''}>15 分鐘</option><option value='1d' {'selected' if interval=='1d' else ''}>日線</option><option value='1wk' {'selected' if interval=='1wk' else ''}>週線</option></select>
     <label>檔數</label><input name='limit' value='{limit}' size='3'/>
+    <label>頁碼</label><input name='page' value='{page}' size='3'/>
     <label>主題</label><select name='group_filter'>{group_options}</select>
     <label>次題材</label><select name='subgroup_filter'>{subgroup_options}</select>
     <label>判斷篩選</label><select name='status_filter'>{status_options}</select>
@@ -644,7 +654,13 @@ def app(environ, start_response):
     <button type='button' onclick='addSelectedStock()'>加入</button>
     <input type='hidden' name='custom_watchlist' id='customWatchlist' value='{html.escape(','.join(watchlist['symbol'].tolist()))}'>
     </form>
-    <h2>總覽</h2><div class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>註記</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="11">無符合條件資料</td></tr>'}</table></div>
+    <h2>總覽</h2>
+    <div style='margin:4px 0 8px;color:#444;font-size:.9rem'>共 {total_stocks} 檔，現在第 {page}/{total_pages} 頁，每頁 {limit} 檔。</div>
+    <div style='display:flex;gap:6px;margin:0 0 8px'>
+      <button type='button' onclick='goToPage({max(1, page-1)})' {'disabled' if page <= 1 else ''}>上一頁</button>
+      <button type='button' onclick='goToPage({min(total_pages, page+1)})' {'disabled' if page >= total_pages else ''}>下一頁</button>
+    </div>
+    <div class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>註記</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="11">無符合條件資料</td></tr>'}</table></div>
     <h2>多股趨勢圖</h2><div id='cardsGrid' style='display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:8px'>{''.join([f"<div class='card' data-symbol='{html.escape(cd['symbol'])}'>{cd['card_html']}</div>" for cd in cards_data])}</div>
     <script>
     const defaultConfig = {json.dumps(save_payload, ensure_ascii=False)};
@@ -669,6 +685,11 @@ def app(environ, start_response):
     function applyConfig(cfg){{
       const form = document.getElementById('cfgForm');
       Object.entries(cfg).forEach(([k,v])=>{{ if(form.elements[k]) form.elements[k].value = v; }});
+      form.submit();
+    }}
+    function goToPage(page){{
+      const form = document.getElementById('cfgForm');
+      if(form.elements['page']) form.elements['page'].value = String(page);
       form.submit();
     }}
     function saveLocal(){{
