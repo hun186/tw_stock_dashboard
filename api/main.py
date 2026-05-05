@@ -90,7 +90,8 @@ def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.Da
     if interval.endswith("m"):
         date_col = pd.to_datetime(df["Date"], errors="coerce")
         if getattr(date_col.dt, "tz", None) is None:
-            date_col = date_col.dt.tz_localize("UTC")
+            source_tz = "Asia/Taipei" if symbol.endswith((".TW", ".TWO")) else "UTC"
+            date_col = date_col.dt.tz_localize(source_tz)
         date_col = date_col.dt.tz_convert("Asia/Taipei")
         df["Date"] = date_col.dt.tz_localize(None)
         intraday_mask = (df["Date"].dt.time >= pd.Timestamp("09:00").time()) & (df["Date"].dt.time <= pd.Timestamp("13:30").time())
