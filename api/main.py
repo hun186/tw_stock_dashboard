@@ -295,10 +295,15 @@ def make_chart_html(df: pd.DataFrame, title: str, show_volume: bool, show_ma: bo
         if show_volume:
             fig.update_xaxes(range=[session_start, session_end], row=2, col=1)
         fig.update_yaxes(range=[limit_down, limit_up], row=1, col=1)
+        step = ref_close * 0.02
+        inner_down_ticks = [ref_close - step * i for i in range(1, 6)]
+        inner_up_ticks = [ref_close + step * i for i in range(1, 6)]
+        tickvals = [limit_down] + list(reversed(inner_down_ticks)) + [ref_close] + inner_up_ticks + [limit_up]
+        ticktext = [f"{limit_down:.2f}"] + [f"{v:.2f}" for v in reversed(inner_down_ticks)] + [f"{ref_close:.2f}"] + [f"{v:.2f}" for v in inner_up_ticks] + [f"{limit_up:.2f}"]
         fig.update_yaxes(
             tickmode="array",
-            tickvals=[limit_down, ref_close, limit_up],
-            ticktext=[f"跌停 {limit_down:.2f}", f"昨收 {ref_close:.2f}", f"漲停 {limit_up:.2f}"],
+            tickvals=tickvals,
+            ticktext=ticktext,
             row=1,
             col=1,
         )
@@ -371,9 +376,10 @@ def app(environ, start_response):
     group_filter = params.get("group_filter", ["all"])[0]
     subgroup_filter = params.get("subgroup_filter", ["all"])[0]
     cards_per_row = int(params.get("cards_per_row", ["3"])[0])
-    cards_per_row = cards_per_row if cards_per_row in [1, 2, 3, 4] else 3
+    cards_per_row = cards_per_row if cards_per_row in list(range(1, 16)) else 3
     custom_watchlist_raw = params.get("custom_watchlist", [""])[0]
     show_volume = params.get("show_volume", ["1"])[0] == "1"
+    card_sort = params.get("card_sort", ["symbol"])[0]
     fetch_period, fetch_interval, display_period = resolve_price_params(period, interval)
 
     base_watchlist = load_watchlist(WATCHLIST_FILE)
@@ -439,7 +445,7 @@ def app(environ, start_response):
     stocks = stocks.head(limit)
 
     rows_data = []
-    cards = []
+    cards_data = []
     price_data_map = prefetch_price_data(stocks, fetch_period, fetch_interval)
     signal_data_map = prefetch_price_data(stocks, "6mo", "1d") if period == "intraday" else {}
 
@@ -483,14 +489,31 @@ def app(environ, start_response):
                 change_text = f" ({change_pct:+.2f}%)"
             else:
                 change_text = ""
-            cards.append(
-                f"<h3>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 "
-                f"<span style='color:{close_color};font-weight:700'>{close_text}{change_text}</span></h3>"
-                f"{make_chart_html(df, row.name, show_volume, show_ma, intraday_ref_close=intraday_ref_close)}"
-            )
+            last_volume = float(df.iloc[-1]["Volume"]) if "Volume" in df.columns else 0.0
+            change_pct_value = ((now_close - reference_close) / reference_close) * 100 if reference_close else 0.0
+            cards_data.append({
+                "symbol": row.symbol,
+                "close": now_close,
+                "volume": last_volume,
+                "change_pct": change_pct_value,
+                "card_html": (
+                    f"<h3>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 "
+                    f"<span style='color:{close_color};font-weight:700'>{close_text}{change_text}</span></h3>"
+                    f"{make_chart_html(df, row.name, show_volume, show_ma, intraday_ref_close=intraday_ref_close)}"
+                ),
+            })
 
     rows_data.sort(key=lambda x: x["score"], reverse=True)
     rows = [x["row_html"] for x in rows_data]
+
+    sort_options = {"symbol", "close", "volume", "change_pct"}
+    if card_sort not in sort_options:
+        card_sort = "symbol"
+    if card_sort == "symbol":
+        cards_data.sort(key=lambda x: x["symbol"])
+    else:
+        cards_data.sort(key=lambda x: x[card_sort], reverse=True)
+    cards = [x["card_html"] for x in cards_data]
 
     industry_options = "".join([
         f"<option value='{html.escape(r.industry)}' {'selected' if r.industry == industry else ''}>{html.escape(r.industry_label)}</option>"
@@ -518,6 +541,7 @@ def app(environ, start_response):
         "cards_per_row": cards_per_row,
         "custom_watchlist": ",".join(watchlist["symbol"].tolist()),
         "show_volume": "1" if show_volume else "0",
+        "card_sort": card_sort,
     }
 
     body = f"""<!doctype html><html lang='zh-Hant'><head><meta charset='utf-8'><title>TW Dashboard</title>
@@ -551,8 +575,9 @@ def app(environ, start_response):
     <label>主題</label><select name='group_filter'>{group_options}</select>
     <label>次題材</label><select name='subgroup_filter'>{subgroup_options}</select>
     <label>判斷篩選</label><select name='status_filter'>{status_options}</select>
-    <label>每列檔數</label><select name='cards_per_row'><option value='1' {'selected' if cards_per_row==1 else ''}>1</option><option value='2' {'selected' if cards_per_row==2 else ''}>2</option><option value='3' {'selected' if cards_per_row==3 else ''}>3</option><option value='4' {'selected' if cards_per_row==4 else ''}>4</option></select>
+    <label>每列檔數</label><select name='cards_per_row'>{''.join([f"<option value='{n}' {'selected' if cards_per_row==n else ''}>{n}</option>" for n in range(1, 16)])}</select>
     <label>顯示量K線</label><select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select>
+    <label>圖塊排序</label><select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option></select>
     <button type='submit'>更新</button>
     <button type='button' onclick='saveLocal()'>存到瀏覽器</button>
     <button type='button' onclick='loadLocal()'>讀取瀏覽器設定</button>
@@ -668,15 +693,10 @@ def app(environ, start_response):
     function autoSubmitConfig(){{
       document.getElementById('cfgForm').submit();
     }}
-    ['tab','industry','period','interval','status_filter','group_filter','subgroup_filter','cards_per_row','show_volume'].forEach((name)=>{{
+    ['tab','industry','period','interval','limit','status_filter','group_filter','subgroup_filter','cards_per_row','show_volume','card_sort'].forEach((name)=>{{
       const el = document.querySelector(`[name="${{name}}"]`);
       if(el) el.addEventListener('change', autoSubmitConfig);
     }});
-    const limitInput = document.querySelector('[name="limit"]');
-    if(limitInput){{
-      limitInput.addEventListener('change', autoSubmitConfig);
-      limitInput.addEventListener('blur', autoSubmitConfig);
-    }}
     if(isIntradayMode){{
       setInterval(()=>{{
         if(!document.hidden && isTwTradingHours()) window.location.reload();
