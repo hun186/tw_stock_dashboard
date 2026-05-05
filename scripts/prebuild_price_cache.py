@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from api.main import APP_DIR, load_watchlist, fetch_price
+from api.main import APP_DIR, load_watchlist, load_twse_industry_map, fetch_price
 
 OUT_DIR = APP_DIR / "prebuilt_cache"
 DEFAULT_PERIODS = [("2y", "1d"), ("6mo", "1d"), ("2d", "1m")]
@@ -27,7 +27,12 @@ def build_one(symbol: str, period: str, interval: str) -> tuple[str, str, str, b
 
 def main() -> None:
     watch = load_watchlist(APP_DIR / "watchlist.csv")
-    symbols = sorted(set(watch["symbol"].dropna().astype(str).tolist()))
+    industry = load_twse_industry_map()
+
+    symbols = sorted(set(
+        watch["symbol"].dropna().astype(str).tolist()
+        + industry["symbol"].dropna().astype(str).tolist()
+    ))
     tasks = [(s, p, i) for s in symbols for p, i in DEFAULT_PERIODS]
 
     with ThreadPoolExecutor(max_workers=8) as ex:
