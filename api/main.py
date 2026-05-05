@@ -30,6 +30,16 @@ from api.data_loader import load_llm_group_map, load_twse_industry_map, load_wat
 
 
 PRICE_CACHE: dict[tuple[str, str, str], tuple[float, pd.DataFrame]] = {}
+SERVER_CONFIG_DIR = Path(__file__).resolve().parent.parent / "data" / "dashboard_configs"
+
+
+def _symbol_key(symbol: str) -> str:
+    s = str(symbol).strip().upper()
+    if s.endswith(".TW"):
+        return s[:-3]
+    if s.endswith(".TWO"):
+        return s[:-4]
+    return s
 
 
 def _cache_ttl_seconds(interval: str) -> int:
@@ -290,6 +300,26 @@ def trim_display_df(df: pd.DataFrame, display_period: str) -> pd.DataFrame:
     return trimmed if not trimmed.empty else df
 
 
+def load_server_config_presets() -> list[dict[str, object]]:
+    if not SERVER_CONFIG_DIR.exists():
+        return []
+    presets: list[dict[str, object]] = []
+    for path in sorted(SERVER_CONFIG_DIR.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        cfg = payload.get("config") if isinstance(payload, dict) else payload
+        if not isinstance(cfg, dict):
+            continue
+        presets.append({
+            "id": path.name,
+            "label": str(payload.get("name", path.stem)) if isinstance(payload, dict) else path.stem,
+            "config": cfg,
+        })
+    return presets
+
+
 def app(environ, start_response):
     params = parse_qs(environ.get("QUERY_STRING", ""))
     tab = params.get("tab", ["watchlist"])[0]
@@ -319,6 +349,7 @@ def app(environ, start_response):
 
     watchlist_overrides = (
         base_watchlist[["symbol", "name", "group", "subgroup"]]
+        .assign(symbol_key=lambda d: d["symbol"].map(_symbol_key))
         .drop_duplicates(subset=["symbol"], keep="last")
         .rename(columns={
             "name": "watch_name",
@@ -347,11 +378,21 @@ def app(environ, start_response):
     else:
         source_stocks = watchlist[["symbol", "name", "group", "subgroup"]]
 
-    source_stocks = source_stocks.merge(watchlist_overrides, on="symbol", how="left")
+    source_stocks["symbol_key"] = source_stocks["symbol"].map(_symbol_key)
+    source_stocks = source_stocks.merge(
+        watchlist_overrides[["symbol_key", "watch_name", "watch_group", "watch_subgroup"]],
+        on="symbol_key",
+        how="left",
+    )
     source_stocks["name"] = source_stocks["watch_name"].fillna(source_stocks["name"])
     source_stocks["group"] = source_stocks["watch_group"].fillna(source_stocks["group"])
     source_stocks["subgroup"] = source_stocks["watch_subgroup"].fillna(source_stocks["subgroup"])
     source_stocks = source_stocks[["symbol", "name", "group", "subgroup"]]
+
+    picker_stocks = pd.concat(
+        [all_stocks, watchlist[["symbol", "name", "group", "subgroup"]], source_stocks],
+        ignore_index=True,
+    ).drop_duplicates(subset=["symbol"], keep="first")
 
     valid_groups = sorted([g for g in source_stocks["group"].dropna().astype(str).str.strip().unique() if g])
     if group_filter != "all" and group_filter not in valid_groups:
@@ -472,6 +513,7 @@ def app(environ, start_response):
         "show_volume": "1" if show_volume else "0",
         "card_sort": card_sort,
     }
+    server_config_presets = load_server_config_presets()
 
     body = f"""<!doctype html><html lang='zh-Hant'><head><meta charset='utf-8'><title>TW Dashboard</title>
     <style>
@@ -483,6 +525,7 @@ def app(environ, start_response):
       input,select,button{{font-size:.9rem;padding:4px 6px}}
       table{{border-collapse:collapse;width:100%;font-size:.88rem}}
       td,th{{border:1px solid #ddd;padding:5px;white-space:nowrap}}
+      table th:nth-child(7), table td:nth-child(7){{text-align:right}}
       .table-wrap{{overflow-x:auto}}
       .card{{margin:8px 0;padding:8px;border:1px solid #ddd;border-radius:8px}}
       .card h3{{font-size:.95rem;margin:4px 0 6px}}
@@ -514,10 +557,12 @@ def app(environ, start_response):
     <button type='submit'>更新</button>
     <button type='button' onclick='saveLocal()'>儲存目前設定</button>
     <button type='button' onclick='loadLocal()'>讀取本機設定</button>
+    <label>推薦設定檔</label><select id='serverConfigSelect'><option value=''>請選擇</option></select>
+    <button type='button' onclick='loadServerConfig()'>讀取推薦設定</button>
     <button type='button' onclick='exportBrowserMemory()'>匯出完整備份檔</button>
     <input type='file' id='memoryFile' accept='application/json' style='display:none' onchange='importBrowserMemory(event)'>
     <button type='button' onclick="document.getElementById('memoryFile').click()">匯入備份檔</button>
-    <small style='color:#666'>讀取本機設定：讀瀏覽器目前裝置已存內容；匯入備份檔：從 JSON 檔還原（可跨裝置）。</small>
+    <small style='color:#666'>讀取推薦設定：由伺服器設定目錄提供；讀取本機設定：讀瀏覽器目前裝置已存內容；匯入備份檔：從 JSON 檔還原（可跨裝置）。</small>
     <hr>
     <label>關鍵字</label><input id='watchKeyword' placeholder='輸入名稱或代號'>
     <label>加入自選</label><select id='stockPicker'></select>
@@ -528,6 +573,7 @@ def app(environ, start_response):
     <h2>多股趨勢圖</h2><div id='cardsGrid' style='display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:8px'>{''.join([f"<div class='card' data-symbol='{html.escape(cd['symbol'])}'>{cd['card_html']}</div>" for cd in cards_data])}</div>
     <script>
     const defaultConfig = {json.dumps(save_payload, ensure_ascii=False)};
+    const serverConfigPresets = {json.dumps(server_config_presets, ensure_ascii=False)};
     const autoRefreshMs = 15000;
     const isIntradayMode = defaultConfig.period === 'intraday';
     const WATCHLIST_STORAGE_KEY = 'tw_dashboard_watchlist';
@@ -558,6 +604,17 @@ def app(environ, start_response):
       const raw = localStorage.getItem('tw_dashboard_config');
       if(!raw) return alert('找不到瀏覽器設定');
       try {{ applyConfig(JSON.parse(raw)); }} catch(e) {{ alert('設定格式錯誤'); }}
+    }}
+    function initServerConfigPicker(){{
+      const el = document.getElementById('serverConfigSelect');
+      el.innerHTML = "<option value=''>請選擇</option>" + serverConfigPresets.map((p, idx)=>`<option value="${{idx}}">${{p.label}} (${{p.id}})</option>`).join('');
+    }}
+    function loadServerConfig(){{
+      const idx = document.getElementById('serverConfigSelect').value;
+      if(idx === '') return alert('請先選擇推薦設定檔');
+      const preset = serverConfigPresets[Number(idx)];
+      if(!preset || typeof preset.config !== 'object') return alert('推薦設定檔格式錯誤');
+      applyConfig(preset.config);
     }}
     function exportBrowserMemory(){{
       const configRaw = localStorage.getItem('tw_dashboard_config');
@@ -598,7 +655,7 @@ def app(environ, start_response):
       evt.target.value = '';
     }}
 
-    const allStocks = {json.dumps(all_stocks[['symbol', 'name', 'group', 'subgroup']].to_dict(orient='records'), ensure_ascii=False)};
+    const allStocks = {json.dumps(picker_stocks[['symbol', 'name', 'group', 'subgroup']].to_dict(orient='records'), ensure_ascii=False)};
     function getWatchlistSymbols(){{
       const raw = document.getElementById('customWatchlist').value.trim();
       return raw ? raw.split(',').map(x=>x.trim()).filter(Boolean) : [];
@@ -705,6 +762,7 @@ def app(environ, start_response):
       saveNoteBySymbol(symbol, preset);
     }}
     document.getElementById('watchKeyword').addEventListener('input', (e)=>fillStockPicker(e.target.value));
+    initServerConfigPicker();
     fillStockPicker();
     document.querySelectorAll('.note-preset-select').forEach((el)=>{{
       el.innerHTML = "<option value=''>清除註記</option>" + NOTE_PRESETS.map(v => `<option value="${{v}}">${{v}}</option>`).join('');
