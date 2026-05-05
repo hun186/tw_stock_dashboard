@@ -359,6 +359,16 @@ def app(environ, start_response):
     industries = industry_df[["industry", "industry_label"]].drop_duplicates().sort_values("industry")
     industry = params.get("industry", [industries.iloc[0]["industry"] if not industries.empty else ""])[0]
 
+    watchlist_overrides = (
+        base_watchlist[["symbol", "name", "group", "subgroup"]]
+        .drop_duplicates(subset=["symbol"], keep="last")
+        .rename(columns={
+            "name": "watch_name",
+            "group": "watch_group",
+            "subgroup": "watch_subgroup",
+        })
+    )
+
     all_stocks = pd.concat([
         base_watchlist[["symbol", "name", "group", "subgroup"]],
         industry_df[["symbol", "name", "group", "subgroup"]]
@@ -378,6 +388,12 @@ def app(environ, start_response):
         source_stocks = industry_df[industry_df["industry"] == industry][["symbol", "name", "group", "subgroup"]]
     else:
         source_stocks = watchlist[["symbol", "name", "group", "subgroup"]]
+
+    source_stocks = source_stocks.merge(watchlist_overrides, on="symbol", how="left")
+    source_stocks["name"] = source_stocks["watch_name"].fillna(source_stocks["name"])
+    source_stocks["group"] = source_stocks["watch_group"].fillna(source_stocks["group"])
+    source_stocks["subgroup"] = source_stocks["watch_subgroup"].fillna(source_stocks["subgroup"])
+    source_stocks = source_stocks[["symbol", "name", "group", "subgroup"]]
 
     valid_groups = sorted([g for g in source_stocks["group"].dropna().astype(str).str.strip().unique() if g])
     if group_filter != "all" and group_filter not in valid_groups:
