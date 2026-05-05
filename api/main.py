@@ -214,6 +214,12 @@ def make_chart_html(df: pd.DataFrame, title: str, show_volume: bool, show_ma: bo
         ref_close = float(intraday_ref_close)
         limit_up = ref_close * 1.1
         limit_down = ref_close * 0.9
+        session_date = pd.to_datetime(df["Date"]).max().normalize()
+        session_start = session_date + pd.Timedelta(hours=9)
+        session_end = session_date + pd.Timedelta(hours=13, minutes=30)
+        fig.update_xaxes(range=[session_start, session_end], row=1, col=1)
+        if show_volume:
+            fig.update_xaxes(range=[session_start, session_end], row=2, col=1)
         fig.update_yaxes(range=[limit_down, limit_up], row=1, col=1)
         fig.update_yaxes(
             tickmode="array",
