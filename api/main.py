@@ -368,7 +368,8 @@ def app(environ, start_response):
     )
     industry_df = load_twse_industry_map()
     industries = industry_df[["industry", "industry_label"]].drop_duplicates().sort_values("industry")
-    industry = params.get("industry", [industries.iloc[0]["industry"] if not industries.empty else ""])[0]
+    default_industry = "24" if (not industries.empty and (industries["industry"] == "24").any()) else (industries.iloc[0]["industry"] if not industries.empty else "")
+    industry = params.get("industry", [default_industry])[0]
 
     watchlist_overrides = (
         base_watchlist[["symbol", "name", "group", "subgroup"]]
@@ -494,14 +495,34 @@ def app(environ, start_response):
                 change_text = ""
             last_volume = float(df.iloc[-1]["Volume"]) if "Volume" in df.columns else 0.0
             change_pct_value = ((now_close - reference_close) / reference_close) * 100 if reference_close else 0.0
+            target_ratio_value = -1.0
+            target_ratio_color = "#666"
+            if target_ratio_text.endswith("%"):
+                try:
+                    target_ratio_value = float(target_ratio_text[:-1])
+                    if target_ratio_value >= 110:
+                        target_ratio_color = "#c62828"
+                    elif target_ratio_value >= 100:
+                        target_ratio_color = "#d84315"
+                    elif target_ratio_value >= 90:
+                        target_ratio_color = "#2e7d32"
+                    else:
+                        target_ratio_color = "#0b8f3a"
+                except ValueError:
+                    target_ratio_value = -1.0
+                    target_ratio_color = "#666"
             cards_data.append({
                 "symbol": row.symbol,
                 "close": now_close,
                 "volume": last_volume,
                 "change_pct": change_pct_value,
+                "target_ratio": target_ratio_value,
                 "card_html": (
-                    f"<h3>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 "
-                    f"<span style='color:{close_color};font-weight:700'>{close_text}{change_text}</span></h3>"
+                    "<h3 style='display:flex;justify-content:space-between;align-items:center;gap:8px'>"
+                    f"<span>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 "
+                    f"<span style='color:{close_color};font-weight:700'>{close_text}{change_text}</span></span>"
+                    f"<span style='font-size:.82rem;color:{target_ratio_color};font-weight:700'>目標價/現價：{target_ratio_text}</span>"
+                    "</h3>"
                     f"{make_chart_html(df, row.name, show_volume, show_ma, intraday_ref_close=intraday_ref_close)}"
                 ),
             })
@@ -509,7 +530,7 @@ def app(environ, start_response):
     rows_data.sort(key=lambda x: x["score"], reverse=True)
     rows = [x["row_html"] for x in rows_data]
 
-    sort_options = {"symbol", "close", "volume", "change_pct"}
+    sort_options = {"symbol", "close", "volume", "change_pct", "target_ratio"}
     if card_sort not in sort_options:
         card_sort = "symbol"
     if card_sort == "symbol":
@@ -585,7 +606,7 @@ def app(environ, start_response):
     <label>判斷篩選</label><select name='status_filter'>{status_options}</select>
     <label>每列檔數</label><select name='cards_per_row'>{''.join([f"<option value='{n}' {'selected' if cards_per_row==n else ''}>{n}</option>" for n in range(1, 16)])}</select>
     <label>顯示量K線</label><select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select>
-    <label>圖塊排序</label><select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option></select>
+    <label>圖塊排序</label><select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option><option value='target_ratio' {'selected' if card_sort=='target_ratio' else ''}>目標價/現價</option></select>
     <label>註記篩選</label><select id='noteFilter'><option value='all'>全部註記</option></select>
     <button type='submit'>更新</button>
     <button type='button' onclick='saveLocal()'>儲存目前設定</button>
