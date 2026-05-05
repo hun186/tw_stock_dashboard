@@ -569,3 +569,13 @@ def app(environ, start_response):
     data = body.encode("utf-8")
     start_response("200 OK", [("Content-Type", "text/html; charset=utf-8"), ("Content-Length", str(len(data)))])
     return [data]
+
+
+if __name__ == "__main__":
+    from wsgiref.simple_server import make_server
+
+    host = "127.0.0.1"
+    port = 8000
+    print(f"Serving on http://{host}:{port}")
+    with make_server(host, port, app) as server:
+        server.serve_forever()
