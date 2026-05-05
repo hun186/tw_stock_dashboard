@@ -142,7 +142,11 @@ def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.Da
                         os.environ[k] = v
 
     if df is None or df.empty:
-        return pd.DataFrame()
+        # Yahoo 失敗時，日線嘗試改走 TWSE 公開 API（僅 .TW）。
+        if interval == "1d":
+            df = _fetch_twse_daily(symbol, period)
+        if df is None or df.empty:
+            return pd.DataFrame()
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     df = df.rename_axis("Date").reset_index()
@@ -166,6 +170,46 @@ def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.Da
             reference_close = float(prev_day_close.iloc[-1]) if not prev_day_close.empty else float(df.iloc[0]["Open"])
             df = df[trade_dates == latest_date].copy()
             df["RefClose"] = reference_close
+    return df
+
+
+def _fetch_twse_daily(symbol: str, period: str) -> pd.DataFrame:
+    if not symbol.endswith('.TW'):
+        return pd.DataFrame()
+    month_map = {"1mo": 1, "2mo": 2, "3mo": 3, "6mo": 6, "1y": 12, "5y": 60, "max": 120}
+    months = month_map.get(period, 3)
+    stock_no = symbol.replace('.TW', '')
+    now = pd.Timestamp.now(tz='Asia/Taipei')
+    rows: list[dict] = []
+    for i in range(months):
+        d = now - pd.DateOffset(months=i)
+        url = f"https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?date={d.strftime('%Y%m01')}&stockNo={stock_no}&response=json"
+        try:
+            resp = requests.get(url, timeout=10)
+            resp.raise_for_status()
+            payload = resp.json()
+        except Exception:
+            continue
+        data = payload.get('data') or []
+        for item in data:
+            # 日期(民國年/月/日), 成交股數, 成交金額, 開盤價, 最高價, 最低價, 收盤價, 漲跌價差, 成交筆數
+            if len(item) < 7:
+                continue
+            roc_date = str(item[0]).strip()
+            try:
+                y, m, day = [int(x) for x in roc_date.split('/')]
+                trade_date = pd.Timestamp(year=y + 1911, month=m, day=day)
+                open_p = float(str(item[3]).replace(',', ''))
+                high_p = float(str(item[4]).replace(',', ''))
+                low_p = float(str(item[5]).replace(',', ''))
+                close_p = float(str(item[6]).replace(',', ''))
+                vol = float(str(item[1]).replace(',', ''))
+            except Exception:
+                continue
+            rows.append({'Date': trade_date, 'Open': open_p, 'High': high_p, 'Low': low_p, 'Close': close_p, 'Volume': vol})
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows).drop_duplicates(subset=['Date']).sort_values('Date').reset_index(drop=True)
     return df
 
 
