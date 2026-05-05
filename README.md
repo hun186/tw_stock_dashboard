@@ -25,6 +25,25 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+### 啟動方式
+
+> `api/main.py` 是 WSGI 應用，不是 Python 套件模組，所以 `python -m api/main.py` 會失敗。
+
+```bash
+# 方式 1：直接跑內建本機伺服器
+python api/main.py
+# 開啟 http://127.0.0.1:8000
+
+# 方式 2：用 gunicorn（較接近部署）
+gunicorn api.main:app --bind 127.0.0.1:8000
+```
+
+Windows（PowerShell / CMD）也建議直接用：
+
+```bash
+python api/main.py
+```
+
 ## Vercel 部署
 
 ```bash
