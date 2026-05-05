@@ -517,7 +517,7 @@ def app(environ, start_response):
             now_close = float(df.iloc[-1]["Close"])
             reference_close = intraday_ref_close if period == "intraday" and intraday_ref_close else prev_close
             close_color = UP_COLOR if now_close >= reference_close else DOWN_COLOR
-            if period == "intraday" and reference_close != 0:
+            if reference_close != 0:
                 change_pct = ((now_close - reference_close) / reference_close) * 100
                 change_text = f" ({change_pct:+.2f}%)"
             else:
