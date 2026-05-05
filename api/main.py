@@ -489,9 +489,10 @@ def app(environ, start_response):
       .table-wrap{{overflow-x:auto}}
       .card{{margin:8px 0;padding:8px;border:1px solid #ddd;border-radius:8px}}
       .card h3{{font-size:.95rem;margin:4px 0 6px}}
-      .note-editor{{display:flex;gap:4px;align-items:center;min-width:320px}}
-      .note-editor .note-preset-select,.note-editor .note-custom-input{{max-width:120px}}
-      .note-editor .note-text{{color:#444}}
+      .note-editor{{display:flex;gap:3px;align-items:center;white-space:nowrap}}
+      .note-editor .note-preset-select{{width:84px;min-width:0;padding:2px 4px}}
+      .note-editor .note-custom-input{{width:84px;min-width:0;padding:2px 4px}}
+      .note-editor .note-text{{color:#444;max-width:56px;overflow:hidden;text-overflow:ellipsis}}
       @media (max-width: 900px){{ body{{margin:10px}} }}
       @media (max-width: 720px){{
         form{{gap:4px 6px}}
@@ -515,20 +516,16 @@ def app(environ, start_response):
     <label>圖塊排序</label><select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option></select>
     <label>註記篩選</label><select id='noteFilter'><option value='all'>全部註記</option></select>
     <button type='submit'>更新</button>
-    <button type='button' onclick='saveLocal()'>存到瀏覽器</button>
-    <button type='button' onclick='loadLocal()'>讀取瀏覽器設定</button>
-    <button type='button' onclick='exportBrowserMemory()'>匯出瀏覽器記憶</button>
+    <button type='button' onclick='saveLocal()'>儲存目前設定</button>
+    <button type='button' onclick='loadLocal()'>讀取本機設定</button>
+    <button type='button' onclick='exportBrowserMemory()'>匯出完整備份檔</button>
     <input type='file' id='memoryFile' accept='application/json' style='display:none' onchange='importBrowserMemory(event)'>
-    <button type='button' onclick="document.getElementById('memoryFile').click()">匯入瀏覽器記憶</button>
-    <button type='button' onclick='downloadConfig()'>下載設定檔</button>
-    <input type='file' id='cfgFile' accept='application/json' style='display:none' onchange='importConfig(event)'>
-    <button type='button' onclick="document.getElementById('cfgFile').click()">匯入設定檔</button>
+    <button type='button' onclick="document.getElementById('memoryFile').click()">匯入備份檔</button>
+    <small style='color:#666'>讀取本機設定：讀瀏覽器目前裝置已存內容；匯入備份檔：從 JSON 檔還原（可跨裝置）。</small>
     <hr>
     <label>關鍵字</label><input id='watchKeyword' placeholder='輸入名稱或代號'>
     <label>加入自選</label><select id='stockPicker'></select>
     <button type='button' onclick='addSelectedStock()'>加入</button>
-    <button type='button' onclick='saveWatchlistToBrowser()'>儲存自選到瀏覽器</button>
-    <button type='button' onclick='loadWatchlistFromBrowser()'>讀取瀏覽器自選</button>
     <input type='hidden' name='custom_watchlist' id='customWatchlist' value='{html.escape(','.join(watchlist['symbol'].tolist()))}'>
     </form>
     <h2>總覽</h2><div class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>判斷</th><th>收盤</th><th>註記</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="9">無符合條件資料</td></tr>'}</table></div>
@@ -566,17 +563,20 @@ def app(environ, start_response):
       try {{ applyConfig(JSON.parse(raw)); }} catch(e) {{ alert('設定格式錯誤'); }}
     }}
     function exportBrowserMemory(){{
-      const raw = localStorage.getItem('tw_dashboard_config');
-      if(!raw) return alert('找不到可匯出的瀏覽器記憶');
+      const configRaw = localStorage.getItem('tw_dashboard_config');
+      const watchlistRaw = localStorage.getItem(WATCHLIST_STORAGE_KEY);
+      const notesRaw = localStorage.getItem(NOTE_STORAGE_KEY);
+      if(!configRaw && !watchlistRaw && !notesRaw) return alert('找不到可匯出的資料');
       const payload = {{
-        key: 'tw_dashboard_config',
         exported_at: new Date().toISOString(),
-        data: JSON.parse(raw),
+        config: configRaw ? JSON.parse(configRaw) : null,
+        watchlist: watchlistRaw ? JSON.parse(watchlistRaw) : [],
+        notes: notesRaw ? JSON.parse(notesRaw) : {{}},
       }};
       const blob = new Blob([JSON.stringify(payload, null, 2)], {{type: 'application/json'}});
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'tw-dashboard-browser-memory.json';
+      a.download = 'tw-dashboard-backup.json';
       a.click();
       URL.revokeObjectURL(a.href);
     }}
@@ -587,12 +587,14 @@ def app(environ, start_response):
       reader.onload = () => {{
         try {{
           const payload = JSON.parse(reader.result);
-          const cfg = payload?.data ?? payload;
+          const cfg = payload?.config ?? payload?.data ?? payload;
           if(typeof cfg !== 'object' || cfg === null) throw new Error('invalid');
           localStorage.setItem('tw_dashboard_config', JSON.stringify(cfg));
+          if(Array.isArray(payload?.watchlist)) localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(payload.watchlist.map(String)));
+          if(payload?.notes && typeof payload.notes === 'object') localStorage.setItem(NOTE_STORAGE_KEY, JSON.stringify(payload.notes));
           applyConfig(cfg);
         }} catch(e) {{
-          alert('匯入失敗：瀏覽器記憶格式錯誤');
+          alert('匯入失敗：備份格式錯誤');
         }}
       }};
       reader.readAsText(file);
@@ -746,24 +748,6 @@ def app(environ, start_response):
     }}
     window.addEventListener('resize', updateResponsiveGrid);
     updateResponsiveGrid();
-    function downloadConfig(){{
-      const blob = new Blob([JSON.stringify(serializeForm(), null, 2)], {{type: 'application/json'}});
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'tw-dashboard-config.json';
-      a.click();
-      URL.revokeObjectURL(a.href);
-    }}
-    function importConfig(evt){{
-      const file = evt.target.files[0];
-      if(!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {{
-        try {{ applyConfig(JSON.parse(reader.result)); }} catch(e) {{ alert('匯入失敗：JSON 格式錯誤'); }}
-      }};
-      reader.readAsText(file);
-      evt.target.value = '';
-    }}
     </script>
     </body></html>"""
 
