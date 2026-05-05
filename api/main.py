@@ -400,7 +400,7 @@ def app(environ, start_response):
             else f"<button type='button' onclick=\"addWatchlistStock('{html.escape(row.symbol)}')\">加入自選</button>"
         )
         subgroup_text = row.subgroup if isinstance(row.subgroup, str) and row.subgroup else "-"
-        rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{action_btn}</td></tr>"})
+        rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr data-symbol='{html.escape(row.symbol)}'><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td class='note-cell'>-</td><td>{action_btn}</td></tr>"})
         if not df.empty:
             show_ma = period != "intraday"
             intraday_ref_close = float(df.iloc[-1]["RefClose"]) if show_ma is False and "RefClose" in df.columns else None
@@ -502,6 +502,7 @@ def app(environ, start_response):
     <label>每列檔數</label><select name='cards_per_row'>{''.join([f"<option value='{n}' {'selected' if cards_per_row==n else ''}>{n}</option>" for n in range(1, 16)])}</select>
     <label>顯示量K線</label><select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select>
     <label>圖塊排序</label><select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option></select>
+    <label>註記篩選</label><select id='noteFilter'><option value='all'>全部註記</option></select>
     <button type='submit'>更新</button>
     <button type='button' onclick='saveLocal()'>存到瀏覽器</button>
     <button type='button' onclick='loadLocal()'>讀取瀏覽器設定</button>
@@ -515,14 +516,23 @@ def app(environ, start_response):
     <label>關鍵字</label><input id='watchKeyword' placeholder='輸入名稱或代號'>
     <label>加入自選</label><select id='stockPicker'></select>
     <button type='button' onclick='addSelectedStock()'>加入</button>
+    <button type='button' onclick='saveWatchlistToBrowser()'>儲存自選到瀏覽器</button>
+    <button type='button' onclick='loadWatchlistFromBrowser()'>讀取瀏覽器自選</button>
+    <label>個股註記</label><select id='noteSymbolPicker'></select>
+    <select id='notePreset'></select>
+    <input id='noteCustomText' placeholder='自訂註記（可留空）'>
+    <button type='button' onclick='saveSymbolNote()'>儲存註記</button>
     <input type='hidden' name='custom_watchlist' id='customWatchlist' value='{html.escape(','.join(watchlist['symbol'].tolist()))}'>
     </form>
-    <h2>總覽</h2><div class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>判斷</th><th>收盤</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="8">無符合條件資料</td></tr>'}</table></div>
-    <h2>多股趨勢圖</h2><div id='cardsGrid' style='display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:8px'>{''.join([f"<div class='card'>{c}</div>" for c in cards])}</div>
+    <h2>總覽</h2><div class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>判斷</th><th>收盤</th><th>註記</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="9">無符合條件資料</td></tr>'}</table></div>
+    <h2>多股趨勢圖</h2><div id='cardsGrid' style='display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:8px'>{''.join([f"<div class='card' data-symbol='{html.escape(cd['symbol'])}'>{cd['card_html']}</div>" for cd in cards_data])}</div>
     <script>
     const defaultConfig = {json.dumps(save_payload, ensure_ascii=False)};
     const autoRefreshMs = 15000;
     const isIntradayMode = defaultConfig.period === 'intraday';
+    const WATCHLIST_STORAGE_KEY = 'tw_dashboard_watchlist';
+    const NOTE_STORAGE_KEY = 'tw_dashboard_stock_notes';
+    const NOTE_PRESETS = ['挑選買進時機', '挑選賣出時機', '續抱', '買進', '賣出', '停損觀察', '分批加碼', '減碼鎖利'];
     function isTwTradingHours(){{
       const twNow = new Date(new Date().toLocaleString('en-US', {{ timeZone: 'Asia/Taipei' }}));
       const day = twNow.getDay();
@@ -590,15 +600,34 @@ def app(environ, start_response):
     function setWatchlistSymbols(symbols){{
       document.getElementById('customWatchlist').value = [...new Set(symbols)].join(',');
     }}
+    function saveWatchlistToBrowser(silent=false){{
+      const symbols = getWatchlistSymbols();
+      localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(symbols));
+      if(!silent) alert(`已儲存 ${{symbols.length}} 檔自選到瀏覽器`);
+    }}
+    function loadWatchlistFromBrowser(autoSubmit=true){{
+      const raw = localStorage.getItem(WATCHLIST_STORAGE_KEY);
+      if(!raw) return alert('找不到瀏覽器自選清單');
+      try {{
+        const symbols = JSON.parse(raw);
+        if(!Array.isArray(symbols)) throw new Error('invalid');
+        setWatchlistSymbols(symbols.map(String));
+        if(autoSubmit) document.getElementById('cfgForm').submit();
+      }} catch(e) {{
+        alert('瀏覽器自選清單格式錯誤');
+      }}
+    }}
     function addWatchlistStock(symbol){{
       const symbols = getWatchlistSymbols();
       if(!symbols.includes(symbol)) symbols.push(symbol);
       setWatchlistSymbols(symbols);
+      saveWatchlistToBrowser(true);
       document.getElementById('cfgForm').submit();
     }}
     function removeWatchlistStock(symbol){{
       const symbols = getWatchlistSymbols().filter(s => s !== symbol);
       setWatchlistSymbols(symbols);
+      saveWatchlistToBrowser(true);
       document.getElementById('cfgForm').submit();
     }}
     function fillStockPicker(keyword=''){{
@@ -612,8 +641,79 @@ def app(environ, start_response):
       if(!symbol) return alert('請先選擇股票');
       addWatchlistStock(symbol);
     }}
+    function getStockNotes(){{
+      try {{
+        const raw = localStorage.getItem(NOTE_STORAGE_KEY) || '{{}}';
+        const obj = JSON.parse(raw);
+        return (obj && typeof obj === 'object') ? obj : {{}};
+      }} catch(e) {{
+        return {{}};
+      }}
+    }}
+    function setStockNotes(notes){{
+      localStorage.setItem(NOTE_STORAGE_KEY, JSON.stringify(notes));
+    }}
+    function refreshNoteFilterOptions(){{
+      const filter = document.getElementById('noteFilter');
+      const notes = getStockNotes();
+      const uniq = [...new Set(Object.values(notes).map(v => String(v).trim()).filter(Boolean))];
+      filter.innerHTML = "<option value='all'>全部註記</option><option value='none'>未註記</option>" + uniq.map(v => `<option value="${{v}}">${{v}}</option>`).join('');
+    }}
+    function applyNotesToTableAndCards(){{
+      const notes = getStockNotes();
+      document.querySelectorAll('tr[data-symbol]').forEach((tr)=>{{
+        const symbol = tr.dataset.symbol;
+        const note = (notes[symbol] || '').trim();
+        tr.dataset.note = note || 'none';
+        const cell = tr.querySelector('.note-cell');
+        if(cell) cell.textContent = note || '-';
+      }});
+      applyNoteFilter();
+    }}
+    function applyNoteFilter(){{
+      const selected = document.getElementById('noteFilter').value || 'all';
+      const visibleSymbols = new Set();
+      document.querySelectorAll('tr[data-symbol]').forEach((tr)=>{{
+        const note = tr.dataset.note || 'none';
+        const visible = selected === 'all' || note === selected || (selected === 'none' && note === 'none');
+        tr.style.display = visible ? '' : 'none';
+        if(visible) visibleSymbols.add(tr.dataset.symbol);
+      }});
+      document.querySelectorAll('.card[data-symbol]').forEach((card)=>{{
+        card.style.display = visibleSymbols.has(card.dataset.symbol) ? '' : 'none';
+      }});
+    }}
+    function saveSymbolNote(){{
+      const symbol = document.getElementById('noteSymbolPicker').value;
+      if(!symbol) return alert('請先選擇股票代號');
+      const preset = document.getElementById('notePreset').value.trim();
+      const custom = document.getElementById('noteCustomText').value.trim();
+      const note = custom || preset;
+      const notes = getStockNotes();
+      if(note) notes[symbol] = note;
+      else delete notes[symbol];
+      setStockNotes(notes);
+      refreshNoteFilterOptions();
+      applyNotesToTableAndCards();
+    }}
     document.getElementById('watchKeyword').addEventListener('input', (e)=>fillStockPicker(e.target.value));
     fillStockPicker();
+    const notePresetEl = document.getElementById('notePreset');
+    notePresetEl.innerHTML = "<option value=''>（清除註記）</option>" + NOTE_PRESETS.map(v => `<option value="${{v}}">${{v}}</option>`).join('');
+    const noteSymbolPickerEl = document.getElementById('noteSymbolPicker');
+    noteSymbolPickerEl.innerHTML = document.querySelectorAll('tr[data-symbol] td:nth-child(2)').length
+      ? [...document.querySelectorAll('tr[data-symbol]')].map(tr => tr.dataset.symbol).map(s => `<option value="${{s}}">${{s}}</option>`).join('')
+      : '';
+    refreshNoteFilterOptions();
+    applyNotesToTableAndCards();
+    document.getElementById('noteFilter').addEventListener('change', applyNoteFilter);
+    const hasSavedWatchlist = Boolean(localStorage.getItem(WATCHLIST_STORAGE_KEY));
+    if(hasSavedWatchlist && !window.location.search.includes('custom_watchlist=')){{
+      try {{
+        const symbols = JSON.parse(localStorage.getItem(WATCHLIST_STORAGE_KEY) || '[]');
+        if(Array.isArray(symbols) && symbols.length > 0) setWatchlistSymbols(symbols.map(String));
+      }} catch(e) {{}}
+    }}
     function autoSubmitConfig(){{
       document.getElementById('cfgForm').submit();
     }}
