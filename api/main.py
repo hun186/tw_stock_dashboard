@@ -489,9 +489,9 @@ def app(environ, start_response):
       .table-wrap{{overflow-x:auto}}
       .card{{margin:8px 0;padding:8px;border:1px solid #ddd;border-radius:8px}}
       .card h3{{font-size:.95rem;margin:4px 0 6px}}
-      .note-editor{{display:flex;gap:3px;align-items:center;white-space:nowrap}}
-      .note-editor .note-preset-select{{width:84px;min-width:0;padding:2px 4px}}
-      .note-editor .note-custom-input{{width:84px;min-width:0;padding:2px 4px}}
+      .note-editor{{display:flex;gap:2px;align-items:center;white-space:nowrap}}
+      .note-editor .note-preset-select{{width:72px;min-width:0;padding:2px 3px;text-align:left;text-align-last:left}}
+      .note-editor .note-custom-input{{width:68px;min-width:0;padding:2px 3px}}
       .note-editor .note-text{{color:#444;max-width:56px;overflow:hidden;text-overflow:ellipsis}}
       @media (max-width: 900px){{ body{{margin:10px}} }}
       @media (max-width: 720px){{
@@ -715,7 +715,7 @@ def app(environ, start_response):
     document.getElementById('watchKeyword').addEventListener('input', (e)=>fillStockPicker(e.target.value));
     fillStockPicker();
     document.querySelectorAll('.note-preset-select').forEach((el)=>{{
-      el.innerHTML = "<option value=''>（清除註記）</option>" + NOTE_PRESETS.map(v => `<option value="${{v}}">${{v}}</option>`).join('');
+      el.innerHTML = "<option value=''>清除註記</option>" + NOTE_PRESETS.map(v => `<option value="${{v}}">${{v}}</option>`).join('');
     }});
     refreshNoteFilterOptions();
     applyNotesToTableAndCards();
