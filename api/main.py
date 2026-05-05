@@ -25,6 +25,7 @@ DOWN_COLOR = "#008a00"
 MA5_COLOR = "#ffd400"
 MA20_COLOR = "#8a2be2"
 MA60_COLOR = "#6ec6ff"
+PRICE_FALLBACK_CACHE: dict[tuple[str, str], pd.DataFrame] = {}
 
 INDUSTRY_CODE_NAME = {
     "01": "水泥工業", "02": "食品工業", "03": "塑膠工業", "04": "紡織纖維", "05": "電機機械",
@@ -174,10 +175,13 @@ def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.Da
 
 
 def _fetch_twse_daily(symbol: str, period: str) -> pd.DataFrame:
+    cache_key = (symbol, period)
+    if cache_key in PRICE_FALLBACK_CACHE:
+        return PRICE_FALLBACK_CACHE[cache_key].copy()
     if not symbol.endswith('.TW'):
         return pd.DataFrame()
-    month_map = {"1mo": 1, "2mo": 2, "3mo": 3, "6mo": 6, "1y": 12, "5y": 60, "max": 120}
-    months = month_map.get(period, 3)
+    month_map = {"1mo": 1, "2mo": 1, "3mo": 2, "6mo": 2, "1y": 2, "5y": 2, "max": 2}
+    months = month_map.get(period, 2)
     stock_no = symbol.replace('.TW', '')
     now = pd.Timestamp.now(tz='Asia/Taipei')
     rows: list[dict] = []
@@ -185,7 +189,7 @@ def _fetch_twse_daily(symbol: str, period: str) -> pd.DataFrame:
         d = now - pd.DateOffset(months=i)
         url = f"https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?date={d.strftime('%Y%m01')}&stockNo={stock_no}&response=json"
         try:
-            resp = requests.get(url, timeout=10)
+            resp = requests.get(url, timeout=3)
             resp.raise_for_status()
             payload = resp.json()
         except Exception:
@@ -210,7 +214,8 @@ def _fetch_twse_daily(symbol: str, period: str) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows).drop_duplicates(subset=['Date']).sort_values('Date').reset_index(drop=True)
-    return df
+    PRICE_FALLBACK_CACHE[cache_key] = df
+    return df.copy()
 
 
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
