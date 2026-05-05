@@ -48,6 +48,13 @@ STATUS_FILTERS = {
     "neutral": "⚪ 中性",
 }
 
+def parse_int_param(params: dict, key: str, default: int) -> int:
+    raw = params.get(key, [str(default)])[0]
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
 
 def load_watchlist(path: Path) -> pd.DataFrame:
     if not path.exists():
@@ -400,11 +407,11 @@ def app(environ, start_response):
     tab = params.get("tab", ["watchlist"])[0]
     period = params.get("period", ["3mo"])[0]
     interval = params.get("interval", ["1d"])[0]
-    limit = int(params.get("limit", ["30"])[0])
+    limit = max(1, min(parse_int_param(params, "limit", 30), 200))
     status_filter = params.get("status_filter", ["all"])[0]
     group_filter = params.get("group_filter", ["all"])[0]
     subgroup_filter = params.get("subgroup_filter", ["all"])[0]
-    cards_per_row = int(params.get("cards_per_row", ["3"])[0])
+    cards_per_row = parse_int_param(params, "cards_per_row", 3)
     cards_per_row = cards_per_row if cards_per_row in [1, 2, 3, 4] else 3
     custom_watchlist_raw = params.get("custom_watchlist", [""])[0]
     show_volume = params.get("show_volume", ["1"])[0] == "1"
@@ -717,3 +724,13 @@ def app(environ, start_response):
     data = body.encode("utf-8")
     start_response("200 OK", [("Content-Type", "text/html; charset=utf-8"), ("Content-Length", str(len(data)))])
     return [data]
+
+
+if __name__ == "__main__":
+    from wsgiref.simple_server import make_server
+
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "8000"))
+    print(f"Serving on http://{host}:{port}")
+    with make_server(host, port, app) as server:
+        server.serve_forever()
