@@ -56,6 +56,22 @@ symbol,name,group
 
 上市股票通常用 `.TW`，上櫃股票通常用 `.TWO`。
 
+## LLM 主題分類匯入（可選）
+
+若有外部批次分析輸出，可將檔案放在 `data/tw_stock_llm_source_with_group.xlsx`，
+並使用工作表 `LLM_result_stock_group_json_fla`。程式會讀取欄位：
+
+- `symbol`
+- `name`
+- `group`
+- `subgroup`（可選）
+
+合併規則：
+
+- 先載入 LLM 分類
+- 再疊上 `watchlist.csv`
+- 若同一 `symbol` 重複，以 `watchlist.csv` 為優先（可手動覆寫 LLM 分類）
+
 ## 免責聲明
 
 這不是投資建議，僅用於觀察與資料整理。
