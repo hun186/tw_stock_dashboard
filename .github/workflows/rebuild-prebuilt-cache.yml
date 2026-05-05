@@ -1,0 +1,43 @@
+name: Rebuild prebuilt cache
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 台股約 13:30 (Asia/Taipei) 收盤，這裡抓 14:10 (Asia/Taipei) ≈ 06:10 UTC
+    - cron: "10 6 * * 1-5"
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild-cache:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Rebuild prebuilt cache
+        run: python scripts/prebuild_price_cache.py
+
+      - name: Commit updated cache
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add prebuilt_cache
+          if git diff --cached --quiet; then
+            echo "No cache changes to commit"
+            exit 0
+          fi
+          commit_msg="chore: refresh prebuilt cache ($(date -u +'%Y-%m-%d %H:%M UTC'))"
+          git commit -m "$commit_msg"
+          git push

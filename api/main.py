@@ -17,6 +17,7 @@ import yfinance as yf
 APP_DIR = Path(__file__).resolve().parent.parent
 WATCHLIST_FILE = APP_DIR / "watchlist.csv"
 TWSE_LISTED_INFO_API = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
+STATIC_CACHE_DIR = APP_DIR / "prebuilt_cache"
 
 UP_COLOR = "#d60000"
 DOWN_COLOR = "#008a00"
@@ -93,6 +94,27 @@ def _cache_ttl_seconds(interval: str) -> int:
     return 300
 
 
+
+
+def _disk_cache_path(symbol: str, period: str, interval: str) -> Path:
+    safe_symbol = symbol.replace("/", "_").replace(".", "_")
+    return STATIC_CACHE_DIR / f"{safe_symbol}__{period}__{interval}.pkl"
+
+
+def _load_disk_cache(symbol: str, period: str, interval: str, ttl_seconds: int) -> pd.DataFrame | None:
+    path = _disk_cache_path(symbol, period, interval)
+    try:
+        if not path.exists():
+            return None
+        age = time.time() - path.stat().st_mtime
+        if age >= ttl_seconds:
+            return None
+        df = pd.read_pickle(path)
+        return df if isinstance(df, pd.DataFrame) else None
+    except Exception:
+        return None
+
+
 def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.DataFrame:
     cache_key = (symbol, period, interval)
     now = time.time()
@@ -100,6 +122,11 @@ def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.Da
     cached = PRICE_CACHE.get(cache_key)
     if cached and now - cached[0] < cache_ttl:
         return cached[1].copy()
+
+    disk_cached = _load_disk_cache(symbol, period, interval, cache_ttl)
+    if disk_cached is not None:
+        PRICE_CACHE[cache_key] = (now, disk_cached.copy())
+        return disk_cached.copy()
 
     df = yf.download(symbol, period=period, interval=interval, auto_adjust=False, progress=False, threads=False)
     if df is None or df.empty:
