@@ -84,3 +84,14 @@ git push
 ### 3) Vercel 自動部署
 
 push 後由 Vercel 自動部署，`api/main.py` 會優先讀取 `prebuilt_cache/` 的資料，降低使用者操作時等待。
+
+## GitHub Actions 自動重建快取
+
+已提供排程檔：`.github/workflows/rebuild-prebuilt-cache.yml`。
+
+- 觸發方式：
+  - 每週一到五 UTC `06:10`（約台北時間 `14:10`，收盤後）
+  - 或手動 `workflow_dispatch`
+- 流程：安裝依賴 → 執行 `python scripts/prebuild_price_cache.py` → 若 `prebuilt_cache/` 有變更就自動 commit + push。
+
+> 第一次使用前，請確認 repository 的 Actions 權限允許 `contents: write`。
