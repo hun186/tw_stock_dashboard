@@ -544,8 +544,15 @@ def app(environ, start_response):
     <h2>多股趨勢圖</h2><div id='cardsGrid' style='display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:8px'>{''.join([f"<div class='card'>{c}</div>" for c in cards])}</div>
     <script>
     const defaultConfig = {json.dumps(save_payload, ensure_ascii=False)};
-    const autoRefreshMs = 20000;
+    const autoRefreshMs = 15000;
     const isIntradayMode = defaultConfig.period === 'intraday';
+    function isTwTradingHours(){{
+      const twNow = new Date(new Date().toLocaleString('en-US', {{ timeZone: 'Asia/Taipei' }}));
+      const day = twNow.getDay();
+      if(day === 0 || day === 6) return false;
+      const minutes = twNow.getHours() * 60 + twNow.getMinutes();
+      return minutes >= 9 * 60 && minutes <= 13 * 60 + 30;
+    }}
     function serializeForm(){{
       const fd = new FormData(document.getElementById('cfgForm'));
       return Object.fromEntries(fd.entries());
@@ -644,7 +651,7 @@ def app(environ, start_response):
     }}
     if(isIntradayMode){{
       setInterval(()=>{{
-        if(!document.hidden) window.location.reload();
+        if(!document.hidden && isTwTradingHours()) window.location.reload();
       }}, autoRefreshMs);
     }}
     function updateResponsiveGrid(){{
