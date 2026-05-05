@@ -16,6 +16,8 @@ import yfinance as yf
 
 APP_DIR = Path(__file__).resolve().parent.parent
 WATCHLIST_FILE = APP_DIR / "watchlist.csv"
+LLM_GROUP_FILE = APP_DIR / "data" / "tw_stock_llm_source_with_group.xlsx"
+LLM_GROUP_SHEET = "LLM_result_stock_group_json_fla"
 TWSE_LISTED_INFO_API = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
 STATIC_CACHE_DIR = APP_DIR / "prebuilt_cache"
 
@@ -61,6 +63,26 @@ def load_watchlist(path: Path) -> pd.DataFrame:
     df["group"] = df["group"].astype(str).str.strip()
     df["subgroup"] = df["subgroup"].astype(str).str.strip()
     return df[df["symbol"] != ""].copy()
+
+
+def load_llm_group_map(path: Path, sheet_name: str) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+    try:
+        df = pd.read_excel(path, sheet_name=sheet_name)
+    except Exception:
+        return pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+    for col in ["symbol", "name", "group"]:
+        if col not in df.columns:
+            return pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+    if "subgroup" not in df.columns:
+        df["subgroup"] = ""
+    df["symbol"] = df["symbol"].astype(str).str.strip()
+    df["name"] = df["name"].astype(str).str.strip()
+    df["group"] = df["group"].astype(str).str.strip()
+    df["subgroup"] = df["subgroup"].astype(str).str.strip()
+    df = df[df["symbol"] != ""].copy()
+    return df[["symbol", "name", "group", "subgroup"]].drop_duplicates(subset=["symbol"], keep="last")
 
 
 def load_twse_industry_map() -> pd.DataFrame:
@@ -355,6 +377,12 @@ def app(environ, start_response):
     fetch_period, fetch_interval, display_period = resolve_price_params(period, interval)
 
     base_watchlist = load_watchlist(WATCHLIST_FILE)
+    llm_watchlist = load_llm_group_map(LLM_GROUP_FILE, LLM_GROUP_SHEET)
+    base_watchlist = (
+        pd.concat([llm_watchlist, base_watchlist], ignore_index=True)
+        .drop_duplicates(subset=["symbol"], keep="last")
+        .reset_index(drop=True)
+    )
     industry_df = load_twse_industry_map()
     industries = industry_df[["industry", "industry_label"]].drop_duplicates().sort_values("industry")
     industry = params.get("industry", [industries.iloc[0]["industry"] if not industries.empty else ""])[0]
