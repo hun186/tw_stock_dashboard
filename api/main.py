@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import html
 from io import StringIO
 import json
@@ -119,7 +120,27 @@ def apply_group_overrides(stocks: pd.DataFrame, group_map: pd.DataFrame) -> pd.D
 
 
 def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.DataFrame:
-    df = yf.download(symbol, period=period, interval=interval, auto_adjust=False, progress=False, threads=False)
+    def _download_once(proxy_override=None):
+        kwargs = dict(symbol=symbol, period=period, interval=interval, auto_adjust=False, progress=False, threads=False)
+        if proxy_override is not None:
+            kwargs["proxy"] = proxy_override
+        return yf.download(**kwargs)
+
+    df = pd.DataFrame()
+    with contextlib.suppress(Exception):
+        df = _download_once()
+
+    if df is None or df.empty:
+        # 一些部署環境會自動注入 proxy，導致 Yahoo 連線被拒；fallback 用無 proxy 再抓一次。
+        with contextlib.suppress(Exception):
+            old_proxy = {k: os.environ.pop(k, None) for k in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]}
+            try:
+                df = _download_once(proxy_override="")
+            finally:
+                for k, v in old_proxy.items():
+                    if v:
+                        os.environ[k] = v
+
     if df is None or df.empty:
         return pd.DataFrame()
     if isinstance(df.columns, pd.MultiIndex):
