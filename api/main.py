@@ -582,7 +582,7 @@ def app(environ, start_response):
       evt.target.value = '';
     }}
 
-    const allStocks = {json.dumps(all_stocks[['symbol', 'name', 'group']].to_dict(orient='records'), ensure_ascii=False)};
+    const allStocks = {json.dumps(all_stocks[['symbol', 'name', 'group', 'subgroup']].to_dict(orient='records'), ensure_ascii=False)};
     function getWatchlistSymbols(){{
       const raw = document.getElementById('customWatchlist').value.trim();
       return raw ? raw.split(',').map(x=>x.trim()).filter(Boolean) : [];
@@ -604,7 +604,7 @@ def app(environ, start_response):
     function fillStockPicker(keyword=''){{
       const picker = document.getElementById('stockPicker');
       const kw = keyword.trim().toLowerCase();
-      const rows = allStocks.filter(r => !kw || r.symbol.toLowerCase().includes(kw) || r.name.toLowerCase().includes(kw));
+      const rows = allStocks.filter(r => !kw || [r.symbol, r.name, r.group, r.subgroup].filter(Boolean).some(v => v.toLowerCase().includes(kw)));
       picker.innerHTML = rows.slice(0, 200).map(r => `<option value="${{r.symbol}}">${{r.symbol}} - ${{r.name}} (${{r.group}})</option>`).join('');
     }}
     function addSelectedStock(){{
