@@ -122,14 +122,17 @@ def apply_group_overrides(stocks: pd.DataFrame, group_map: pd.DataFrame) -> pd.D
 
 def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.DataFrame:
     def _download_once(proxy_override=None):
-        kwargs = dict(symbol=symbol, period=period, interval=interval, auto_adjust=False, progress=False, threads=False)
+        kwargs = dict(tickers=symbol, period=period, interval=interval, auto_adjust=False, progress=False, threads=False)
         if proxy_override is not None:
             kwargs["proxy"] = proxy_override
         return yf.download(**kwargs)
 
     df = pd.DataFrame()
+    source = "none"
     with contextlib.suppress(Exception):
         df = _download_once()
+        if df is not None and not df.empty:
+            source = "yahoo"
 
     if df is None or df.empty:
         # 一些部署環境會自動注入 proxy，導致 Yahoo 連線被拒；fallback 用無 proxy 再抓一次。
@@ -137,6 +140,8 @@ def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.Da
             old_proxy = {k: os.environ.pop(k, None) for k in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]}
             try:
                 df = _download_once(proxy_override="")
+                if df is not None and not df.empty:
+                    source = "yahoo_no_proxy"
             finally:
                 for k, v in old_proxy.items():
                     if v:
@@ -146,6 +151,8 @@ def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.Da
         # Yahoo 失敗時，日線嘗試改走 TWSE 公開 API（僅 .TW）。
         if interval == "1d":
             df = _fetch_twse_daily(symbol, period)
+            if df is not None and not df.empty:
+                source = "twse"
         if df is None or df.empty:
             return pd.DataFrame()
     if isinstance(df.columns, pd.MultiIndex):
@@ -171,6 +178,7 @@ def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.Da
             reference_close = float(prev_day_close.iloc[-1]) if not prev_day_close.empty else float(df.iloc[0]["Open"])
             df = df[trade_dates == latest_date].copy()
             df["RefClose"] = reference_close
+    df.attrs["source"] = source
     return df
 
 
@@ -441,10 +449,12 @@ def app(environ, start_response):
     for row in stocks.itertuples(index=False):
         df = fetch_price(row.symbol, fetch_period, fetch_interval)
         signal_df = fetch_price(row.symbol, "6mo", "1d") if period == "intraday" else df.copy()
+        source_text = "-"
         if df.empty:
             bucket, status = "watch", "⚪ 抓不到資料"
             close_text = "-"
             signal = {"score": -999}
+            source_text = "無"
         else:
             df = add_indicators(df)
             df = trim_display_df(df, display_period)
@@ -455,6 +465,8 @@ def app(environ, start_response):
                 signal = analyze_stock_signal(signal_df)
             bucket, status = signal["bucket"], signal["message"]
             close_text = f"{float(df.iloc[-1]['Close']):.2f}"
+            source_map = {"yahoo": "Yahoo", "yahoo_no_proxy": "Yahoo(直連)", "twse": "TWSE"}
+            source_text = source_map.get(df.attrs.get("source", "none"), "未知")
 
         if status_filter != "all" and bucket != status_filter:
             continue
@@ -465,7 +477,7 @@ def app(environ, start_response):
             else f"<button type='button' onclick=\"addWatchlistStock('{html.escape(row.symbol)}')\">加入自選</button>"
         )
         subgroup = getattr(row, "subgroup", "") or "-"
-        rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{action_btn}</td></tr>"})
+        rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{html.escape(source_text)}</td><td>{action_btn}</td></tr>"})
         if not df.empty:
             show_ma = period != "intraday"
             intraday_ref_close = float(df.iloc[-1]["RefClose"]) if show_ma is False and "RefClose" in df.columns else None
@@ -565,7 +577,7 @@ def app(environ, start_response):
     <button type='button' onclick='addSelectedStock()'>加入</button>
     <input type='hidden' name='custom_watchlist' id='customWatchlist' value='{html.escape(','.join(watchlist['symbol'].tolist()))}'>
     </form>
-    <h2>總覽</h2><div class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>子族群</th><th>判斷</th><th>收盤</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="8">無符合條件資料</td></tr>'}</table></div>
+    <h2>總覽</h2><div class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>子族群</th><th>判斷</th><th>收盤</th><th>資料來源</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="9">無符合條件資料</td></tr>'}</table></div>
     <h2>多股趨勢圖</h2><div id='cardsGrid' style='display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:8px'>{''.join([f"<div class='card'>{c}</div>" for c in cards])}</div>
     <script>
     const defaultConfig = {json.dumps(save_payload, ensure_ascii=False)};
