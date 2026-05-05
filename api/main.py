@@ -487,7 +487,8 @@ def app(environ, start_response):
       .card{{margin:8px 0;padding:8px;border:1px solid #ddd;border-radius:8px}}
       .card h3{{font-size:.95rem;margin:4px 0 6px}}
       .note-editor{{display:flex;gap:2px;align-items:center;white-space:nowrap}}
-      .note-editor .note-preset-select{{width:72px;min-width:0;padding:2px 3px;text-align:left;text-align-last:left}}
+      .note-editor .note-preset-select{{width:calc(72px + 16pt);min-width:0;padding:2px 3px;text-align:left;text-align-last:left}}
+      table th:nth-child(8), table td:nth-child(8), table th:nth-child(9), table td:nth-child(9){{width:96px;min-width:96px;max-width:96px}}
       @media (max-width: 900px){{ body{{margin:10px}} }}
       @media (max-width: 720px){{
         form{{gap:4px 6px}}
@@ -671,21 +672,7 @@ def app(environ, start_response):
         const note = (notes[symbol] || '').trim();
         tr.dataset.note = note || 'none';
         const presetSelect = tr.querySelector('.note-preset-select');
-        if(presetSelect){{
-          const customOpt = presetSelect.querySelector('option[value="__custom_note__"]');
-          if(customOpt) customOpt.remove();
-          if(!note){{
-            presetSelect.value = '';
-          }} else if(NOTE_PRESETS.includes(note)){{
-            presetSelect.value = note;
-          }} else {{
-            const opt = document.createElement('option');
-            opt.value = '__custom_note__';
-            opt.textContent = `${CUSTOM_NOTE_PREFIX}${note}`;
-            presetSelect.appendChild(opt);
-            presetSelect.value = '__custom_note__';
-          }}
-        }}
+        if(presetSelect) presetSelect.value = NOTE_PRESETS.includes(note) ? note : '';
       }});
       applyNoteFilter();
     }}
@@ -715,22 +702,12 @@ def app(environ, start_response):
       if(!editor) return;
       const symbol = editor.dataset.symbol;
       const preset = (selectEl.value || '').trim();
-      if(preset === '__custom__' || preset === '__custom_note__'){{
-        const current = (getStockNotes()[symbol] || '').trim();
-        const typed = prompt('請輸入自訂註記', NOTE_PRESETS.includes(current) ? '' : current);
-        if(typed === null){{
-          applyNotesToTableAndCards();
-          return;
-        }}
-        saveNoteBySymbol(symbol, typed.trim());
-        return;
-      }}
       saveNoteBySymbol(symbol, preset);
     }}
     document.getElementById('watchKeyword').addEventListener('input', (e)=>fillStockPicker(e.target.value));
     fillStockPicker();
     document.querySelectorAll('.note-preset-select').forEach((el)=>{{
-      el.innerHTML = "<option value=''>清除註記</option>" + NOTE_PRESETS.map(v => `<option value="${{v}}">${{v}}</option>`).join('') + "<option value='__custom__'>自訂輸入</option>";
+      el.innerHTML = "<option value=''>清除註記</option>" + NOTE_PRESETS.map(v => `<option value="${{v}}">${{v}}</option>`).join('');
     }});
     refreshNoteFilterOptions();
     applyNotesToTableAndCards();
