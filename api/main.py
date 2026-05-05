@@ -734,3 +734,7 @@ if __name__ == "__main__":
     print(f"Serving on http://{host}:{port}")
     with make_server(host, port, app) as server:
         server.serve_forever()
+
+
+# Vercel Python runtime entry alias
+handler = app
