@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import html
 import json
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import parse_qs
 
@@ -80,7 +82,25 @@ def load_twse_industry_map() -> pd.DataFrame:
     return df[df["industry"] != ""][["industry", "industry_label", "symbol", "name", "group", "subgroup"]].drop_duplicates()
 
 
+PRICE_CACHE: dict[tuple[str, str, str], tuple[float, pd.DataFrame]] = {}
+
+
+def _cache_ttl_seconds(interval: str) -> int:
+    if interval == "1m":
+        return 20
+    if interval.endswith("m"):
+        return 60
+    return 300
+
+
 def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.DataFrame:
+    cache_key = (symbol, period, interval)
+    now = time.time()
+    cache_ttl = _cache_ttl_seconds(interval)
+    cached = PRICE_CACHE.get(cache_key)
+    if cached and now - cached[0] < cache_ttl:
+        return cached[1].copy()
+
     df = yf.download(symbol, period=period, interval=interval, auto_adjust=False, progress=False, threads=False)
     if df is None or df.empty:
         return pd.DataFrame()
@@ -107,6 +127,7 @@ def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.Da
             reference_close = float(prev_day_close.iloc[-1]) if not prev_day_close.empty else float(df.iloc[0]["Open"])
             df = df[trade_dates == latest_date].copy()
             df["RefClose"] = reference_close
+    PRICE_CACHE[cache_key] = (now, df.copy())
     return df
 
 
@@ -256,6 +277,18 @@ def resolve_price_params(period: str, interval: str) -> tuple[str, str, str]:
     return fetch_period, interval, period
 
 
+
+
+def prefetch_price_data(stocks: pd.DataFrame, period: str, interval: str) -> dict[str, pd.DataFrame]:
+    symbols = [s for s in stocks["symbol"].dropna().astype(str).tolist() if s]
+    if not symbols:
+        return {}
+
+    max_workers = min(8, len(symbols))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        results = executor.map(lambda sym: (sym, fetch_price(sym, period, interval)), symbols)
+        return {symbol: df for symbol, df in results}
+
 def trim_display_df(df: pd.DataFrame, display_period: str) -> pd.DataFrame:
     if df.empty or display_period in {"intraday", "max"}:
         return df
@@ -336,9 +369,12 @@ def app(environ, start_response):
 
     rows_data = []
     cards = []
+    price_data_map = prefetch_price_data(stocks, fetch_period, fetch_interval)
+    signal_data_map = prefetch_price_data(stocks, "6mo", "1d") if period == "intraday" else {}
+
     for row in stocks.itertuples(index=False):
-        df = fetch_price(row.symbol, fetch_period, fetch_interval)
-        signal_df = fetch_price(row.symbol, "6mo", "1d") if period == "intraday" else df.copy()
+        df = price_data_map.get(row.symbol, pd.DataFrame()).copy()
+        signal_df = signal_data_map.get(row.symbol, pd.DataFrame()).copy() if period == "intraday" else df.copy()
         if df.empty:
             bucket, status = "watch", "⚪ 抓不到資料"
             close_text = "-"
