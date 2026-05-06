@@ -381,15 +381,17 @@ def app(environ, start_response):
     status_filter_values = {item["bucket"] for item in analyzed_stocks}
     if status_filter != "all" and status_filter not in status_filter_values:
         status_filter = "all"
+
+    sorted_stocks = analyzed_stocks.copy()
+    if card_sort == "symbol":
+        sorted_stocks.sort(key=lambda item: item["sort_metrics"]["symbol"])
+    else:
+        sorted_stocks.sort(key=lambda item: item["sort_metrics"][card_sort], reverse=True)
+
     filtered_stocks = [
-        item for item in analyzed_stocks
+        item for item in sorted_stocks
         if status_filter == "all" or item["bucket"] == status_filter
     ]
-
-    if card_sort == "symbol":
-        filtered_stocks.sort(key=lambda item: item["sort_metrics"]["symbol"])
-    else:
-        filtered_stocks.sort(key=lambda item: item["sort_metrics"][card_sort], reverse=True)
 
     total_stocks = len(filtered_stocks)
     total_pages = max(1, math.ceil(total_stocks / limit)) if total_stocks else 1
@@ -397,9 +399,10 @@ def app(environ, start_response):
     start_idx = (page - 1) * limit
     end_idx = start_idx + limit
 
-    rows_data = []
-    cards_data = []
-    for stock_item in filtered_stocks[start_idx:end_idx]:
+    client_render_all_cards = len(sorted_stocks) <= 120
+    initial_page_symbols = {item["row"].symbol for item in filtered_stocks[start_idx:end_idx]}
+    rendered_stock_items = []
+    for stock_item in sorted_stocks:
         row = stock_item["row"]
         df = stock_item["df"]
         signal = stock_item["signal"]
@@ -449,8 +452,10 @@ def app(environ, start_response):
             f"{html.escape(row.name)}"
             "</button>"
         )
-        rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr data-symbol='{html.escape(row.symbol)}'><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{name_jump_button}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td>{stock_meta_cells}<td class='note-cell'>{note_editor}</td><td>{action_btn}</td></tr>"})
-        if not df.empty:
+        row_html = f"<tr data-symbol='{html.escape(row.symbol)}'><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{name_jump_button}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td>{stock_meta_cells}<td class='note-cell'>{note_editor}</td><td>{action_btn}</td></tr>"
+        card_html = ""
+        should_render_card = client_render_all_cards or row.symbol in initial_page_symbols
+        if should_render_card and not df.empty:
             show_ma = period != "intraday"
             intraday_ref_close = float(df.iloc[-1]["RefClose"]) if show_ma is False and "RefClose" in df.columns else None
             prev_close = float(df.iloc[-2]["Close"]) if len(df) >= 2 else float(df.iloc[-1]["Close"])
@@ -462,12 +467,9 @@ def app(environ, start_response):
                 change_text = f" ({change_pct:+.2f}%)"
             else:
                 change_text = ""
-            last_volume = float(df.iloc[-1]["Volume"]) if "Volume" in df.columns else 0.0
             signal_label = str(signal.get("label") or "").strip()
             signal_brief_text = signal_label[:8] + "…" if len(signal_label) > 8 else signal_label
             signal_brief = f"・{signal_brief_text}" if signal_brief_text else ""
-            change_pct_value = ((now_close - reference_close) / reference_close) * 100 if reference_close else 0.0
-            target_ratio_value = -1.0
             target_ratio_color = "#666"
             if target_ratio_text.endswith("%"):
                 try:
@@ -481,26 +483,33 @@ def app(environ, start_response):
                     else:
                         target_ratio_color = "#0b8f3a"
                 except ValueError:
-                    target_ratio_value = -1.0
                     target_ratio_color = "#666"
-            cards_data.append({
-                "symbol": row.symbol,
-                "close": now_close,
-                "volume": last_volume,
-                "change_pct": change_pct_value,
-                "target_ratio": target_ratio_value,
-                "card_html": (
-                    "<h3 style='display:flex;justify-content:space-between;align-items:center;gap:8px'>"
-                    f"<span>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 "
-                    f"<span style='color:{close_color};font-weight:700'>{close_text}{change_text}</span>{html.escape(signal_brief)}</span>"
-                    f"<span style='font-size:.82rem;color:{target_ratio_color};font-weight:700'>目標價/現價：{target_ratio_text}</span>"
-                    "</h3>"
-                    f"{make_chart_html(df, row.name, show_volume, show_ma, intraday_ref_close=intraday_ref_close)}"
-                ),
-            })
+            card_html = (
+                "<h3 style='display:flex;justify-content:space-between;align-items:center;gap:8px'>"
+                f"<span>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 "
+                f"<span style='color:{close_color};font-weight:700'>{close_text}{change_text}</span>{html.escape(signal_brief)}</span>"
+                f"<span style='font-size:.82rem;color:{target_ratio_color};font-weight:700'>目標價/現價：{target_ratio_text}</span>"
+                "</h3>"
+                f"{make_chart_html(df, row.name, show_volume, show_ma, intraday_ref_close=intraday_ref_close)}"
+            )
+        rendered_stock_items.append({
+            "symbol": row.symbol,
+            "bucket": stock_item["bucket"],
+            "row_html": row_html,
+            "card_html": card_html,
+        })
 
-    rows = [x["row_html"] for x in rows_data]
-    cards = [x["card_html"] for x in cards_data]
+    visible_rendered_items = [
+        item for item in rendered_stock_items
+        if status_filter == "all" or item["bucket"] == status_filter
+    ]
+    visible_page_items = visible_rendered_items[start_idx:end_idx]
+    rows = [item["row_html"] for item in visible_page_items]
+    cards_data = [
+        {"symbol": item["symbol"], "card_html": item["card_html"]}
+        for item in visible_page_items
+        if item["card_html"]
+    ]
 
     industry_options = (
         "<option value='all' {}>不限產業</option>".format("selected" if industry == "all" else "")
@@ -553,6 +562,9 @@ def app(environ, start_response):
         if is_limited_analysis
         else ""
     )
+    table_header_html = "<tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th>互動</th></tr>"
+    dashboard_render_items_json = json.dumps(rendered_stock_items, ensure_ascii=False).replace("</", "<\/")
+    table_header_html_json = json.dumps(table_header_html, ensure_ascii=False).replace("</", "<\/")
 
     body = f"""<!doctype html><html lang='zh-Hant'><head><meta charset='utf-8'><title>TW Dashboard</title>
     <style>
@@ -588,6 +600,20 @@ def app(environ, start_response):
       .preset-picker label{{color:var(--muted);font-size:.82rem;font-weight:700;white-space:nowrap}}
       .preset-picker select{{min-width:180px}}
       .form-help{{grid-column:1 / -1;color:var(--muted);font-size:.82rem;margin:0}}
+      .loading-overlay{{position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(15,23,42,.48);backdrop-filter:blur(3px)}}
+      .loading-overlay.is-open{{display:flex}}
+      .loading-card{{width:min(520px,100%);border:1px solid rgba(255,255,255,.72);border-radius:22px;background:#fff;box-shadow:0 24px 60px rgba(15,23,42,.28);padding:22px;color:#172033}}
+      .loading-header{{display:flex;gap:14px;align-items:center;margin-bottom:12px}}
+      .loading-spinner{{width:42px;height:42px;border:4px solid #dbeafe;border-top-color:var(--brand);border-radius:50%;animation:spin .85s linear infinite;flex:0 0 auto}}
+      .loading-title{{font-size:1.08rem;font-weight:900;margin:0}}
+      .loading-message{{margin:3px 0 0;color:var(--muted);font-size:.92rem}}
+      .loading-steps{{display:grid;gap:8px;margin-top:14px}}
+      .loading-step{{display:flex;gap:8px;align-items:center;color:#64748b;font-size:.88rem}}
+      .loading-step::before{{content:'○';color:#94a3b8;font-size:.9rem}}
+      .loading-step.is-active{{color:#1d4ed8;font-weight:800}}
+      .loading-step.is-active::before{{content:'●';color:#2563eb}}
+      .loading-tip{{margin:14px 0 0;padding:10px 12px;border-radius:14px;background:#eff6ff;color:#1e40af;font-size:.86rem;font-weight:700}}
+      @keyframes spin{{to{{transform:rotate(360deg)}}}}
       table{{border-collapse:separate;border-spacing:0;width:100%;font-size:.88rem}}
       th{{position:sticky;top:0;z-index:1;background:#f1f5f9;color:#334155;font-weight:800}}
       td,th{{border-bottom:1px solid #e2e8f0;padding:8px 9px;white-space:nowrap}}
@@ -640,6 +666,24 @@ def app(environ, start_response):
       @media (max-width: 1180px){{.filter-grid{{grid-template-columns:repeat(2,minmax(220px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
       @media (max-width: 760px){{body{{padding:10px}}.hero{{display:block;padding:18px}}.hero-badge{{display:inline-block;margin-top:12px}}.filter-grid,.field-stack,.summary-strip{{grid-template-columns:1fr}}.form-actions{{grid-template-columns:1fr}}.utility-actions{{justify-content:flex-start}}.preset-picker{{min-width:100%;flex-wrap:wrap}}.cards-grid{{grid-template-columns:1fr}}input,select,button{{font-size:.84rem}}table{{font-size:.8rem}}}}
     </style></head><body>
+    <div id='loadingOverlay' class='loading-overlay' aria-live='polite' aria-hidden='true'>
+      <div class='loading-card' role='status'>
+        <div class='loading-header'>
+          <div class='loading-spinner' aria-hidden='true'></div>
+          <div>
+            <p id='loadingTitle' class='loading-title'>正在更新儀表板</p>
+            <p id='loadingMessage' class='loading-message'>正在準備股池與篩選條件…</p>
+          </div>
+        </div>
+        <div id='loadingSteps' class='loading-steps'>
+          <span class='loading-step is-active'>套用頁籤、產業與個人篩選</span>
+          <span class='loading-step'>讀取快取；必要時下載行情資料</span>
+          <span class='loading-step'>計算均線、量能與形勢判斷</span>
+          <span class='loading-step'>排序表格並繪製多股趨勢圖</span>
+        </div>
+        <p class='loading-tip'>分類股池檔數較多時可能需要約 1 分鐘；此畫面代表系統仍在處理，請先不要重複送出。</p>
+      </div>
+    </div>
     <div class='page-shell'>
     <header class='hero'>
       <div>
@@ -704,7 +748,7 @@ def app(environ, start_response):
           <input type='file' id='memoryFile' accept='application/json' style='display:none' onchange='importBrowserMemory(event)'>
           <button type='button' onclick="document.getElementById('memoryFile').click()">匯入備份檔</button>
         </div>
-        <p class='form-help'>推薦設定由伺服器設定目錄提供；本機設定與完整備份檔會保存在瀏覽器，可跨裝置匯入還原。</p>
+        <p class='form-help'>推薦設定由伺服器設定目錄提供；本機設定與完整備份檔會保存在瀏覽器，可跨裝置匯入還原。送出後會顯示目前動作提示，分類股池檔數多時請等候下載與分析完成。</p>
       </div>
     <input type='hidden' name='custom_watchlist' id='customWatchlist' value='{html.escape(','.join(watchlist['symbol'].tolist()))}'>
     <div id='watchlistBatchModal' class='watchlist-batch-modal' role='dialog' aria-modal='true' aria-labelledby='watchlistBatchTitle'>
@@ -748,7 +792,7 @@ def app(environ, start_response):
         <div class='summary-item'><span class='summary-label'>頁面進度</span><span class='summary-value'>{page} / {total_pages}</span></div>
         <div class='summary-item'><span class='summary-label'>每頁顯示</span><span class='summary-value'>{limit} 檔</span></div>
       </div>
-      <div id='tableWrap' class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="15">無符合條件資料</td></tr>'}</table></div>
+      <div id='tableWrap' class='table-wrap'><table>{table_header_html}{''.join(rows) if rows else '<tr><td colspan="15">無符合條件資料</td></tr>'}</table></div>
     </section>
     <section class='section-card' aria-labelledby='chartsTitle'>
       <div class='section-header'><h2 id='chartsTitle'>多股趨勢圖</h2></div>
@@ -770,6 +814,14 @@ def app(environ, start_response):
     const STOCK_META_FIELDS = STOCK_META_GROUPS.map((group)=>group.id);
     const stockMetaFilterOptions = {json.dumps(stock_meta_filter_options, ensure_ascii=False)};
     const stockMetaFilterHasEmpty = {json.dumps(stock_meta_filter_has_empty, ensure_ascii=False)};
+    // Immutable source of the full server-analyzed pool; status filtering always derives
+    // a fresh visible list from this array so switching back to "全部" never needs
+    // another yfinance download or analysis pass.
+    const dashboardRenderItems = Object.freeze({dashboard_render_items_json});
+    const dashboardTableHeaderHtml = {table_header_html_json};
+    const dashboardPageSize = Number(defaultConfig.limit || 30);
+    const dashboardHasAllClientCards = {json.dumps(client_render_all_cards)};
+    let dashboardCurrentPage = Number(defaultConfig.page || 1);
     const STOCK_META_PRESET_LOOKUP = STOCK_META_GROUPS.reduce((lookup, group)=>{{
       group.options.forEach((option)=>{{ lookup[option] = group.id; }});
       return lookup;
@@ -790,19 +842,108 @@ def app(environ, start_response):
       const fd = new FormData(document.getElementById('cfgForm'));
       return Object.fromEntries(fd.entries());
     }}
+    let loadingStepTimer = null;
+    function selectedOptionText(form, name){{
+      const el = form?.elements?.[name];
+      if(!el || el.selectedIndex < 0) return '';
+      return el.options[el.selectedIndex]?.text?.trim() || '';
+    }}
+    function buildLoadingMessage(form, reason='更新儀表板'){{
+      const tabText = selectedOptionText(form, 'tab') || '目前股池';
+      const industryText = selectedOptionText(form, 'industry');
+      const periodText = selectedOptionText(form, 'period');
+      const intervalText = selectedOptionText(form, 'interval');
+      const countText = document.querySelector('#summaryInfo .summary-value')?.textContent?.trim() || '';
+      const scope = industryText && !industryText.includes('不限') ? `${{tabText}}／${{industryText}}` : tabText;
+      const cadence = [periodText, intervalText].filter(Boolean).join('・');
+      const stockHint = countText ? `（目前畫面 ${{countText}}；新篩選會重新計算）` : '';
+      return `${{reason}}：正在處理 ${{scope}} ${{stockHint}}。接著會讀取快取、必要時下載行情，並計算技術指標${{cadence ? `（${{cadence}}）` : ''}}。`;
+    }}
+    function showLoadingProgress(reason='更新儀表板'){{
+      const form = document.getElementById('cfgForm');
+      const overlay = document.getElementById('loadingOverlay');
+      if(!overlay) return;
+      const message = document.getElementById('loadingMessage');
+      const title = document.getElementById('loadingTitle');
+      if(title) title.textContent = `正在${{reason}}`;
+      if(message) message.textContent = buildLoadingMessage(form, reason);
+      overlay.classList.add('is-open');
+      overlay.setAttribute('aria-hidden', 'false');
+      const steps = Array.from(document.querySelectorAll('#loadingSteps .loading-step'));
+      let stepIndex = 0;
+      const activateStep = () => {{
+        steps.forEach((step, idx)=>step.classList.toggle('is-active', idx === stepIndex));
+        stepIndex = Math.min(stepIndex + 1, Math.max(steps.length - 1, 0));
+      }};
+      activateStep();
+      window.clearInterval(loadingStepTimer);
+      loadingStepTimer = window.setInterval(activateStep, 2600);
+    }}
+    function submitFormWithLoading(form, reason='更新儀表板'){{
+      showLoadingProgress(reason);
+      window.setTimeout(()=>form.submit(), 30);
+    }}
     function applyConfig(cfg){{
       const form = document.getElementById('cfgForm');
       Object.entries(cfg).forEach(([k,v])=>{{ if(form.elements[k]) form.elements[k].value = v; }});
       syncStockMetaPayload();
-      form.submit();
+      submitFormWithLoading(form, '讀取設定');
     }}
     function submitConfig(overrides={{}}){{
       const form = document.getElementById('cfgForm');
       Object.entries(overrides).forEach(([k,v])=>{{ if(form.elements[k]) form.elements[k].value = v; }});
       syncStockMetaPayload();
-      form.submit();
+      submitFormWithLoading(form, '更新儀表板');
+    }}
+    function filteredDashboardItems(){{
+      const filter = document.querySelector('[name="status_filter"]')?.value || 'all';
+      return dashboardRenderItems.filter((item)=>filter === 'all' || item.bucket === filter);
+    }}
+    async function renderDashboardPage(page=1){{
+      const items = filteredDashboardItems();
+      const total = items.length;
+      const totalPages = Math.max(1, Math.ceil(total / dashboardPageSize));
+      dashboardCurrentPage = Math.min(Math.max(Number(page) || 1, 1), totalPages);
+      const start = (dashboardCurrentPage - 1) * dashboardPageSize;
+      const pageItems = items.slice(start, start + dashboardPageSize);
+      const table = document.querySelector('#tableWrap table');
+      if(table){{
+        table.innerHTML = dashboardTableHeaderHtml + (pageItems.length ? pageItems.map((item)=>item.row_html).join('') : '<tr><td colspan="15">無符合條件資料</td></tr>');
+      }}
+      const grid = document.getElementById('cardsGrid');
+      if(grid){{
+        grid.innerHTML = pageItems
+          .filter((item)=>item.card_html)
+          .map((item)=>`<div class='card' data-symbol='${{String(item.symbol).replaceAll("'", '&#39;")}}'>${{item.card_html}}</div>`)
+          .join('');
+        await executeScripts(grid);
+      }}
+      const summaryValues = document.querySelectorAll('#summaryInfo .summary-value');
+      if(summaryValues[0]) summaryValues[0].textContent = `${{total}} 檔`;
+      if(summaryValues[1]) summaryValues[1].textContent = `${{dashboardCurrentPage}} / ${{totalPages}}`;
+      if(summaryValues[2]) summaryValues[2].textContent = `${{dashboardPageSize}} 檔`;
+      const nav = document.getElementById('pageNav');
+      if(nav){{
+        nav.innerHTML = `<button type='button' onclick='goToPage(${{Math.max(1, dashboardCurrentPage - 1)}})' ${{dashboardCurrentPage <= 1 ? 'disabled' : ''}}>上一頁</button>`
+          + `<button type='button' onclick='goToPage(${{Math.min(totalPages, dashboardCurrentPage + 1)}})' ${{dashboardCurrentPage >= totalPages ? 'disabled' : ''}}>下一頁</button>`;
+      }}
+      populateStockMetaControls();
+      applyNotesToTableAndCards();
+      updateResponsiveGrid();
+    }}
+    function applyStatusFilterInPlace(){{
+      renderDashboardPage(1);
+      const selectedText = selectedOptionText(document.getElementById('cfgForm'), 'status_filter') || '全部';
+      const isAll = (document.querySelector('[name="status_filter"]')?.value || 'all') === 'all';
+      const actionText = isAll ? '已恢復顯示全部形勢判斷' : `已套用「${{selectedText}}」形勢判斷篩選`;
+      const cardNote = dashboardHasAllClientCards ? '' : '（大型股池僅表格即時篩選；若要補齊其他頁圖表再換頁更新。）';
+      showWatchlistStatus(`${{actionText}}，仍使用目前載入的完整股池，未重新下載行情。${{cardNote}}`);
     }}
     function goToPage(page){{
+      if(dashboardRenderItems.length && dashboardHasAllClientCards){{
+        renderDashboardPage(page);
+        return;
+      }}
       submitConfig({{page: String(page)}});
     }}
     function scrollToStockCard(symbol){{
@@ -912,7 +1053,7 @@ def app(environ, start_response):
         const symbols = JSON.parse(raw);
         if(!Array.isArray(symbols)) throw new Error('invalid');
         setWatchlistSymbols(symbols.map(String));
-        if(autoSubmit) document.getElementById('cfgForm').submit();
+        if(autoSubmit) submitConfig();
       }} catch(e) {{
         alert('瀏覽器自選清單格式錯誤');
       }}
@@ -1265,11 +1406,15 @@ def app(environ, start_response):
       }}
       submitConfig(overrides);
     }}
-    document.getElementById('cfgForm')?.addEventListener('submit', syncStockMetaPayload);
-    ['tab','industry','period','interval','limit','status_filter','group_filter','subgroup_filter','cards_per_row','show_volume','show_target_price','card_sort'].forEach((name)=>{{
+    document.getElementById('cfgForm')?.addEventListener('submit', (event)=>{{
+      syncStockMetaPayload();
+      showLoadingProgress('更新儀表板');
+    }});
+    ['tab','industry','period','interval','limit','group_filter','subgroup_filter','cards_per_row','show_volume','show_target_price','card_sort'].forEach((name)=>{{
       const el = document.querySelector(`[name="${{name}}"]`);
       if(el) el.addEventListener('change', autoSubmitConfig);
     }});
+    document.querySelector('[name="status_filter"]')?.addEventListener('change', applyStatusFilterInPlace);
     async function executeScripts(container){{
       const scripts = Array.from(container.querySelectorAll('script'));
       for(const oldScript of scripts){{

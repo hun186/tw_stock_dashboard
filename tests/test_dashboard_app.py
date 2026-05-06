@@ -87,6 +87,32 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         self.assertIn('class="batch-stock-label"', response)
         self.assertEqual(captured_counts, [2])
 
+    def test_dashboard_renders_loading_progress_for_slow_category_requests(self) -> None:
+        file_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+        llm_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+        industry_df = pd.DataFrame([
+            {"industry": "24", "industry_label": "24 - 半導體業", "symbol": "2330.TW", "name": "台積電", "group": "TWSE-24", "subgroup": ""},
+        ])
+
+        with patch.object(dashboard_app, "load_watchlist", return_value=file_watchlist), \
+            patch.object(dashboard_app, "load_llm_group_map", return_value=llm_watchlist), \
+            patch.object(dashboard_app, "load_twse_industry_map", return_value=industry_df), \
+            patch.object(dashboard_app, "prefetch_price_data", return_value={}):
+            response = b"".join(dashboard_app.app({"QUERY_STRING": "tab=category&industry=24"}, lambda *_args: None)).decode("utf-8")
+
+        self.assertIn("id='loadingOverlay'", response)
+        self.assertIn("讀取快取；必要時下載行情資料", response)
+        self.assertIn("分類股池檔數較多時可能需要約 1 分鐘", response)
+        self.assertIn("showLoadingProgress('更新儀表板')", response)
+        self.assertIn("buildLoadingMessage(form, reason)", response)
+        self.assertIn("const dashboardRenderItems = Object.freeze", response)
+        self.assertIn("applyStatusFilterInPlace", response)
+        self.assertIn("未重新下載行情", response)
+        self.assertIn("已恢復顯示全部形勢判斷", response)
+        self.assertIn("仍使用目前載入的完整股池", response)
+        self.assertIn('document.querySelector(\'[name="status_filter"]\')?.addEventListener(\'change\', applyStatusFilterInPlace)', response)
+        self.assertNotIn("'limit','status_filter','group_filter'", response)
+
     def test_category_tab_all_industries_remains_available(self) -> None:
         file_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
         llm_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
