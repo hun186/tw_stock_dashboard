@@ -464,6 +464,7 @@ def app(environ, start_response):
 
     rows_data = []
     cards_data = []
+    watchlist_symbol_keys = set(watchlist["symbol"].map(_symbol_key))
     price_data_map = prefetch_price_data(stocks, fetch_period, fetch_interval)
     signal_data_map = prefetch_price_data(stocks, "6mo", "1d") if period == "intraday" else {}
 
@@ -488,11 +489,22 @@ def app(environ, start_response):
         if status_filter != "all" and bucket != status_filter:
             continue
 
-        action_btn = (
-            f"<button type='button' onclick=\"removeWatchlistStock('{html.escape(row.symbol)}')\">移出自選</button>"
-            if tab == "watchlist"
-            else f"<button type='button' onclick=\"addWatchlistStock('{html.escape(row.symbol)}')\">加入自選</button>"
-        )
+        symbol_key = _symbol_key(row.symbol)
+        symbol_js = json.dumps(row.symbol, ensure_ascii=False)
+        if tab == "watchlist":
+            action_btn = (
+                "<button type='button' class='watchlist-action' "
+                f"data-symbol='{html.escape(row.symbol, quote=True)}' "
+                f"onclick='removeWatchlistStock({symbol_js}, {{ stayOnPage: true }})'>移出自選</button>"
+            )
+        elif symbol_key in watchlist_symbol_keys:
+            action_btn = "<button type='button' class='watchlist-action is-added' disabled>已在自選</button>"
+        else:
+            action_btn = (
+                "<button type='button' class='watchlist-action' "
+                f"data-symbol='{html.escape(row.symbol, quote=True)}' "
+                f"onclick='addWatchlistStock({symbol_js}, {{ stayOnPage: true }})'>加入自選</button>"
+            )
         subgroup_text = row.subgroup if isinstance(row.subgroup, str) and row.subgroup else "-"
         note_editor = (
             f"<div class='note-editor' data-symbol='{html.escape(row.symbol)}'>"
@@ -618,6 +630,9 @@ def app(environ, start_response):
       .card h3{{font-size:.95rem;margin:4px 0 6px}}
       .note-editor{{display:flex;gap:2px;align-items:center;white-space:nowrap}}
       .note-editor .note-preset-select{{width:calc(72px + 16pt);min-width:0;padding:2px 3px;text-align:left;text-align-last:left}}
+      .watchlist-action{{min-width:72px;cursor:pointer}}
+      .watchlist-action.is-added{{color:#2e7d32;background:#eef8ee;border:1px solid #9ccc9c;cursor:default}}
+      #watchlistStatus{{min-height:1.2em;color:#2e7d32;font-size:.86rem}}
       table th:nth-child(10), table td:nth-child(10), table th:nth-child(11), table td:nth-child(11){{width:96px;min-width:96px;max-width:96px}}
       @media (max-width: 900px){{ body{{margin:10px}} }}
       @media (max-width: 720px){{
@@ -655,6 +670,7 @@ def app(environ, start_response):
     <label>關鍵字</label><input id='watchKeyword' placeholder='輸入名稱或代號'>
     <label>加入自選</label><select id='stockPicker'></select>
     <button type='button' onclick='addSelectedStock()'>加入</button>
+    <span id='watchlistStatus' role='status' aria-live='polite'></span>
     <input type='hidden' name='custom_watchlist' id='customWatchlist' value='{html.escape(','.join(watchlist['symbol'].tolist()))}'>
     </form>
     <h2>總覽</h2>
@@ -760,7 +776,15 @@ def app(environ, start_response):
       return raw ? raw.split(',').map(x=>x.trim()).filter(Boolean) : [];
     }}
     function setWatchlistSymbols(symbols){{
-      document.getElementById('customWatchlist').value = [...new Set(symbols)].join(',');
+      const unique = [];
+      const seen = new Set();
+      symbols.map(String).map(s => s.trim()).filter(Boolean).forEach((symbol)=>{{
+        const key = normalizeWatchlistSymbol(symbol);
+        if(seen.has(key)) return;
+        seen.add(key);
+        unique.push(symbol);
+      }});
+      document.getElementById('customWatchlist').value = unique.join(',');
     }}
     function saveWatchlistToBrowser(silent=false){{
       const symbols = getWatchlistSymbols();
@@ -779,17 +803,64 @@ def app(environ, start_response):
         alert('瀏覽器自選清單格式錯誤');
       }}
     }}
-    function addWatchlistStock(symbol){{
+    function normalizeWatchlistSymbol(symbol){{
+      return String(symbol || '').trim().toUpperCase().replace(/\.(TW|TWO)$/i, '');
+    }}
+    function markWatchlistButtonAdded(symbol){{
+      const key = normalizeWatchlistSymbol(symbol);
+      document.querySelectorAll('.watchlist-action[data-symbol]').forEach((btn)=>{{
+        if(normalizeWatchlistSymbol(btn.dataset.symbol) !== key) return;
+        btn.textContent = '已在自選';
+        btn.classList.add('is-added');
+        btn.disabled = true;
+        btn.removeAttribute('onclick');
+      }});
+    }}
+    function markWatchlistStockRemoved(symbol){{
+      const key = normalizeWatchlistSymbol(symbol);
+      document.querySelectorAll('tr[data-symbol], .card[data-symbol]').forEach((el)=>{{
+        if(normalizeWatchlistSymbol(el.dataset.symbol) !== key) return;
+        el.dataset.removed = '1';
+        el.style.display = 'none';
+      }});
+      document.querySelectorAll('.watchlist-action[data-symbol]').forEach((btn)=>{{
+        if(normalizeWatchlistSymbol(btn.dataset.symbol) !== key) return;
+        btn.textContent = '已移出';
+        btn.disabled = true;
+      }});
+    }}
+    function showWatchlistStatus(message){{
+      const el = document.getElementById('watchlistStatus');
+      if(!el) return;
+      el.textContent = message;
+      window.clearTimeout(showWatchlistStatus.timer);
+      showWatchlistStatus.timer = window.setTimeout(()=>{{ el.textContent = ''; }}, 2500);
+    }}
+    function addWatchlistStock(symbol, options={{}}){{
       const symbols = getWatchlistSymbols();
-      if(!symbols.includes(symbol)) symbols.push(symbol);
+      const key = normalizeWatchlistSymbol(symbol);
+      const exists = symbols.some(s => normalizeWatchlistSymbol(s) === key);
+      if(!exists) symbols.push(symbol);
       setWatchlistSymbols(symbols);
       saveWatchlistToBrowser(true);
+      markWatchlistButtonAdded(symbol);
+      if(options.stayOnPage){{
+        showWatchlistStatus(exists ? `${{symbol}} 已在自選股` : `已加入 ${{symbol}} 到自選股`);
+        return;
+      }}
       document.getElementById('cfgForm').submit();
     }}
-    function removeWatchlistStock(symbol){{
-      const symbols = getWatchlistSymbols().filter(s => s !== symbol);
+    function removeWatchlistStock(symbol, options={{}}){{
+      const key = normalizeWatchlistSymbol(symbol);
+      const symbols = getWatchlistSymbols().filter(s => normalizeWatchlistSymbol(s) !== key);
       setWatchlistSymbols(symbols);
       saveWatchlistToBrowser(true);
+      if(options.stayOnPage){{
+        markWatchlistStockRemoved(symbol);
+        showWatchlistStatus(`已將 ${{symbol}} 移出自選股，剩餘 ${{symbols.length}} 檔`);
+        applyNoteFilter();
+        return;
+      }}
       document.getElementById('cfgForm').submit();
     }}
     function fillStockPicker(keyword=''){{
@@ -837,12 +908,14 @@ def app(environ, start_response):
       const visibleSymbols = new Set();
       document.querySelectorAll('tr[data-symbol]').forEach((tr)=>{{
         const note = tr.dataset.note || 'none';
-        const visible = selected === 'all' || note === selected || (selected === 'none' && note === 'none');
+        const removed = tr.dataset.removed === '1';
+        const visible = !removed && (selected === 'all' || note === selected || (selected === 'none' && note === 'none'));
         tr.style.display = visible ? '' : 'none';
         if(visible) visibleSymbols.add(tr.dataset.symbol);
       }});
       document.querySelectorAll('.card[data-symbol]').forEach((card)=>{{
-        card.style.display = visibleSymbols.has(card.dataset.symbol) ? '' : 'none';
+        const removed = card.dataset.removed === '1';
+        card.style.display = !removed && visibleSymbols.has(card.dataset.symbol) ? '' : 'none';
       }});
     }}
     function saveNoteBySymbol(symbol, note){{
