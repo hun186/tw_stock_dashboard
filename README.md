@@ -41,7 +41,8 @@ Vercel 會直接執行 `api/main.py`。
 - `period`: `3mo` / `6mo` / `1y`
 - `interval`: `1d` / `1wk`
 - `limit`: 顯示檔數
-- `status_filter`: `all` / `watch` / `buy` / `pullback` / `overheat` / `strong`
+- `status_filter`: `all` / `watch` / `bull` / `observe` / `warn` / `bear` / `neutral`
+- `show_target_price`: `0` / `1`（預設 `0`；開啟會逐檔查 Yahoo 目標價，速度較慢）
 
 ## 自選股清單
 
@@ -71,6 +72,21 @@ symbol,name,group
 - 先載入 LLM 分類
 - 再疊上 `watchlist.csv`
 - 若同一 `symbol` 重複，以 `watchlist.csv` 為優先（可手動覆寫 LLM 分類）
+
+
+## 效能瓶頸與加速策略
+
+切換頁籤或刷新頁面時，後端會重新組合股池、抓取每頁股票價格、計算技術指標並產生 Plotly 圖表。最容易造成等待的環節有三個：
+
+1. **價格資料**：日線 / 週線會優先讀取 `prebuilt_cache/`，避免每次頁面操作都打 Yahoo Finance。預建快取現在允許保留 7 天；分鐘線仍維持短 TTL，以免盤中資料過舊。
+2. **靜態股池資料**：自選清單、LLM 分類 Excel、上市 / 上櫃產業清單會在同一個 Python process 內快取，減少重複讀檔與重複呼叫交易所 OpenAPI。
+3. **目標價**：Yahoo `Ticker.get_info()` 是逐檔外部查詢，容易拖慢整頁渲染；因此預設關閉，需要時可從頁面上的「目標價」選單或 `show_target_price=1` 開啟。
+
+若要維持最快刷新速度，建議：
+
+- 使用日線 / 週線並定期執行 `python scripts/prebuild_price_cache.py` 更新 `prebuilt_cache/`。
+- 每頁檔數不要一次拉太大；頁面仍需為每檔股票產生 Plotly HTML。
+- 非必要時保持「目標價」關閉。
 
 ## 免責聲明
 
