@@ -56,8 +56,10 @@ def app(environ, start_response):
     )
     industry_df = load_twse_industry_map()
     industries = industry_df[["industry", "industry_label"]].drop_duplicates().sort_values("industry")
-    default_industry = "24" if (not industries.empty and (industries["industry"] == "24").any()) else (industries.iloc[0]["industry"] if not industries.empty else "")
-    industry = params.get("industry", [default_industry])[0]
+    valid_industries = set(industries["industry"].astype(str)) if not industries.empty else set()
+    industry = params.get("industry", ["all"])[0]
+    if industry != "all" and industry not in valid_industries:
+        industry = "all"
 
     watchlist_overrides = (
         base_watchlist[["symbol", "name", "group", "subgroup"]]
@@ -85,10 +87,18 @@ def app(environ, start_response):
         ], ignore_index=True)
     watchlist = custom_df if not custom_df.empty else base_watchlist
 
-    if tab == "category" and industry:
-        source_stocks = industry_df[industry_df["industry"] == industry][["symbol", "name", "group", "subgroup"]]
+    if tab == "category":
+        source_stocks = industry_df.copy()
+        if industry != "all":
+            source_stocks = source_stocks[source_stocks["industry"] == industry]
+        source_stocks = source_stocks[["symbol", "name", "group", "subgroup"]]
     else:
-        source_stocks = watchlist[["symbol", "name", "group", "subgroup"]]
+        source_stocks = watchlist[["symbol", "name", "group", "subgroup"]].copy()
+        if industry != "all":
+            industry_symbol_keys = set(
+                industry_df.loc[industry_df["industry"] == industry, "symbol"].map(_symbol_key)
+            )
+            source_stocks = source_stocks[source_stocks["symbol"].map(_symbol_key).isin(industry_symbol_keys)]
 
     source_stocks["symbol_key"] = source_stocks["symbol"].map(_symbol_key)
     source_stocks = source_stocks.merge(
@@ -247,10 +257,13 @@ def app(environ, start_response):
         cards_data.sort(key=lambda x: x[card_sort], reverse=True)
     cards = [x["card_html"] for x in cards_data]
 
-    industry_options = "".join([
-        f"<option value='{html.escape(r.industry)}' {'selected' if r.industry == industry else ''}>{html.escape(r.industry_label)}</option>"
-        for r in industries.itertuples(index=False)
-    ])
+    industry_options = (
+        "<option value='all' {}>不限產業</option>".format("selected" if industry == "all" else "")
+        + "".join([
+            f"<option value='{html.escape(r.industry)}' {'selected' if r.industry == industry else ''}>{html.escape(r.industry_label)}</option>"
+            for r in industries.itertuples(index=False)
+        ])
+    )
     status_options = "".join([
         f"<option value='{k}' {'selected' if k == status_filter else ''}>{v}</option>" for k, v in STATUS_FILTERS.items()
     ])
