@@ -204,22 +204,22 @@ def app(environ, start_response):
 
     fetch_period, fetch_interval, display_period = resolve_price_params(period, interval)
 
-    base_watchlist = load_watchlist(WATCHLIST_FILE)
+    file_watchlist = load_watchlist(WATCHLIST_FILE)
     llm_watchlist = load_llm_group_map(LLM_GROUP_FILE, LLM_GROUP_SHEET)
-    base_watchlist = (
-        pd.concat([llm_watchlist, base_watchlist], ignore_index=True)
+    stock_metadata = (
+        pd.concat([llm_watchlist, file_watchlist], ignore_index=True)
         .drop_duplicates(subset=["symbol"], keep="last")
         .reset_index(drop=True)
     )
+    base_watchlist = file_watchlist.reset_index(drop=True)
     industry_df = load_twse_industry_map()
     industries = industry_df[["industry", "industry_label"]].drop_duplicates().sort_values("industry")
     valid_industries = set(industries["industry"].astype(str)) if not industries.empty else set()
     industry = params.get("industry", ["all"])[0]
     if industry != "all" and industry not in valid_industries:
         industry = "all"
-
     watchlist_overrides = (
-        base_watchlist[["symbol", "name", "group", "subgroup"]]
+        stock_metadata[["symbol", "name", "group", "subgroup"]]
         .assign(symbol_key=lambda d: d["symbol"].map(_symbol_key))
         .drop_duplicates(subset=["symbol"], keep="last")
         .rename(columns={
@@ -230,7 +230,7 @@ def app(environ, start_response):
     )
 
     all_stocks = pd.concat([
-        base_watchlist[["symbol", "name", "group", "subgroup"]],
+        stock_metadata[["symbol", "name", "group", "subgroup"]],
         industry_df[["symbol", "name", "group", "subgroup"]]
     ], ignore_index=True).drop_duplicates(subset=["symbol"])
 
@@ -286,6 +286,17 @@ def app(environ, start_response):
         stocks = stocks[stocks["group"] == group_filter]
     if subgroup_filter != "all":
         stocks = stocks[stocks["subgroup"] == subgroup_filter]
+
+    stock_meta_filter_values = {field: set() for field in ("action", "trait", "stage", "risk")}
+    for symbol in stocks["symbol"].astype(str):
+        meta = normalize_stock_meta_entry(stock_meta_payload.get(symbol, {}))
+        for field in stock_meta_filter_values:
+            stock_meta_filter_values[field].add(meta[field] or "none")
+    for field, selected in stock_meta_filters.items():
+        if selected != "all" and selected not in stock_meta_filter_values[field]:
+            stock_meta_filters[field] = "all"
+    has_stock_meta_filter = any(value != "all" for value in stock_meta_filters.values())
+
     if has_stock_meta_filter:
         def stock_matches_meta_filters(symbol):
             meta = normalize_stock_meta_entry(stock_meta_payload.get(str(symbol), {}))
@@ -342,7 +353,7 @@ def app(environ, start_response):
         else {}
     )
 
-    filtered_stocks = []
+    analyzed_stocks = []
     needs_target_price = show_target_price or card_sort == "target_ratio"
     for row in stocks.itertuples(index=False):
         stock_analysis = _build_stock_analysis(
@@ -355,18 +366,25 @@ def app(environ, start_response):
             signal_data_map.get(row.symbol, pd.DataFrame()),
             needs_target_price,
         )
-        if status_filter != "all" and stock_analysis["bucket"] != status_filter:
-            continue
-        filtered_stocks.append({
+        analyzed_stocks.append({
             "row": row,
             "df": stock_analysis["df"],
             "signal": stock_analysis["signal"],
             "status": stock_analysis["status"],
+            "bucket": stock_analysis["bucket"],
             "close_text": stock_analysis["close_text"],
             "sort_metrics": stock_analysis["sort_metrics"],
             "target_price_text": stock_analysis["target_price_text"] if show_target_price else "-",
             "target_ratio_text": stock_analysis["target_ratio_text"] if show_target_price else "-",
         })
+
+    status_filter_values = {item["bucket"] for item in analyzed_stocks}
+    if status_filter != "all" and status_filter not in status_filter_values:
+        status_filter = "all"
+    filtered_stocks = [
+        item for item in analyzed_stocks
+        if status_filter == "all" or item["bucket"] == status_filter
+    ]
 
     if card_sort == "symbol":
         filtered_stocks.sort(key=lambda item: item["sort_metrics"]["symbol"])
@@ -492,8 +510,18 @@ def app(environ, start_response):
         ])
     )
     status_options = "".join([
-        f"<option value='{k}' {'selected' if k == status_filter else ''}>{v}</option>" for k, v in STATUS_FILTERS.items()
+        f"<option value='{k}' {'selected' if k == status_filter else ''}>{v}</option>"
+        for k, v in STATUS_FILTERS.items()
+        if k == "all" or k in status_filter_values
     ])
+    stock_meta_filter_options = {
+        field: sorted(value for value in values if value != "none")
+        for field, values in stock_meta_filter_values.items()
+    }
+    stock_meta_filter_has_empty = {
+        field: "none" in values
+        for field, values in stock_meta_filter_values.items()
+    }
     group_options = "<option value='all'>全部主題</option>" + "".join([
         f"<option value='{html.escape(v)}' {'selected' if v == group_filter else ''}>{html.escape(v)}</option>" for v in valid_groups
     ])
@@ -595,11 +623,13 @@ def app(environ, start_response):
       .watchlist-batch-body{{padding:12px 14px;overflow:auto;display:grid;gap:10px}}
       .watchlist-batch-row{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}
       .watchlist-batch-list{{border:1px solid #ddd;border-radius:12px;max-height:260px;overflow:auto;background:#fafafa}}
-      .watchlist-batch-item{{display:flex;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid #eee;cursor:pointer}}
+      .watchlist-batch-item{{display:flex;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid #eee;cursor:pointer;min-height:38px}}
       .watchlist-batch-item:last-child{{border-bottom:0}}
       .watchlist-batch-item:hover{{background:#f2f7ff}}
       .watchlist-batch-item.is-added{{color:#777;background:#f5f5f5}}
-      .watchlist-batch-item small{{color:#666}}
+      .watchlist-batch-item .batch-stock-check{{flex:0 0 16px;width:16px;min-width:16px;height:16px;min-height:16px;margin:0;padding:0;border-radius:3px}}
+      .watchlist-batch-item .batch-stock-label{{display:block;flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.35}}
+      .watchlist-batch-item small{{color:#666;margin-left:6px}}
       .watchlist-batch-paste{{width:100%;min-height:70px}}
       .watchlist-batch-help{{color:#666;font-size:.84rem}}
       .stock-meta-cell{{width:116px;min-width:116px;max-width:116px}}
@@ -738,6 +768,8 @@ def app(environ, start_response):
       {{ id: 'risk', label: '風險與觀察', allLabel: '全部風險觀察', noneLabel: '未設定風險觀察', options: ['量縮觀察', '爆量觀察', '籌碼鬆動', '技術轉弱', '財報觀察', '法說觀察', '除權息觀察', '利多出盡疑慮', '追高風險', '流動性不足'] }},
     ];
     const STOCK_META_FIELDS = STOCK_META_GROUPS.map((group)=>group.id);
+    const stockMetaFilterOptions = {json.dumps(stock_meta_filter_options, ensure_ascii=False)};
+    const stockMetaFilterHasEmpty = {json.dumps(stock_meta_filter_has_empty, ensure_ascii=False)};
     const STOCK_META_PRESET_LOOKUP = STOCK_META_GROUPS.reduce((lookup, group)=>{{
       group.options.forEach((option)=>{{ lookup[option] = group.id; }});
       return lookup;
@@ -1007,7 +1039,7 @@ def app(environ, start_response):
         const checked = checkedKeys.has(key) && !added;
         return `<label class='watchlist-batch-item${{added ? ' is-added' : ''}}'>
           <input class='batch-stock-check' type='checkbox' value="${{r.symbol}}" ${{checked ? 'checked' : ''}} ${{added ? 'disabled' : ''}} onchange='syncVisibleBatchSelections(); updateBatchWatchlistPreview()'>
-          <span>${{getStockLabel(r)}} ${{added ? '<small>已在自選</small>' : ''}}</span>
+          <span class="batch-stock-label">${{getStockLabel(r)}}${{added ? '<small>已在自選</small>' : ''}}</span>
         </label>`;
       }}).join('');
       updateBatchWatchlistPreview();
@@ -1106,11 +1138,15 @@ def app(environ, start_response):
         const filter = document.getElementById(`stockMetaFilter-${{group.id}}`);
         if(!filter) return;
         const currentValue = filter.value || 'all';
+        const availableOptions = new Set(stockMetaFilterOptions[group.id] || []);
+        const hasEmpty = Boolean(stockMetaFilterHasEmpty[group.id]);
         filter.replaceChildren();
         appendOption(filter, 'all', group.allLabel);
-        appendOption(filter, 'none', group.noneLabel);
-        group.options.forEach((value)=>appendOption(filter, value, value));
-        filter.value = [...group.options, 'all', 'none'].includes(currentValue) ? currentValue : 'all';
+        if(hasEmpty) appendOption(filter, 'none', group.noneLabel);
+        group.options
+          .filter((value)=>availableOptions.has(value))
+          .forEach((value)=>appendOption(filter, value, value));
+        filter.value = (currentValue === 'none' && hasEmpty) || availableOptions.has(currentValue) ? currentValue : 'all';
       }});
     }}
     function applyNotesToTableAndCards(){{
@@ -1199,13 +1235,19 @@ def app(environ, start_response):
         submitConfig({{ page: '1', [event.target.name]: event.target.value }});
       }});
     }});
-    function restoreBrowserWatchlistIfAvailable(){{
+    function watchlistSignature(symbols){{
+      return symbols.map(normalizeWatchlistSymbol).join(',');
+    }}
+    function restoreBrowserWatchlistIfAvailable(options={{}}){{
       const raw = localStorage.getItem(WATCHLIST_STORAGE_KEY);
       if(!raw) return false;
       try {{
         const symbols = JSON.parse(raw);
         if(!Array.isArray(symbols) || symbols.length === 0) return false;
+        const before = watchlistSignature(getWatchlistSymbols());
         setWatchlistSymbols(symbols.map(String));
+        const after = watchlistSignature(getWatchlistSymbols());
+        if(options.submit && after !== before) submitConfig({{tab: 'watchlist', page: '1'}});
         return true;
       }} catch(e) {{
         return false;
@@ -1213,7 +1255,7 @@ def app(environ, start_response):
     }}
     const hasSavedWatchlist = Boolean(localStorage.getItem(WATCHLIST_STORAGE_KEY));
     if(hasSavedWatchlist && !window.location.search.includes('custom_watchlist=')){{
-      restoreBrowserWatchlistIfAvailable();
+      restoreBrowserWatchlistIfAvailable({{submit: true}});
     }}
     function autoSubmitConfig(event){{
       const overrides = {{}};
