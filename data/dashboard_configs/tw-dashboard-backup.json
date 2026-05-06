@@ -11,7 +11,7 @@
     "status_filter": "all",
     "cards_per_row": "3",
     "show_volume": "1",
-    "card_sort": "symbol",
+    "card_sort": "signal_score",
     "custom_watchlist": "2330.TW,3661.TW,2379.TW,4977.TW,3450.TW,3081.TWO,3363.TWO,4971.TWO,4979.TWO,3163.TWO,6442.TW,2455.TW,2316.TW,2382.TW,6669.TW,3380.TW,3596.TW,4720.TW"
   },
   "watchlist": [],
