@@ -706,10 +706,13 @@ def app(environ, start_response):
       Object.entries(cfg).forEach(([k,v])=>{{ if(form.elements[k]) form.elements[k].value = v; }});
       form.submit();
     }}
-    function goToPage(page){{
+    function submitConfig(overrides={{}}){{
       const form = document.getElementById('cfgForm');
-      if(form.elements['page']) form.elements['page'].value = String(page);
+      Object.entries(overrides).forEach(([k,v])=>{{ if(form.elements[k]) form.elements[k].value = v; }});
       form.submit();
+    }}
+    function goToPage(page){{
+      submitConfig({{page: String(page)}});
     }}
     function saveLocal(){{
       localStorage.setItem('tw_dashboard_config', JSON.stringify(serializeForm()));
@@ -786,6 +789,13 @@ def app(environ, start_response):
       }});
       document.getElementById('customWatchlist').value = unique.join(',');
     }}
+    function syncWatchlistUrlParam(){{
+      const url = new URL(window.location.href);
+      const symbols = getWatchlistSymbols();
+      if(symbols.length) url.searchParams.set('custom_watchlist', symbols.join(','));
+      else url.searchParams.delete('custom_watchlist');
+      window.history.replaceState(null, '', url.toString());
+    }}
     function saveWatchlistToBrowser(silent=false){{
       const symbols = getWatchlistSymbols();
       localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(symbols));
@@ -843,25 +853,31 @@ def app(environ, start_response):
       if(!exists) symbols.push(symbol);
       setWatchlistSymbols(symbols);
       saveWatchlistToBrowser(true);
+      syncWatchlistUrlParam();
       markWatchlistButtonAdded(symbol);
       if(options.stayOnPage){{
         showWatchlistStatus(exists ? `${{symbol}} 已在自選股` : `已加入 ${{symbol}} 到自選股`);
         return;
       }}
-      document.getElementById('cfgForm').submit();
+      if(options.openWatchlist){{
+        submitConfig({{tab: 'watchlist', page: '1'}});
+        return;
+      }}
+      submitConfig();
     }}
     function removeWatchlistStock(symbol, options={{}}){{
       const key = normalizeWatchlistSymbol(symbol);
       const symbols = getWatchlistSymbols().filter(s => normalizeWatchlistSymbol(s) !== key);
       setWatchlistSymbols(symbols);
       saveWatchlistToBrowser(true);
+      syncWatchlistUrlParam();
       if(options.stayOnPage){{
         markWatchlistStockRemoved(symbol);
         showWatchlistStatus(`已將 ${{symbol}} 移出自選股，剩餘 ${{symbols.length}} 檔`);
         applyNoteFilter();
         return;
       }}
-      document.getElementById('cfgForm').submit();
+      submitConfig();
     }}
     function fillStockPicker(keyword=''){{
       const picker = document.getElementById('stockPicker');
@@ -872,7 +888,7 @@ def app(environ, start_response):
     function addSelectedStock(){{
       const symbol = document.getElementById('stockPicker').value;
       if(!symbol) return alert('請先選擇股票');
-      addWatchlistStock(symbol);
+      addWatchlistStock(symbol, {{ openWatchlist: true }});
     }}
     function getStockNotes(){{
       try {{
@@ -949,8 +965,10 @@ def app(environ, start_response):
         if(Array.isArray(symbols) && symbols.length > 0) setWatchlistSymbols(symbols.map(String));
       }} catch(e) {{}}
     }}
-    function autoSubmitConfig(){{
-      document.getElementById('cfgForm').submit();
+    function autoSubmitConfig(event){{
+      const overrides = {{}};
+      if(event?.target?.name === 'tab') overrides.page = '1';
+      submitConfig(overrides);
     }}
     ['tab','industry','period','interval','limit','status_filter','group_filter','subgroup_filter','cards_per_row','show_volume','card_sort'].forEach((name)=>{{
       const el = document.querySelector(`[name="${{name}}"]`);
