@@ -39,12 +39,45 @@ def app(environ, start_response):
     status_filter = params.get("status_filter", ["all"])[0]
     group_filter = params.get("group_filter", ["all"])[0]
     subgroup_filter = params.get("subgroup_filter", ["all"])[0]
+    stock_meta_filters = {
+        field: params.get(f"stock_meta_{field}", ["all"])[0]
+        for field in ("action", "trait", "stage", "risk")
+    }
+    stock_meta_payload_raw = params.get("stock_meta_payload", [""])[0]
     cards_per_row = int(params.get("cards_per_row", ["3"])[0])
     cards_per_row = cards_per_row if cards_per_row in list(range(1, 16)) else 3
     custom_watchlist_raw = params.get("custom_watchlist", [""])[0]
     show_volume = params.get("show_volume", ["1"])[0] == "1"
     show_target_price = params.get("show_target_price", ["0"])[0] == "1"
     card_sort = params.get("card_sort", ["symbol"])[0]
+    sort_options = {"symbol", "close", "volume", "change_pct", "target_ratio"}
+    if card_sort not in sort_options:
+        card_sort = "symbol"
+
+    def normalize_stock_meta_entry(entry):
+        meta = {field: "" for field in ("action", "trait", "stage", "risk")}
+        meta["note"] = ""
+        if isinstance(entry, str):
+            meta["note"] = entry.strip()
+        elif isinstance(entry, dict):
+            for field in meta:
+                meta[field] = str(entry.get(field) or "").strip()
+            if not meta["note"]:
+                meta["note"] = str(entry.get("memo") or "").strip()
+        return meta
+
+    try:
+        stock_meta_payload = json.loads(stock_meta_payload_raw) if stock_meta_payload_raw else {}
+        if not isinstance(stock_meta_payload, dict):
+            stock_meta_payload = {}
+    except json.JSONDecodeError:
+        stock_meta_payload = {}
+    stock_meta_filters = {
+        field: value if value and value != "all" else "all"
+        for field, value in stock_meta_filters.items()
+    }
+    has_stock_meta_filter = any(value != "all" for value in stock_meta_filters.values())
+
     fetch_period, fetch_interval, display_period = resolve_price_params(period, interval)
 
     base_watchlist = load_watchlist(WATCHLIST_FILE)
@@ -129,26 +162,33 @@ def app(environ, start_response):
         stocks = stocks[stocks["group"] == group_filter]
     if subgroup_filter != "all":
         stocks = stocks[stocks["subgroup"] == subgroup_filter]
-    total_stocks = len(stocks)
-    total_pages = max(1, math.ceil(total_stocks / limit)) if total_stocks else 1
-    page = min(max(page, 1), total_pages)
-    start_idx = (page - 1) * limit
-    end_idx = start_idx + limit
-    stocks = stocks.iloc[start_idx:end_idx].copy()
+    if has_stock_meta_filter:
+        def stock_matches_meta_filters(symbol):
+            meta = normalize_stock_meta_entry(stock_meta_payload.get(str(symbol), {}))
+            return all(
+                selected == "all"
+                or (selected == "none" and not meta[field])
+                or meta[field] == selected
+                for field, selected in stock_meta_filters.items()
+            )
 
-    rows_data = []
-    cards_data = []
+        stocks = stocks[stocks["symbol"].astype(str).map(stock_matches_meta_filters)]
+
     watchlist_symbol_keys = set(watchlist["symbol"].map(_symbol_key))
     price_data_map = prefetch_price_data(stocks, fetch_period, fetch_interval)
     signal_data_map = prefetch_price_data(stocks, "6mo", "1d") if period == "intraday" else {}
 
+    filtered_stocks = []
     for row in stocks.itertuples(index=False):
         df = price_data_map.get(row.symbol, pd.DataFrame()).copy()
         signal_df = signal_data_map.get(row.symbol, pd.DataFrame()).copy() if period == "intraday" else df.copy()
+        sort_metrics = {"symbol": row.symbol, "close": -1.0, "volume": -1.0, "change_pct": -999.0, "target_ratio": -1.0}
+        target_price_text = "-"
+        target_ratio_text = "-"
         if df.empty:
             bucket, status = "watch", "⚪ 抓不到資料"
             close_text = "-"
-            signal = {"score": -999}
+            signal = {"bucket": bucket, "message": status, "score": -999}
         else:
             df = add_indicators(df)
             df = trim_display_df(df, display_period)
@@ -158,10 +198,59 @@ def app(environ, start_response):
                 signal_df = add_indicators(signal_df)
                 signal = analyze_stock_signal(signal_df)
             bucket, status = signal["bucket"], signal["message"]
-            close_text = f"{float(df.iloc[-1]['Close']):.2f}"
+            close_value = float(df.iloc[-1]["Close"])
+            close_text = f"{close_value:.2f}"
+            sort_metrics["close"] = close_value
+            sort_metrics["volume"] = float(df.iloc[-1]["Volume"]) if "Volume" in df.columns else 0.0
+            intraday_ref_close = float(df.iloc[-1]["RefClose"]) if period == "intraday" and "RefClose" in df.columns else None
+            prev_close = float(df.iloc[-2]["Close"]) if len(df) >= 2 else close_value
+            reference_close = intraday_ref_close if intraday_ref_close else prev_close
+            sort_metrics["change_pct"] = ((close_value - reference_close) / reference_close) * 100 if reference_close else 0.0
+            if show_target_price or card_sort == "target_ratio":
+                target_price_text = fetch_target_price(row.symbol)
+                try:
+                    target_price_value = float(target_price_text)
+                    if close_value != 0:
+                        sort_metrics["target_ratio"] = (target_price_value / close_value) * 100
+                        target_ratio_text = f"{sort_metrics['target_ratio']:.1f}%"
+                except (TypeError, ValueError):
+                    target_price_text = "-"
+                    target_ratio_text = "-"
 
         if status_filter != "all" and bucket != status_filter:
             continue
+        filtered_stocks.append({
+            "row": row,
+            "df": df,
+            "signal": signal,
+            "status": status,
+            "close_text": close_text,
+            "sort_metrics": sort_metrics,
+            "target_price_text": target_price_text if show_target_price else "-",
+            "target_ratio_text": target_ratio_text if show_target_price else "-",
+        })
+
+    if card_sort == "symbol":
+        filtered_stocks.sort(key=lambda item: item["sort_metrics"]["symbol"])
+    else:
+        filtered_stocks.sort(key=lambda item: item["sort_metrics"][card_sort], reverse=True)
+
+    total_stocks = len(filtered_stocks)
+    total_pages = max(1, math.ceil(total_stocks / limit)) if total_stocks else 1
+    page = min(max(page, 1), total_pages)
+    start_idx = (page - 1) * limit
+    end_idx = start_idx + limit
+
+    rows_data = []
+    cards_data = []
+    for stock_item in filtered_stocks[start_idx:end_idx]:
+        row = stock_item["row"]
+        df = stock_item["df"]
+        signal = stock_item["signal"]
+        status = stock_item["status"]
+        close_text = stock_item["close_text"]
+        target_price_text = stock_item["target_price_text"]
+        target_ratio_text = stock_item["target_ratio_text"]
 
         symbol_key = _symbol_key(row.symbol)
         symbol_js = json.dumps(row.symbol, ensure_ascii=False)
@@ -197,16 +286,6 @@ def app(environ, start_response):
             "oninput=\"queueInlineStockNoteSave(this)\" onchange=\"saveInlineStockNote(this)\">"
             "</div>"
         )
-        target_price_text = fetch_target_price(row.symbol) if show_target_price else "-"
-        target_ratio_text = "-"
-        if target_price_text != "-" and close_text != "-":
-            try:
-                target_price_value = float(target_price_text)
-                close_value = float(close_text)
-                if close_value != 0:
-                    target_ratio_text = f"{(target_price_value / close_value) * 100:.1f}%"
-            except (TypeError, ValueError):
-                target_ratio_text = "-"
         name_jump_button = (
             "<button type='button' class='stock-jump' "
             f"onclick='scrollToStockCard({symbol_js})' "
@@ -264,16 +343,7 @@ def app(environ, start_response):
                 ),
             })
 
-    rows_data.sort(key=lambda x: x["score"], reverse=True)
     rows = [x["row_html"] for x in rows_data]
-
-    sort_options = {"symbol", "close", "volume", "change_pct", "target_ratio"}
-    if card_sort not in sort_options:
-        card_sort = "symbol"
-    if card_sort == "symbol":
-        cards_data.sort(key=lambda x: x["symbol"])
-    else:
-        cards_data.sort(key=lambda x: x[card_sort], reverse=True)
     cards = [x["card_html"] for x in cards_data]
 
     industry_options = (
@@ -302,6 +372,8 @@ def app(environ, start_response):
         "status_filter": status_filter,
         "group_filter": group_filter,
         "subgroup_filter": subgroup_filter,
+        **{f"stock_meta_{field}": value for field, value in stock_meta_filters.items()},
+        "stock_meta_payload": stock_meta_payload_raw,
         "cards_per_row": cards_per_row,
         "custom_watchlist": ",".join(watchlist["symbol"].tolist()),
         "show_volume": "1" if show_volume else "0",
@@ -420,6 +492,7 @@ def app(environ, start_response):
             <label class='form-field'>週期<select name='interval'><option value='1m' {'selected' if interval=='1m' else ''}>1 分鐘</option><option value='5m' {'selected' if interval=='5m' else ''}>5 分鐘</option><option value='15m' {'selected' if interval=='15m' else ''}>15 分鐘</option><option value='1d' {'selected' if interval=='1d' else ''}>日線</option><option value='1wk' {'selected' if interval=='1wk' else ''}>週線</option></select></label>
             <label class='form-field'>每列檔數<select name='cards_per_row'>{''.join([f"<option value='{n}' {'selected' if cards_per_row==n else ''}>{n}</option>" for n in range(1, 16)])}</select></label>
             <label class='form-field'>圖塊排序<select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option><option value='target_ratio' {'selected' if card_sort=='target_ratio' else ''}>目標價/現價</option></select></label>
+            <label class='form-field'>顯示量K線<select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select></label>
           </div>
         </fieldset>
         <fieldset>
@@ -434,14 +507,14 @@ def app(environ, start_response):
         <fieldset>
           <legend>個人標籤篩選</legend>
           <div class='field-stack'>
-            <label class='form-field'>操作方法<select id='stockMetaFilter-action'></select></label>
-            <label class='form-field'>個股特性<select id='stockMetaFilter-trait'></select></label>
-            <label class='form-field'>行情階段<select id='stockMetaFilter-stage'></select></label>
-            <label class='form-field'>風險觀察<select id='stockMetaFilter-risk'></select></label>
-            <label class='form-field'>顯示量K線<select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select></label>
+            <label class='form-field'>操作方法<select id='stockMetaFilter-action' name='stock_meta_action'><option value='{html.escape(stock_meta_filters['action'])}' selected></option></select></label>
+            <label class='form-field'>個股特性<select id='stockMetaFilter-trait' name='stock_meta_trait'><option value='{html.escape(stock_meta_filters['trait'])}' selected></option></select></label>
+            <label class='form-field'>行情階段<select id='stockMetaFilter-stage' name='stock_meta_stage'><option value='{html.escape(stock_meta_filters['stage'])}' selected></option></select></label>
+            <label class='form-field'>風險觀察<select id='stockMetaFilter-risk' name='stock_meta_risk'><option value='{html.escape(stock_meta_filters['risk'])}' selected></option></select></label>
           </div>
         </fieldset>
       </div>
+      <input type='hidden' name='stock_meta_payload' id='stockMetaPayload' value='{html.escape(stock_meta_payload_raw, quote=True)}'>
       <div class='form-actions'>
         <div class='primary-actions'>
           <button type='submit' class='btn-primary'>更新儀表板</button>
@@ -531,18 +604,25 @@ def app(environ, start_response):
       const minutes = twNow.getHours() * 60 + twNow.getMinutes();
       return minutes >= 9 * 60 && minutes <= 13 * 60 + 30;
     }}
+    function syncStockMetaPayload(){{
+      const payload = document.getElementById('stockMetaPayload');
+      if(payload) payload.value = localStorage.getItem(NOTE_STORAGE_KEY) || '{{}}';
+    }}
     function serializeForm(){{
+      syncStockMetaPayload();
       const fd = new FormData(document.getElementById('cfgForm'));
       return Object.fromEntries(fd.entries());
     }}
     function applyConfig(cfg){{
       const form = document.getElementById('cfgForm');
       Object.entries(cfg).forEach(([k,v])=>{{ if(form.elements[k]) form.elements[k].value = v; }});
+      syncStockMetaPayload();
       form.submit();
     }}
     function submitConfig(overrides={{}}){{
       const form = document.getElementById('cfgForm');
       Object.entries(overrides).forEach(([k,v])=>{{ if(form.elements[k]) form.elements[k].value = v; }});
+      syncStockMetaPayload();
       form.submit();
     }}
     function goToPage(page){{
@@ -969,20 +1049,36 @@ def app(environ, start_response):
     refreshStockMetaFilterOptions();
     applyNotesToTableAndCards();
     STOCK_META_GROUPS.forEach((group)=>{{
-      document.getElementById(`stockMetaFilter-${{group.id}}`)?.addEventListener('change', applyStockMetaFilters);
+      document.getElementById(`stockMetaFilter-${{group.id}}`)?.addEventListener('change', (event)=>{{
+        applyStockMetaFilters();
+        submitConfig({{ page: '1', [event.target.name]: event.target.value }});
+      }});
     }});
+    function restoreBrowserWatchlistIfAvailable(){{
+      const raw = localStorage.getItem(WATCHLIST_STORAGE_KEY);
+      if(!raw) return false;
+      try {{
+        const symbols = JSON.parse(raw);
+        if(!Array.isArray(symbols) || symbols.length === 0) return false;
+        setWatchlistSymbols(symbols.map(String));
+        return true;
+      }} catch(e) {{
+        return false;
+      }}
+    }}
     const hasSavedWatchlist = Boolean(localStorage.getItem(WATCHLIST_STORAGE_KEY));
     if(hasSavedWatchlist && !window.location.search.includes('custom_watchlist=')){{
-      try {{
-        const symbols = JSON.parse(localStorage.getItem(WATCHLIST_STORAGE_KEY) || '[]');
-        if(Array.isArray(symbols) && symbols.length > 0) setWatchlistSymbols(symbols.map(String));
-      }} catch(e) {{}}
+      restoreBrowserWatchlistIfAvailable();
     }}
     function autoSubmitConfig(event){{
       const overrides = {{}};
-      if(event?.target?.name === 'tab') overrides.page = '1';
+      if(event?.target?.name === 'tab'){{
+        overrides.page = '1';
+        if(event.target.value === 'watchlist') restoreBrowserWatchlistIfAvailable();
+      }}
       submitConfig(overrides);
     }}
+    document.getElementById('cfgForm')?.addEventListener('submit', syncStockMetaPayload);
     ['tab','industry','period','interval','limit','status_filter','group_filter','subgroup_filter','cards_per_row','show_volume','show_target_price','card_sort'].forEach((name)=>{{
       const el = document.querySelector(`[name="${{name}}"]`);
       if(el) el.addEventListener('change', autoSubmitConfig);
