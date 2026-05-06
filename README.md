@@ -10,7 +10,7 @@
 - 支援 `watchlist.csv`
 - K 線 + MA20
 - RSI 14
-- 狀態判斷與篩選（資料不足 / 可關注 / 回檔 / 偏熱 / 強勢）
+- 形勢判斷與篩選（資料不足 / 偏多 / 觀察 / 風險 / 轉弱 / 中性）
 - 可切換期間、K 線週期、股池來源（自選 / 分類）
 - 支援設定儲存到瀏覽器、匯入 / 匯出 JSON 設定
 
@@ -42,6 +42,7 @@ Vercel 會直接執行 `api/main.py`。
 - `interval`: `1d` / `1wk`
 - `limit`: 顯示檔數
 - `status_filter`: `all` / `watch` / `bull` / `observe` / `warn` / `bear` / `neutral`
+- `card_sort`: `signal_score`（預設）/ `symbol` / `close` / `volume` / `change_pct` / `target_ratio`
 - `show_target_price`: `0` / `1`（預設 `0`；開啟會逐檔查 Yahoo 目標價，速度較慢）
 
 ## 自選股清單
