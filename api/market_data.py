@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -46,27 +47,33 @@ def _disk_cache_path(symbol: str, period: str, interval: str) -> Path:
     return STATIC_CACHE_DIR / f"{safe_symbol}__{period}__{interval}.pkl"
 
 
-def _load_disk_cache(symbol: str, period: str, interval: str, ttl_seconds: int) -> pd.DataFrame | None:
+def _load_disk_cache(symbol: str, period: str, interval: str, ttl_seconds: int | None) -> pd.DataFrame | None:
     path = _disk_cache_path(symbol, period, interval)
     try:
         if not path.exists():
             return None
-        age = time.time() - path.stat().st_mtime
-        if age >= ttl_seconds:
-            return None
+        if ttl_seconds is not None:
+            age = time.time() - path.stat().st_mtime
+            if age >= ttl_seconds:
+                return None
         df = pd.read_pickle(path)
         return df if isinstance(df, pd.DataFrame) else None
     except Exception:
         return None
 
 
-def _cached_price(symbol: str, period: str, interval: str, now: float) -> pd.DataFrame | None:
+def _cached_price(symbol: str, period: str, interval: str, now: float, *, allow_stale_disk: bool = False) -> pd.DataFrame | None:
     cache_key = (symbol, period, interval)
     cached = PRICE_CACHE.get(cache_key)
     if cached and now - cached[0] < _cache_ttl_seconds(interval):
         return cached[1].copy()
 
-    disk_cached = _load_disk_cache(symbol, period, interval, _disk_cache_max_age_seconds(interval))
+    disk_cached = _load_disk_cache(
+        symbol,
+        period,
+        interval,
+        None if allow_stale_disk else _disk_cache_max_age_seconds(interval),
+    )
     if disk_cached is not None:
         PRICE_CACHE[cache_key] = (now, disk_cached.copy())
         return disk_cached.copy()
@@ -108,9 +115,9 @@ def _prepare_price_df(symbol: str, df: pd.DataFrame | None, interval: str) -> pd
     return df
 
 
-def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.DataFrame:
+def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d", *, allow_stale_disk: bool = False) -> pd.DataFrame:
     now = time.time()
-    cached = _cached_price(symbol, period, interval, now)
+    cached = _cached_price(symbol, period, interval, now, allow_stale_disk=allow_stale_disk)
     if cached is not None:
         return cached
 
@@ -161,25 +168,41 @@ def resolve_price_params(period: str, interval: str) -> tuple[str, str, str]:
     return fetch_period, interval, period
 
 
-def prefetch_price_data(stocks: pd.DataFrame, period: str, interval: str) -> dict[str, pd.DataFrame]:
+def _is_serverless_runtime() -> bool:
+    return os.environ.get("VERCEL") == "1" or bool(os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+
+
+def prefetch_price_data(
+    stocks: pd.DataFrame,
+    period: str,
+    interval: str,
+    *,
+    allow_live_fetch: bool | None = None,
+    allow_stale_disk: bool = False,
+    max_live_symbols: int = 80,
+) -> dict[str, pd.DataFrame]:
     symbols = list(dict.fromkeys(s for s in stocks["symbol"].dropna().astype(str).tolist() if s))
     if not symbols:
         return {}
+
+    if allow_live_fetch is None:
+        allow_live_fetch = not _is_serverless_runtime() or len(symbols) <= max_live_symbols
 
     now = time.time()
     price_map: dict[str, pd.DataFrame] = {}
     missing_symbols: list[str] = []
     for symbol in symbols:
-        cached = _cached_price(symbol, period, interval, now)
+        cached = _cached_price(symbol, period, interval, now, allow_stale_disk=allow_stale_disk)
         if cached is None:
             missing_symbols.append(symbol)
         else:
             price_map[symbol] = cached
 
-    if missing_symbols:
+    live_symbols = missing_symbols[:max_live_symbols] if allow_live_fetch else []
+    if live_symbols:
         try:
             downloaded = yf.download(
-                missing_symbols,
+                live_symbols,
                 period=period,
                 interval=interval,
                 auto_adjust=False,
@@ -191,10 +214,10 @@ def prefetch_price_data(stocks: pd.DataFrame, period: str, interval: str) -> dic
             downloaded = pd.DataFrame()
 
         if not downloaded.empty:
-            for symbol in missing_symbols[:]:
+            for symbol in live_symbols[:]:
                 if isinstance(downloaded.columns, pd.MultiIndex) and symbol in downloaded.columns.get_level_values(0):
                     raw_df = downloaded[symbol]
-                elif len(missing_symbols) == 1:
+                elif len(live_symbols) == 1:
                     raw_df = downloaded
                 else:
                     continue
@@ -202,11 +225,14 @@ def prefetch_price_data(stocks: pd.DataFrame, period: str, interval: str) -> dic
                 if not df.empty:
                     price_map[symbol] = _store_price_cache(symbol, period, interval, df, now).copy()
 
-    still_missing = [symbol for symbol in symbols if symbol not in price_map]
-    if still_missing:
+    still_missing = [symbol for symbol in live_symbols if symbol not in price_map]
+    if allow_live_fetch and still_missing:
         max_workers = min(8, len(still_missing))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            results = executor.map(lambda sym: (sym, fetch_price(sym, period, interval)), still_missing)
+            results = executor.map(
+                lambda sym: (sym, fetch_price(sym, period, interval, allow_stale_disk=allow_stale_disk)),
+                still_missing,
+            )
             price_map.update({symbol: df for symbol, df in results})
 
     return {symbol: price_map.get(symbol, pd.DataFrame()) for symbol in symbols}

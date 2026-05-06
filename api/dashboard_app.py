@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import math
+import os
 import time
 from urllib.parse import parse_qs
 
@@ -31,6 +32,18 @@ from api.stock_analysis import add_indicators, analyze_stock_signal
 
 
 STOCK_ANALYSIS_CACHE: dict[tuple[str, str, str, str, str, bool], tuple[float, dict]] = {}
+
+
+def _positive_int_param(params, name: str, default: int, *, max_value: int | None = None) -> int:
+    try:
+        value = int(params.get(name, [str(default)])[0])
+    except (TypeError, ValueError):
+        value = default
+    if value <= 0:
+        value = default
+    if max_value is not None:
+        value = min(value, max_value)
+    return value
 
 
 def _analysis_cache_ttl_seconds(fetch_interval: str) -> int:
@@ -119,9 +132,8 @@ def app(environ, start_response):
     tab = params.get("tab", ["watchlist"])[0]
     period = params.get("period", ["3mo"])[0]
     interval = params.get("interval", ["1d"])[0]
-    limit = int(params.get("limit", ["30"])[0])
-    limit = limit if limit > 0 else 30
-    page = int(params.get("page", ["1"])[0])
+    limit = _positive_int_param(params, "limit", 30, max_value=120)
+    page = _positive_int_param(params, "page", 1)
     status_filter = params.get("status_filter", ["all"])[0]
     group_filter = params.get("group_filter", ["all"])[0]
     subgroup_filter = params.get("subgroup_filter", ["all"])[0]
@@ -130,8 +142,7 @@ def app(environ, start_response):
         for field in ("action", "trait", "stage", "risk")
     }
     stock_meta_payload_raw = params.get("stock_meta_payload", [""])[0]
-    cards_per_row = int(params.get("cards_per_row", ["3"])[0])
-    cards_per_row = cards_per_row if cards_per_row in list(range(1, 16)) else 3
+    cards_per_row = _positive_int_param(params, "cards_per_row", 3, max_value=15)
     custom_watchlist_raw = params.get("custom_watchlist", [""])[0]
     show_volume = params.get("show_volume", ["1"])[0] == "1"
     show_target_price = params.get("show_target_price", ["0"])[0] == "1"
@@ -260,9 +271,42 @@ def app(environ, start_response):
 
         stocks = stocks[stocks["symbol"].astype(str).map(stock_matches_meta_filters)]
 
+    is_serverless_runtime = os.environ.get("VERCEL") == "1" or bool(os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+    max_serverless_analysis_stocks = 240
+    candidate_count = len(stocks)
+    is_limited_analysis = is_serverless_runtime and candidate_count > max_serverless_analysis_stocks
+    if is_limited_analysis:
+        # Keep broad dashboard requests inside Vercel's serverless execution window.
+        # Users can narrow the set with industry/group/custom-watchlist filters when
+        # they need exhaustive scoring across more symbols.
+        stocks = stocks.head(max_serverless_analysis_stocks).copy()
+
     watchlist_symbol_keys = set(watchlist["symbol"].map(_symbol_key))
-    price_data_map = prefetch_price_data(stocks, fetch_period, fetch_interval)
-    signal_data_map = prefetch_price_data(stocks, "6mo", "1d") if period == "intraday" else {}
+    # Vercel serverless functions time out quickly when a broad watchlist triggers
+    # thousands of live Yahoo Finance requests. Prefer committed prebuilt cache
+    # files for broad pages and only live-fetch small symbol sets.
+    live_fetch_threshold = 80
+    allow_live_fetch = (not is_serverless_runtime) or len(stocks) <= live_fetch_threshold
+    price_data_map = prefetch_price_data(
+        stocks,
+        fetch_period,
+        fetch_interval,
+        allow_live_fetch=allow_live_fetch,
+        allow_stale_disk=True,
+        max_live_symbols=live_fetch_threshold,
+    )
+    signal_data_map = (
+        prefetch_price_data(
+            stocks,
+            "6mo",
+            "1d",
+            allow_live_fetch=allow_live_fetch,
+            allow_stale_disk=True,
+            max_live_symbols=live_fetch_threshold,
+        )
+        if period == "intraday"
+        else {}
+    )
 
     filtered_stocks = []
     needs_target_price = show_target_price or card_sort == "target_ratio"
@@ -442,6 +486,11 @@ def app(environ, start_response):
         "page": page,
     }
     server_config_presets = load_server_config_presets()
+    limited_notice = (
+        f"<div class='notice'>目前候選股共有 {candidate_count} 檔；為避免 Vercel Serverless 逾時，本次先分析前 {max_serverless_analysis_stocks} 檔。可用產業、主題或自訂清單縮小範圍以取得完整排序。</div>"
+        if is_limited_analysis
+        else ""
+    )
 
     body = f"""<!doctype html><html lang='zh-Hant'><head><meta charset='utf-8'><title>TW Dashboard</title>
     <style>
@@ -487,6 +536,7 @@ def app(environ, start_response):
       .table-wrap{{overflow:auto;border-radius:14px;border:1px solid #e2e8f0;background:#fff}}
       .section-card{{padding:16px;margin:16px 0}}
       .section-header{{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:12px}}
+      .notice{{border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:14px;padding:10px 12px;margin:0 0 12px;font-weight:700}}
       .summary-strip{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 12px}}
       .summary-item{{border:1px solid var(--line);border-radius:14px;padding:12px;background:linear-gradient(180deg,#fff,#f8fbff)}}
       .summary-label{{display:block;color:var(--muted);font-size:.78rem;font-weight:700}}
@@ -628,6 +678,7 @@ def app(environ, start_response):
           <button type='button' onclick='goToPage({min(total_pages, page+1)})' {'disabled' if page >= total_pages else ''}>下一頁</button>
         </div>
       </div>
+      {limited_notice}
       <div id='summaryInfo' class='summary-strip'>
         <div class='summary-item'><span class='summary-label'>符合股數</span><span class='summary-value'>{total_stocks} 檔</span></div>
         <div class='summary-item'><span class='summary-label'>頁面進度</span><span class='summary-value'>{page} / {total_pages}</span></div>
