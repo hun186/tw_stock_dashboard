@@ -52,6 +52,10 @@ def _cache_ttl_seconds(interval: str) -> int:
     return 300
 
 
+def _disk_cache_max_age_seconds(interval: str) -> int:
+    if interval.endswith("m"):
+        return _cache_ttl_seconds(interval)
+    return 60 * 60 * 24 * 7
 
 
 def _disk_cache_path(symbol: str, period: str, interval: str) -> Path:
@@ -81,7 +85,7 @@ def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.Da
     if cached and now - cached[0] < cache_ttl:
         return cached[1].copy()
 
-    disk_cached = _load_disk_cache(symbol, period, interval, cache_ttl)
+    disk_cached = _load_disk_cache(symbol, period, interval, _disk_cache_max_age_seconds(interval))
     if disk_cached is not None:
         PRICE_CACHE[cache_key] = (now, disk_cached.copy())
         return disk_cached.copy()
@@ -380,6 +384,7 @@ def app(environ, start_response):
     cards_per_row = cards_per_row if cards_per_row in list(range(1, 16)) else 3
     custom_watchlist_raw = params.get("custom_watchlist", [""])[0]
     show_volume = params.get("show_volume", ["1"])[0] == "1"
+    show_target_price = params.get("show_target_price", ["0"])[0] == "1"
     card_sort = params.get("card_sort", ["symbol"])[0]
     fetch_period, fetch_interval, display_period = resolve_price_params(period, interval)
 
@@ -511,7 +516,7 @@ def app(environ, start_response):
             "<select class='note-preset-select' onchange=\"saveInlineNote(this)\"></select>"
             "</div>"
         )
-        target_price_text = fetch_target_price(row.symbol)
+        target_price_text = fetch_target_price(row.symbol) if show_target_price else "-"
         target_ratio_text = "-"
         if target_price_text != "-" and close_text != "-":
             try:
@@ -609,6 +614,7 @@ def app(environ, start_response):
         "cards_per_row": cards_per_row,
         "custom_watchlist": ",".join(watchlist["symbol"].tolist()),
         "show_volume": "1" if show_volume else "0",
+        "show_target_price": "1" if show_target_price else "0",
         "card_sort": card_sort,
         "page": page,
     }
@@ -655,6 +661,7 @@ def app(environ, start_response):
     <label>判斷篩選</label><select name='status_filter'>{status_options}</select>
     <label>每列檔數</label><select name='cards_per_row'>{''.join([f"<option value='{n}' {'selected' if cards_per_row==n else ''}>{n}</option>" for n in range(1, 16)])}</select>
     <label>顯示量K線</label><select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select>
+    <label>目標價</label><select name='show_target_price'><option value='0' {'selected' if not show_target_price else ''}>關閉（較快）</option><option value='1' {'selected' if show_target_price else ''}>開啟</option></select>
     <label>圖塊排序</label><select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option><option value='target_ratio' {'selected' if card_sort=='target_ratio' else ''}>目標價/現價</option></select>
     <label>註記篩選</label><select id='noteFilter'><option value='all'>全部註記</option></select>
     <button type='submit'>更新</button>
@@ -970,7 +977,7 @@ def app(environ, start_response):
       if(event?.target?.name === 'tab') overrides.page = '1';
       submitConfig(overrides);
     }}
-    ['tab','industry','period','interval','limit','status_filter','group_filter','subgroup_filter','cards_per_row','show_volume','card_sort'].forEach((name)=>{{
+    ['tab','industry','period','interval','limit','status_filter','group_filter','subgroup_filter','cards_per_row','show_volume','show_target_price','card_sort'].forEach((name)=>{{
       const el = document.querySelector(`[name="${{name}}"]`);
       if(el) el.addEventListener('change', autoSubmitConfig);
     }});

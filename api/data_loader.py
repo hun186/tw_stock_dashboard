@@ -1,3 +1,5 @@
+import time
+from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
@@ -6,13 +8,19 @@ import requests
 from .constants import INDUSTRY_CODE_NAME, TPEX_LISTED_INFO_API, TWSE_LISTED_INFO_API
 
 
-def load_watchlist(path: Path) -> pd.DataFrame:
+def _empty_watchlist_df() -> pd.DataFrame:
+    return pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+
+
+@lru_cache(maxsize=8)
+def _load_watchlist_cached(path_text: str, mtime_ns: int) -> pd.DataFrame:
+    path = Path(path_text)
     if not path.exists():
-        return pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+        return _empty_watchlist_df()
     df = pd.read_csv(path)
     for col in ["symbol", "name", "group"]:
         if col not in df.columns:
-            return pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+            return _empty_watchlist_df()
     if "subgroup" not in df.columns:
         df["subgroup"] = ""
     for col in ["symbol", "name", "group", "subgroup"]:
@@ -20,16 +28,23 @@ def load_watchlist(path: Path) -> pd.DataFrame:
     return df[df["symbol"] != ""].copy()
 
 
-def load_llm_group_map(path: Path, sheet_name: str) -> pd.DataFrame:
+def load_watchlist(path: Path) -> pd.DataFrame:
+    mtime_ns = path.stat().st_mtime_ns if path.exists() else 0
+    return _load_watchlist_cached(str(path), mtime_ns).copy()
+
+
+@lru_cache(maxsize=8)
+def _load_llm_group_map_cached(path_text: str, sheet_name: str, mtime_ns: int) -> pd.DataFrame:
+    path = Path(path_text)
     if not path.exists():
-        return pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+        return _empty_watchlist_df()
     try:
         df = pd.read_excel(path, sheet_name=sheet_name)
     except Exception:
-        return pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+        return _empty_watchlist_df()
     for col in ["symbol", "name", "group"]:
         if col not in df.columns:
-            return pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+            return _empty_watchlist_df()
     if "subgroup" not in df.columns:
         df["subgroup"] = ""
     for col in ["symbol", "name", "group", "subgroup"]:
@@ -38,16 +53,25 @@ def load_llm_group_map(path: Path, sheet_name: str) -> pd.DataFrame:
     return df[["symbol", "name", "group", "subgroup"]].drop_duplicates(subset=["symbol"], keep="last")
 
 
+def load_llm_group_map(path: Path, sheet_name: str) -> pd.DataFrame:
+    mtime_ns = path.stat().st_mtime_ns if path.exists() else 0
+    return _load_llm_group_map_cached(str(path), sheet_name, mtime_ns).copy()
+
+
+def _empty_industry_df() -> pd.DataFrame:
+    return pd.DataFrame(columns=["industry", "industry_label", "symbol", "name", "group", "subgroup"])
+
+
 def _load_exchange_industry_map(api_url: str, symbol_suffix: str, market_prefix: str) -> pd.DataFrame:
     try:
         resp = requests.get(api_url, timeout=10)
         resp.raise_for_status()
         df = pd.DataFrame(resp.json())
     except Exception:
-        return pd.DataFrame(columns=["industry", "industry_label", "symbol", "name", "group", "subgroup"])
+        return _empty_industry_df()
 
     if not {"公司代號", "公司簡稱", "產業別"}.issubset(df.columns):
-        return pd.DataFrame(columns=["industry", "industry_label", "symbol", "name", "group", "subgroup"])
+        return _empty_industry_df()
 
     code = df["公司代號"].astype(str).str.strip()
     df["industry"] = df["產業別"].astype(str).str.strip()
@@ -66,7 +90,13 @@ def _load_exchange_industry_map(api_url: str, symbol_suffix: str, market_prefix:
     return df[df["industry"] != ""][["industry", "industry_label", "symbol", "name", "group", "subgroup"]].drop_duplicates()
 
 
-def load_twse_industry_map() -> pd.DataFrame:
+@lru_cache(maxsize=4)
+def _load_twse_industry_map_cached(cache_bucket: int) -> pd.DataFrame:
     twse_df = _load_exchange_industry_map(TWSE_LISTED_INFO_API, ".TW", "上市")
     tpex_df = _load_exchange_industry_map(TPEX_LISTED_INFO_API, ".TWO", "上櫃")
     return pd.concat([twse_df, tpex_df], ignore_index=True).drop_duplicates(subset=["symbol"], keep="last")
+
+
+def load_twse_industry_map() -> pd.DataFrame:
+    cache_bucket = int(time.time() // (60 * 60 * 6))
+    return _load_twse_industry_map_cached(cache_bucket).copy()
