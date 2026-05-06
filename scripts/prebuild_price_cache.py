@@ -7,7 +7,7 @@ import pandas as pd
 
 from api.constants import APP_DIR
 from api.data_loader import load_watchlist, load_twse_industry_map
-from api.main import fetch_price
+from api.market_data import fetch_price
 
 OUT_DIR = APP_DIR / "prebuilt_cache"
 DEFAULT_PERIODS = [("2y", "1d"), ("6mo", "1d"), ("2d", "1m")]

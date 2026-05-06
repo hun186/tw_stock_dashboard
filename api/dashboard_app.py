@@ -284,9 +284,14 @@ def app(environ, start_response):
     watchlist_symbol_keys = set(watchlist["symbol"].map(_symbol_key))
     # Vercel serverless functions time out quickly when a broad watchlist triggers
     # thousands of live Yahoo Finance requests. Prefer committed prebuilt cache
-    # files for broad pages and only live-fetch small symbol sets.
+    # files for broad pages, but allow custom watchlists to fill cache misses.
     live_fetch_threshold = 80
-    allow_live_fetch = (not is_serverless_runtime) or len(stocks) <= live_fetch_threshold
+    is_custom_watchlist = bool(custom_watchlist_raw.strip())
+    allow_live_fetch = (
+        (not is_serverless_runtime)
+        or len(stocks) <= live_fetch_threshold
+        or is_custom_watchlist
+    )
     price_data_map = prefetch_price_data(
         stocks,
         fetch_period,
