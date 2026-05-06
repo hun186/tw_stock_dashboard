@@ -332,6 +332,7 @@ def app(environ, start_response):
         tab=tab,
         industry=industry,
     )
+    progress_total_stocks = len(stocks)
     price_data_map = prefetch_price_data(
         stocks,
         fetch_period,
@@ -340,6 +341,7 @@ def app(environ, start_response):
         allow_stale_disk=True,
         max_live_symbols=max_live_symbols,
     )
+    price_ready_count = sum(1 for df in price_data_map.values() if not df.empty)
     signal_data_map = (
         prefetch_price_data(
             stocks,
@@ -352,6 +354,7 @@ def app(environ, start_response):
         if period == "intraday"
         else {}
     )
+    signal_ready_count = sum(1 for df in signal_data_map.values() if not df.empty) if period == "intraday" else progress_total_stocks
 
     analyzed_stocks = []
     needs_target_price = show_target_price or card_sort == "target_ratio"
@@ -562,6 +565,30 @@ def app(environ, start_response):
         if is_limited_analysis
         else ""
     )
+    def progress_percent(done: int, total: int) -> int:
+        if total <= 0:
+            return 100
+        return min(100, max(0, round((done / total) * 100)))
+
+    progress_steps = [
+        {"label": "股池與篩選", "done": int(candidate_count if not is_limited_analysis else len(stocks)), "total": int(candidate_count), "detail": "已套用頁籤、產業、主題與個人標籤篩選"},
+        {"label": "行情資料", "done": int(price_ready_count), "total": int(progress_total_stocks), "detail": "已讀取可用快取或下載結果"},
+        {"label": "形勢資料", "done": int(signal_ready_count), "total": int(progress_total_stocks), "detail": "盤中模式會另外讀取日線判斷資料"},
+        {"label": "技術分析", "done": int(len(analyzed_stocks)), "total": int(progress_total_stocks), "detail": "已計算均線、量能、形勢分數與排序指標"},
+        {"label": "頁面呈現", "done": int(len(rendered_stock_items)), "total": int(len(sorted_stocks)), "detail": "已產生目前表格資料與可用圖卡 HTML"},
+    ]
+    for step in progress_steps:
+        step["percent"] = progress_percent(step["done"], step["total"])
+    current_progress_stage = next((step for step in progress_steps if step["percent"] < 100), progress_steps[-1])
+    progress_steps_html = "".join([
+        f"<li><span class='progress-stage-name'>{html.escape(step['label'])}</span>"
+        f"<span class='progress-stage-ratio'>{step['done']} / {step['total']}（{step['percent']}%）</span>"
+        f"<div class='progress-bar' aria-hidden='true'><span style='width:{step['percent']}%'></span></div>"
+        f"<small>{html.escape(step['detail'])}</small></li>"
+        for step in progress_steps
+    ])
+    pipeline_progress_json = json.dumps(progress_steps, ensure_ascii=False).replace("</", "<\/")
+
     table_header_html = "<tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th>互動</th></tr>"
     dashboard_render_items_json = json.dumps(rendered_stock_items, ensure_ascii=False).replace("</", "<\/")
     table_header_html_json = json.dumps(table_header_html, ensure_ascii=False).replace("</", "<\/")
@@ -600,22 +627,20 @@ def app(environ, start_response):
       .preset-picker label{{color:var(--muted);font-size:.82rem;font-weight:700;white-space:nowrap}}
       .preset-picker select{{min-width:180px}}
       .form-help{{grid-column:1 / -1;color:var(--muted);font-size:.82rem;margin:0}}
-      .loading-overlay{{position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(15,23,42,.48);backdrop-filter:blur(3px)}}
-      .loading-overlay.is-open{{display:flex}}
-      .loading-card{{width:min(520px,100%);border:1px solid rgba(255,255,255,.72);border-radius:22px;background:#fff;box-shadow:0 24px 60px rgba(15,23,42,.28);padding:22px;color:#172033}}
-      .loading-header{{display:flex;gap:14px;align-items:center;margin-bottom:12px}}
-      .loading-spinner{{width:42px;height:42px;border:4px solid #dbeafe;border-top-color:var(--brand);border-radius:50%;animation:spin .85s linear infinite;flex:0 0 auto}}
-      .loading-title{{font-size:1.08rem;font-weight:900;margin:0}}
-      .loading-message{{margin:3px 0 0;color:var(--muted);font-size:.92rem}}
-      .loading-steps{{display:grid;gap:8px;margin-top:14px}}
-      .loading-step{{display:flex;gap:8px;align-items:center;color:#64748b;font-size:.88rem}}
-      .loading-step::before{{content:'○';color:#94a3b8;font-size:.9rem}}
-      .loading-step.is-active{{color:#1d4ed8;font-weight:800}}
-      .loading-step.is-active::before{{content:'●';color:#2563eb}}
-      .loading-tip{{margin:14px 0 0;padding:10px 12px;border-radius:14px;background:#eff6ff;color:#1e40af;font-size:.86rem;font-weight:700}}
-      .loading-actions{{display:flex;justify-content:flex-end;margin-top:14px}}
-      .loading-actions button{{border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:999px;padding:8px 14px;font-weight:800;cursor:pointer}}
-      @keyframes spin{{to{{transform:rotate(360deg)}}}}
+      .pipeline-progress{{margin:14px 0 0;padding:14px;border:1px solid #bfdbfe;border-radius:16px;background:#f8fbff;color:#172033}}
+      .pipeline-progress.is-updating{{border-color:#60a5fa;background:#eff6ff}}
+      .pipeline-progress-header{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px}}
+      .pipeline-progress-title{{font-weight:900;color:#1e3a8a}}
+      .pipeline-progress-current{{color:#1d4ed8;font-weight:900;white-space:nowrap}}
+      .pipeline-progress-message{{margin:0 0 10px;color:var(--muted);font-size:.86rem}}
+      .pipeline-progress-list{{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:8px;list-style:none;padding:0;margin:0}}
+      .pipeline-progress-list li{{border:1px solid #dbeafe;border-radius:12px;background:#fff;padding:9px;min-width:0}}
+      .progress-stage-name,.progress-stage-ratio{{display:block;font-size:.82rem;font-weight:800}}
+      .progress-stage-name{{color:#334155}}
+      .progress-stage-ratio{{color:#1d4ed8;margin-top:2px}}
+      .progress-bar{{height:7px;border-radius:999px;background:#e2e8f0;overflow:hidden;margin:7px 0}}
+      .progress-bar span{{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#60a5fa,#2563eb)}}
+      .pipeline-progress-list small{{display:block;color:#64748b;font-size:.74rem;line-height:1.3}}
       table{{border-collapse:separate;border-spacing:0;width:100%;font-size:.88rem}}
       th{{position:sticky;top:0;z-index:1;background:#f1f5f9;color:#334155;font-weight:800}}
       td,th{{border-bottom:1px solid #e2e8f0;padding:8px 9px;white-space:nowrap}}
@@ -665,28 +690,9 @@ def app(environ, start_response):
       .note-editor .stock-meta-select{{width:104px;min-width:0;padding:4px 6px;text-align:left;text-align-last:left;min-height:30px}}
       .note-editor .stock-note-input{{width:170px;min-width:120px;padding:4px 6px;min-height:30px}}
       table th:nth-child(15), table td:nth-child(15){{width:96px;min-width:96px;max-width:96px}}
-      @media (max-width: 1180px){{.filter-grid{{grid-template-columns:repeat(2,minmax(220px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
-      @media (max-width: 760px){{body{{padding:10px}}.hero{{display:block;padding:18px}}.hero-badge{{display:inline-block;margin-top:12px}}.filter-grid,.field-stack,.summary-strip{{grid-template-columns:1fr}}.form-actions{{grid-template-columns:1fr}}.utility-actions{{justify-content:flex-start}}.preset-picker{{min-width:100%;flex-wrap:wrap}}.cards-grid{{grid-template-columns:1fr}}input,select,button{{font-size:.84rem}}table{{font-size:.8rem}}}}
+      @media (max-width: 1180px){{.filter-grid{{grid-template-columns:repeat(2,minmax(220px,1fr))}}.pipeline-progress-list{{grid-template-columns:repeat(2,minmax(160px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
+      @media (max-width: 760px){{body{{padding:10px}}.hero{{display:block;padding:18px}}.hero-badge{{display:inline-block;margin-top:12px}}.filter-grid,.field-stack,.summary-strip,.pipeline-progress-list{{grid-template-columns:1fr}}.form-actions{{grid-template-columns:1fr}}.utility-actions{{justify-content:flex-start}}.preset-picker{{min-width:100%;flex-wrap:wrap}}.cards-grid{{grid-template-columns:1fr}}input,select,button{{font-size:.84rem}}table{{font-size:.8rem}}}}
     </style></head><body>
-    <div id='loadingOverlay' class='loading-overlay' aria-live='polite' aria-hidden='true'>
-      <div class='loading-card' role='status'>
-        <div class='loading-header'>
-          <div class='loading-spinner' aria-hidden='true'></div>
-          <div>
-            <p id='loadingTitle' class='loading-title'>正在更新儀表板</p>
-            <p id='loadingMessage' class='loading-message'>正在準備股池與篩選條件…</p>
-          </div>
-        </div>
-        <div id='loadingSteps' class='loading-steps'>
-          <span class='loading-step is-active'>套用頁籤、產業與個人篩選</span>
-          <span class='loading-step'>讀取快取；必要時下載行情資料</span>
-          <span class='loading-step'>計算均線、量能與形勢判斷</span>
-          <span class='loading-step'>排序表格並繪製多股趨勢圖</span>
-        </div>
-        <p class='loading-tip'>分類股池檔數較多時可能需要約 1 分鐘；此畫面代表系統仍在處理，請先不要重複送出。若圖表已經顯示完成但提示仍停留，可先關閉提示繼續操作。</p>
-        <div class='loading-actions'><button type='button' onclick='hideLoadingProgress()'>圖表已出現，關閉提示</button></div>
-      </div>
-    </div>
     <div class='page-shell'>
     <header class='hero'>
       <div>
@@ -751,7 +757,17 @@ def app(environ, start_response):
           <input type='file' id='memoryFile' accept='application/json' style='display:none' onchange='importBrowserMemory(event)'>
           <button type='button' onclick="document.getElementById('memoryFile').click()">匯入備份檔</button>
         </div>
-        <p class='form-help'>推薦設定由伺服器設定目錄提供；本機設定與完整備份檔會保存在瀏覽器，可跨裝置匯入還原。送出後會顯示目前動作提示，分類股池檔數多時請等候下載與分析完成。</p>
+        <p class='form-help'>推薦設定由伺服器設定目錄提供；本機設定與完整備份檔會保存在瀏覽器，可跨裝置匯入還原。下方進度區只顯示目前頁面實際完成的階段與比例，不再用跳動提示假裝後端進度。</p>
+        <div id='pipelineProgress' class='pipeline-progress' role='status' aria-live='polite'>
+          <div class='pipeline-progress-header'>
+            <div>
+              <div class='pipeline-progress-title'>目前處理進度</div>
+              <p id='pipelineProgressMessage' class='pipeline-progress-message'>已完成本次儀表板資料處理；重新送出後會在同一區塊顯示目前送出與等待狀態。</p>
+            </div>
+            <div id='pipelineProgressCurrent' class='pipeline-progress-current'>{html.escape(current_progress_stage['label'])}：{current_progress_stage['percent']}%</div>
+          </div>
+          <ol id='pipelineProgressList' class='pipeline-progress-list'>{progress_steps_html}</ol>
+        </div>
       </div>
     <input type='hidden' name='custom_watchlist' id='customWatchlist' value='{html.escape(','.join(watchlist['symbol'].tolist()))}'>
     <div id='watchlistBatchModal' class='watchlist-batch-modal' role='dialog' aria-modal='true' aria-labelledby='watchlistBatchTitle'>
@@ -845,7 +861,7 @@ def app(environ, start_response):
       const fd = new FormData(document.getElementById('cfgForm'));
       return Object.fromEntries(fd.entries());
     }}
-    let loadingStepTimer = null;
+    const pipelineProgressSteps = {pipeline_progress_json};
     function selectedOptionText(form, name){{
       const el = form?.elements?.[name];
       if(!el || el.selectedIndex < 0) return '';
@@ -859,37 +875,44 @@ def app(environ, start_response):
       const countText = document.querySelector('#summaryInfo .summary-value')?.textContent?.trim() || '';
       const scope = industryText && !industryText.includes('不限') ? `${{tabText}}／${{industryText}}` : tabText;
       const cadence = [periodText, intervalText].filter(Boolean).join('・');
-      const stockHint = countText ? `（目前畫面 ${{countText}}；新篩選會重新計算）` : '';
-      return `${{reason}}：正在處理 ${{scope}} ${{stockHint}}。接著會讀取快取、必要時下載行情，並計算技術指標${{cadence ? `（${{cadence}}）` : ''}}。`;
+      const stockHint = countText ? `目前頁面 ${{countText}}；新篩選會由後端重新計算` : '新篩選會由後端重新計算';
+      return `${{reason}}：已送出 ${{scope}}（${{stockHint}}）。等待伺服器回傳前，瀏覽器無法取得後端內部逐檔百分比；回傳後此區塊會更新成實際完成比例${{cadence ? `（${{cadence}}）` : ''}}。`;
     }}
-
+    function renderProgressRows(steps){{
+      return steps.map((step)=>`
+        <li><span class='progress-stage-name'>${{escapeHtmlAttr(step.label)}}</span>
+        <span class='progress-stage-ratio'>${{Number(step.done || 0)}} / ${{Number(step.total || 0)}}（${{Number(step.percent || 0)}}%）</span>
+        <div class='progress-bar' aria-hidden='true'><span style='width:${{Number(step.percent || 0)}}%'></span></div>
+        <small>${{escapeHtmlAttr(step.detail || '')}}</small></li>
+      `).join('');
+    }}
+    function setInlineProgress({{message, current, steps, updating=false}}={{}}){{
+      const panel = document.getElementById('pipelineProgress');
+      if(!panel) return;
+      panel.classList.toggle('is-updating', Boolean(updating));
+      const msg = document.getElementById('pipelineProgressMessage');
+      const currentEl = document.getElementById('pipelineProgressCurrent');
+      const list = document.getElementById('pipelineProgressList');
+      if(message && msg) msg.textContent = message;
+      if(current && currentEl) currentEl.textContent = current;
+      if(Array.isArray(steps) && list) list.innerHTML = renderProgressRows(steps);
+    }}
     function hideLoadingProgress(){{
-      const overlay = document.getElementById('loadingOverlay');
-      if(!overlay) return;
-      overlay.classList.remove('is-open');
-      overlay.setAttribute('aria-hidden', 'true');
-      window.clearInterval(loadingStepTimer);
-      loadingStepTimer = null;
+      setInlineProgress({{updating:false}});
     }}
     function showLoadingProgress(reason='更新儀表板'){{
       const form = document.getElementById('cfgForm');
-      const overlay = document.getElementById('loadingOverlay');
-      if(!overlay) return;
-      const message = document.getElementById('loadingMessage');
-      const title = document.getElementById('loadingTitle');
-      if(title) title.textContent = `正在${{reason}}`;
-      if(message) message.textContent = buildLoadingMessage(form, reason);
-      overlay.classList.add('is-open');
-      overlay.setAttribute('aria-hidden', 'false');
-      const steps = Array.from(document.querySelectorAll('#loadingSteps .loading-step'));
-      let stepIndex = 0;
-      const activateStep = () => {{
-        steps.forEach((step, idx)=>step.classList.toggle('is-active', idx === stepIndex));
-        stepIndex = Math.min(stepIndex + 1, Math.max(steps.length - 1, 0));
-      }};
-      activateStep();
-      window.clearInterval(loadingStepTimer);
-      loadingStepTimer = window.setInterval(activateStep, 2600);
+      const waitingSteps = [
+        {{label:'瀏覽器送出', done:1, total:1, percent:100, detail:'已同步自選、備註與篩選參數'}},
+        {{label:'等待後端', done:0, total:1, percent:0, detail:'後端正在讀取股池、行情與計算；此階段不再顯示假百分比'}},
+        ...pipelineProgressSteps.slice(2).map((step)=>({{...step, done:0, percent:0}})),
+      ];
+      setInlineProgress({{
+        updating:true,
+        current:'等待後端回應：0%',
+        message:buildLoadingMessage(form, reason),
+        steps:waitingSteps,
+      }});
     }}
     function submitFormWithLoading(form, reason='更新儀表板'){{
       showLoadingProgress(reason);
