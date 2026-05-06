@@ -174,6 +174,7 @@ def app(environ, start_response):
     show_volume = params.get("show_volume", ["1"])[0] == "1"
     show_target_price = params.get("show_target_price", ["0"])[0] == "1"
     card_sort = params.get("card_sort", ["signal_score"])[0]
+    compact_progress = params.get("compact_progress", ["1"])[0] == "1"
     sort_options = {"symbol", "close", "volume", "change_pct", "target_ratio", "signal_score"}
     if card_sort not in sort_options:
         card_sort = "signal_score"
@@ -557,6 +558,7 @@ def app(environ, start_response):
         "show_volume": "1" if show_volume else "0",
         "show_target_price": "1" if show_target_price else "0",
         "card_sort": card_sort,
+        "compact_progress": "1" if compact_progress else "0",
         "page": page,
     }
     server_config_presets = load_server_config_presets()
@@ -588,6 +590,8 @@ def app(environ, start_response):
         for step in progress_steps
     ])
     pipeline_progress_json = json.dumps(progress_steps, ensure_ascii=False).replace("</", "<\/")
+
+    progress_panel_class = "pipeline-progress is-compact" if compact_progress else "pipeline-progress"
 
     table_header_html = "<tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th>互動</th></tr>"
     dashboard_render_items_json = json.dumps(rendered_stock_items, ensure_ascii=False).replace("</", "<\/")
@@ -641,6 +645,16 @@ def app(environ, start_response):
       .progress-bar{{height:7px;border-radius:999px;background:#e2e8f0;overflow:hidden;margin:7px 0}}
       .progress-bar span{{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#60a5fa,#2563eb)}}
       .pipeline-progress-list small{{display:block;color:#64748b;font-size:.74rem;line-height:1.3}}
+      .pipeline-progress.is-compact{{padding:8px 10px;border-radius:14px}}
+      .pipeline-progress.is-compact .pipeline-progress-header{{align-items:center;margin-bottom:6px}}
+      .pipeline-progress.is-compact .pipeline-progress-title{{display:inline;font-size:.88rem}}
+      .pipeline-progress.is-compact .pipeline-progress-message{{display:none}}
+      .pipeline-progress.is-compact .pipeline-progress-current{{font-size:.84rem}}
+      .pipeline-progress.is-compact .pipeline-progress-list{{display:flex;gap:6px;overflow-x:auto;padding-bottom:1px}}
+      .pipeline-progress.is-compact .pipeline-progress-list li{{display:flex;align-items:center;gap:5px;flex:0 0 auto;border-radius:999px;padding:4px 8px}}
+      .pipeline-progress.is-compact .progress-stage-name,.pipeline-progress.is-compact .progress-stage-ratio{{display:inline;font-size:.76rem;line-height:1.1}}
+      .pipeline-progress.is-compact .progress-stage-ratio{{margin-top:0}}
+      .pipeline-progress.is-compact .progress-bar,.pipeline-progress.is-compact small{{display:none}}
       table{{border-collapse:separate;border-spacing:0;width:100%;font-size:.88rem}}
       th{{position:sticky;top:0;z-index:1;background:#f1f5f9;color:#334155;font-weight:800}}
       td,th{{border-bottom:1px solid #e2e8f0;padding:8px 9px;white-space:nowrap}}
@@ -729,6 +743,7 @@ def app(environ, start_response):
             <label class='form-field'>檔數<input name='limit' value='{limit}' size='3'/></label>
             <label class='form-field'>頁碼<input name='page' value='{page}' size='3'/></label>
             <label class='form-field'>目標價<select name='show_target_price'><option value='0' {'selected' if not show_target_price else ''}>關閉（較快）</option><option value='1' {'selected' if show_target_price else ''}>開啟</option></select></label>
+            <label class='form-field'>精簡進度<select name='compact_progress'><option value='1' {'selected' if compact_progress else ''}>開啟（省空間）</option><option value='0' {'selected' if not compact_progress else ''}>關閉（詳細）</option></select></label>
           </div>
         </fieldset>
         <fieldset>
@@ -757,8 +772,8 @@ def app(environ, start_response):
           <input type='file' id='memoryFile' accept='application/json' style='display:none' onchange='importBrowserMemory(event)'>
           <button type='button' onclick="document.getElementById('memoryFile').click()">匯入備份檔</button>
         </div>
-        <p class='form-help'>推薦設定由伺服器設定目錄提供；本機設定與完整備份檔會保存在瀏覽器，可跨裝置匯入還原。下方進度區只顯示目前頁面實際完成的階段與比例，不再用跳動提示假裝後端進度。</p>
-        <div id='pipelineProgress' class='pipeline-progress' role='status' aria-live='polite'>
+        <p class='form-help'>推薦設定由伺服器設定目錄提供；本機設定與完整備份檔會保存在瀏覽器，可跨裝置匯入還原。下方進度區只顯示目前頁面實際完成的階段與比例，不再用跳動提示假裝後端進度；可用「精簡進度」開關縮成單列顯示。</p>
+        <div id='pipelineProgress' class='{progress_panel_class}' role='status' aria-live='polite'>
           <div class='pipeline-progress-header'>
             <div>
               <div class='pipeline-progress-title'>目前處理進度</div>
@@ -1459,7 +1474,7 @@ def app(environ, start_response):
       syncStockMetaPayload();
       showLoadingProgress('更新儀表板');
     }});
-    const AUTO_SUBMIT_FIELDS = new Set(['tab','industry','period','interval','limit','group_filter','subgroup_filter','cards_per_row','show_volume','show_target_price','card_sort']);
+    const AUTO_SUBMIT_FIELDS = new Set(['tab','industry','period','interval','limit','group_filter','subgroup_filter','cards_per_row','show_volume','show_target_price','compact_progress','card_sort']);
     document.getElementById('cfgForm')?.addEventListener('change', (event)=>{{
       if(AUTO_SUBMIT_FIELDS.has(event.target?.name)) autoSubmitConfig(event);
     }});

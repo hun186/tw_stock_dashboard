@@ -44,6 +44,7 @@ Vercel 會直接執行 `api/main.py`。
 - `status_filter`: `all` / `watch` / `bull` / `observe` / `warn` / `bear` / `neutral`
 - `card_sort`: `signal_score`（預設）/ `symbol` / `close` / `volume` / `change_pct` / `target_ratio`
 - `show_target_price`: `0` / `1`（預設 `0`；開啟會逐檔查 Yahoo 目標價，速度較慢）
+- `compact_progress`: `1` / `0`（預設 `1`；開啟後將處理進度縮成單列精簡顯示）
 
 ## 自選股清單
 
