@@ -195,7 +195,14 @@ def app(environ, start_response):
                     target_ratio_text = f"{(target_price_value / close_value) * 100:.1f}%"
             except (TypeError, ValueError):
                 target_ratio_text = "-"
-        rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr data-symbol='{html.escape(row.symbol)}'><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{html.escape(row.name)}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td><td class='note-cell'>{note_editor}</td><td>{action_btn}</td></tr>"})
+        name_jump_button = (
+            "<button type='button' class='stock-jump' "
+            f"onclick='scrollToStockCard({symbol_js})' "
+            f"title='跳到 {html.escape(row.name, quote=True)} 的曲線圖'>"
+            f"{html.escape(row.name)}"
+            "</button>"
+        )
+        rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr data-symbol='{html.escape(row.symbol)}'><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{name_jump_button}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td><td class='note-cell'>{note_editor}</td><td>{action_btn}</td></tr>"})
         if not df.empty:
             show_ma = period != "intraday"
             intraday_ref_close = float(df.iloc[-1]["RefClose"]) if show_ma is False and "RefClose" in df.columns else None
@@ -304,8 +311,11 @@ def app(environ, start_response):
       td,th{{border:1px solid #ddd;padding:5px;white-space:nowrap}}
       table th:nth-child(7), table td:nth-child(7), table th:nth-child(8), table td:nth-child(8), table th:nth-child(9), table td:nth-child(9){{text-align:right}}
       .table-wrap{{overflow-x:auto}}
-      .card{{margin:8px 0;padding:8px;border:1px solid #ddd;border-radius:8px}}
+      .card{{margin:8px 0;padding:8px;border:1px solid #ddd;border-radius:8px;transition:border-color .2s ease,box-shadow .2s ease,background .2s ease}}
       .card h3{{font-size:.95rem;margin:4px 0 6px}}
+      .card.is-jump-target{{border-color:#1976d2;box-shadow:0 0 0 3px rgba(25,118,210,.16);background:#f5fbff}}
+      .stock-jump{{border:0;background:none;color:#1565c0;text-decoration:underline;cursor:pointer;padding:0;font:inherit}}
+      .stock-jump:hover,.stock-jump:focus{{color:#0d47a1;text-decoration-thickness:2px;outline:none}}
       .note-editor{{display:flex;gap:2px;align-items:center;white-space:nowrap}}
       .note-editor .note-preset-select{{width:calc(72px + 16pt);min-width:0;padding:2px 3px;text-align:left;text-align-last:left}}
       .watchlist-action{{min-width:72px;cursor:pointer}}
@@ -431,6 +441,19 @@ def app(environ, start_response):
     }}
     function goToPage(page){{
       submitConfig({{page: String(page)}});
+    }}
+    function scrollToStockCard(symbol){{
+      const key = normalizeWatchlistSymbol(symbol);
+      const card = Array.from(document.querySelectorAll('.card[data-symbol]')).find((el)=>normalizeWatchlistSymbol(el.dataset.symbol) === key);
+      if(!card){{
+        showWatchlistStatus(`找不到 ${{symbol}} 的曲線圖`);
+        return;
+      }}
+      document.querySelectorAll('.card.is-jump-target').forEach((el)=>el.classList.remove('is-jump-target'));
+      card.scrollIntoView({{behavior: 'smooth', block: 'start'}});
+      card.classList.add('is-jump-target');
+      window.clearTimeout(scrollToStockCard.timer);
+      scrollToStockCard.timer = window.setTimeout(()=>card.classList.remove('is-jump-target'), 2200);
     }}
     function saveLocal(){{
       localStorage.setItem('tw_dashboard_config', JSON.stringify(serializeForm()));
