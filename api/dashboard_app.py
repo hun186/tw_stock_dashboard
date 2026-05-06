@@ -381,7 +381,7 @@ def app(environ, start_response):
           <button type='button' onclick='closeBatchWatchlistDialog()' aria-label='關閉'>×</button>
         </div>
         <div class='watchlist-batch-body'>
-          <div class='watchlist-batch-help'>先搜尋並勾選多檔股票，或在下方貼上多個代號（可用逗號、空白或換行分隔）；按「批次加入」後才會刷新頁面。</div>
+          <div class='watchlist-batch-help'>先搜尋並勾選多檔股票，或在下方貼上多個代號（可用逗號、空白或換行分隔）；未按「批次加入」前，暫時關閉視窗也會保留已勾選內容。</div>
           <label for='watchKeyword'>關鍵字搜尋</label>
           <div class='watchlist-batch-row'>
             <input id='watchKeyword' placeholder='輸入名稱、代號、主題或次題材' style='flex:1;min-width:220px'>
@@ -684,12 +684,12 @@ def app(environ, start_response):
     function openBatchWatchlistDialog(){{
       const modal = document.getElementById('watchlistBatchModal');
       if(!modal) return;
-      batchSelectedSymbols.clear();
       modal.classList.add('is-open');
       renderBatchStockResults(document.getElementById('watchKeyword')?.value || '');
       setTimeout(()=>document.getElementById('watchKeyword')?.focus(), 0);
     }}
     function closeBatchWatchlistDialog(){{
+      syncVisibleBatchSelections();
       document.getElementById('watchlistBatchModal')?.classList.remove('is-open');
     }}
     function selectVisibleBatchStocks(checked){{
