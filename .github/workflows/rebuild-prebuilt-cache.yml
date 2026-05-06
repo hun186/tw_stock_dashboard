@@ -3,15 +3,22 @@ name: Rebuild prebuilt cache
 on:
   workflow_dispatch:
   schedule:
-    # 台股約 13:30 (Asia/Taipei) 收盤，這裡抓 14:10 (Asia/Taipei) ≈ 06:10 UTC
+    # 台股約 13:30 (Asia/Taipei) 收盤，14:10 (Asia/Taipei) ≈ 06:10 UTC。
+    # 若這次執行失敗，retry-prebuilt-cache workflow 會等 15 分鐘後補跑一次。
     - cron: "10 6 * * 1-5"
 
 permissions:
   contents: write
 
+concurrency:
+  group: rebuild-prebuilt-cache-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   rebuild-cache:
-    runs-on: ubuntu-latest
+    # 避免 ubuntu-latest image 切換期間影響排程穩定性。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,6 +29,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -40,4 +48,5 @@ jobs:
           fi
           commit_msg="chore: refresh prebuilt cache ($(date -u +'%Y-%m-%d %H:%M UTC'))"
           git commit -m "$commit_msg"
+          git pull --rebase
           git push
