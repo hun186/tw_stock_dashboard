@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import math
+import time
 from urllib.parse import parse_qs
 
 import pandas as pd
@@ -20,12 +21,97 @@ from api.data_loader import load_llm_group_map, load_twse_industry_map, load_wat
 from api.market_data import (
     _symbol_key,
     fetch_target_price,
+    get_price_cache_ttl_seconds,
     prefetch_price_data,
     resolve_price_params,
     trim_display_df,
 )
 from api.server_configs import load_server_config_presets
 from api.stock_analysis import add_indicators, analyze_stock_signal
+
+
+STOCK_ANALYSIS_CACHE: dict[tuple[str, str, str, str, str, bool], tuple[float, dict]] = {}
+
+
+def _analysis_cache_ttl_seconds(fetch_interval: str) -> int:
+    return max(get_price_cache_ttl_seconds(fetch_interval), 300)
+
+
+def _build_stock_analysis(
+    symbol: str,
+    period: str,
+    fetch_period: str,
+    fetch_interval: str,
+    display_period: str,
+    price_df: pd.DataFrame,
+    signal_df: pd.DataFrame,
+    needs_target_price: bool,
+) -> dict:
+    cache_key = (symbol, period, fetch_period, fetch_interval, display_period, needs_target_price)
+    cached = STOCK_ANALYSIS_CACHE.get(cache_key)
+    now = time.time()
+    if cached and now - cached[0] < _analysis_cache_ttl_seconds(fetch_interval):
+        payload = cached[1].copy()
+        payload["df"] = cached[1]["df"].copy()
+        return payload
+
+    df = price_df.copy()
+    raw_signal_df = signal_df.copy() if period == "intraday" else df.copy()
+    sort_metrics = {
+        "symbol": symbol,
+        "close": -1.0,
+        "volume": -1.0,
+        "change_pct": -999.0,
+        "target_ratio": -1.0,
+        "signal_score": -999.0,
+    }
+    target_price_text = "-"
+    target_ratio_text = "-"
+    if df.empty:
+        bucket, status = "watch", "⚪ 抓不到資料"
+        close_text = "-"
+        signal = {"bucket": bucket, "message": status, "score": -999}
+    else:
+        df = add_indicators(df)
+        df = trim_display_df(df, display_period)
+        if raw_signal_df.empty:
+            signal = {"bucket": "watch", "message": "⚪ 抓不到形勢判斷資料", "score": -999}
+        else:
+            raw_signal_df = add_indicators(raw_signal_df)
+            signal = analyze_stock_signal(raw_signal_df)
+        bucket, status = signal["bucket"], signal["message"]
+        close_value = float(df.iloc[-1]["Close"])
+        close_text = f"{close_value:.2f}"
+        sort_metrics["close"] = close_value
+        sort_metrics["volume"] = float(df.iloc[-1]["Volume"]) if "Volume" in df.columns else 0.0
+        sort_metrics["signal_score"] = float(signal.get("score", -999))
+        intraday_ref_close = float(df.iloc[-1]["RefClose"]) if period == "intraday" and "RefClose" in df.columns else None
+        prev_close = float(df.iloc[-2]["Close"]) if len(df) >= 2 else close_value
+        reference_close = intraday_ref_close if intraday_ref_close else prev_close
+        sort_metrics["change_pct"] = ((close_value - reference_close) / reference_close) * 100 if reference_close else 0.0
+        if needs_target_price:
+            target_price_text = fetch_target_price(symbol)
+            try:
+                target_price_value = float(target_price_text)
+                if close_value != 0:
+                    sort_metrics["target_ratio"] = (target_price_value / close_value) * 100
+                    target_ratio_text = f"{sort_metrics['target_ratio']:.1f}%"
+            except (TypeError, ValueError):
+                target_price_text = "-"
+                target_ratio_text = "-"
+
+    payload = {
+        "df": df,
+        "signal": signal,
+        "bucket": signal["bucket"],
+        "status": signal["message"],
+        "close_text": close_text,
+        "sort_metrics": sort_metrics,
+        "target_price_text": target_price_text,
+        "target_ratio_text": target_ratio_text,
+    }
+    STOCK_ANALYSIS_CACHE[cache_key] = (now, {**payload, "df": payload["df"].copy()})
+    return payload
 
 
 def app(environ, start_response):
@@ -49,10 +135,10 @@ def app(environ, start_response):
     custom_watchlist_raw = params.get("custom_watchlist", [""])[0]
     show_volume = params.get("show_volume", ["1"])[0] == "1"
     show_target_price = params.get("show_target_price", ["0"])[0] == "1"
-    card_sort = params.get("card_sort", ["symbol"])[0]
-    sort_options = {"symbol", "close", "volume", "change_pct", "target_ratio"}
+    card_sort = params.get("card_sort", ["signal_score"])[0]
+    sort_options = {"symbol", "close", "volume", "change_pct", "target_ratio", "signal_score"}
     if card_sort not in sort_options:
-        card_sort = "symbol"
+        card_sort = "signal_score"
 
     def normalize_stock_meta_entry(entry):
         meta = {field: "" for field in ("action", "trait", "stage", "risk")}
@@ -80,10 +166,21 @@ def app(environ, start_response):
 
     fetch_period, fetch_interval, display_period = resolve_price_params(period, interval)
 
-    base_watchlist = load_watchlist(WATCHLIST_FILE)
+    custom_symbols = [x.strip() for x in custom_watchlist_raw.split(",") if x.strip()]
+    custom_symbol_keys = {_symbol_key(symbol) for symbol in custom_symbols if _symbol_key(symbol)}
+
+    file_watchlist = load_watchlist(WATCHLIST_FILE)
     llm_watchlist = load_llm_group_map(LLM_GROUP_FILE, LLM_GROUP_SHEET)
+    llm_allowed_symbol_keys = set(file_watchlist["symbol"].map(_symbol_key)) | custom_symbol_keys
+    if not llm_watchlist.empty:
+        if llm_allowed_symbol_keys:
+            llm_watchlist = llm_watchlist[
+                llm_watchlist["symbol"].map(_symbol_key).isin(llm_allowed_symbol_keys)
+            ]
+        else:
+            llm_watchlist = llm_watchlist.iloc[0:0]
     base_watchlist = (
-        pd.concat([llm_watchlist, base_watchlist], ignore_index=True)
+        pd.concat([llm_watchlist, file_watchlist], ignore_index=True)
         .drop_duplicates(subset=["symbol"], keep="last")
         .reset_index(drop=True)
     )
@@ -110,14 +207,29 @@ def app(environ, start_response):
         industry_df[["symbol", "name", "group", "subgroup"]]
     ], ignore_index=True).drop_duplicates(subset=["symbol"])
 
-    custom_symbols = [x.strip() for x in custom_watchlist_raw.split(",") if x.strip()]
-    custom_df = all_stocks[all_stocks["symbol"].isin(custom_symbols)][["symbol", "name", "group", "subgroup"]]
-    missing_symbols = [x for x in custom_symbols if x not in set(custom_df["symbol"]) ]
-    if missing_symbols:
-        custom_df = pd.concat([
-            custom_df,
-            pd.DataFrame([{"symbol": s, "name": s, "group": "自訂", "subgroup": ""} for s in missing_symbols])
-        ], ignore_index=True)
+    stock_lookup = (
+        all_stocks.assign(symbol_key=lambda d: d["symbol"].map(_symbol_key))
+        .drop_duplicates(subset=["symbol_key"], keep="first")
+        .set_index("symbol_key")
+    )
+    custom_rows = []
+    seen_custom_symbol_keys = set()
+    for symbol in custom_symbols:
+        symbol_key = _symbol_key(symbol)
+        if not symbol_key or symbol_key in seen_custom_symbol_keys:
+            continue
+        seen_custom_symbol_keys.add(symbol_key)
+        if symbol_key in stock_lookup.index:
+            stock = stock_lookup.loc[symbol_key]
+            custom_rows.append({
+                "symbol": stock["symbol"],
+                "name": stock["name"],
+                "group": stock["group"],
+                "subgroup": stock["subgroup"],
+            })
+        else:
+            custom_rows.append({"symbol": symbol, "name": symbol, "group": "自訂", "subgroup": ""})
+    custom_df = pd.DataFrame(custom_rows, columns=["symbol", "name", "group", "subgroup"])
     watchlist = custom_df if not custom_df.empty else base_watchlist
 
     if tab == "category":
@@ -179,55 +291,29 @@ def app(environ, start_response):
     signal_data_map = prefetch_price_data(stocks, "6mo", "1d") if period == "intraday" else {}
 
     filtered_stocks = []
+    needs_target_price = card_sort == "target_ratio"
     for row in stocks.itertuples(index=False):
-        df = price_data_map.get(row.symbol, pd.DataFrame()).copy()
-        signal_df = signal_data_map.get(row.symbol, pd.DataFrame()).copy() if period == "intraday" else df.copy()
-        sort_metrics = {"symbol": row.symbol, "close": -1.0, "volume": -1.0, "change_pct": -999.0, "target_ratio": -1.0}
-        target_price_text = "-"
-        target_ratio_text = "-"
-        if df.empty:
-            bucket, status = "watch", "⚪ 抓不到資料"
-            close_text = "-"
-            signal = {"bucket": bucket, "message": status, "score": -999}
-        else:
-            df = add_indicators(df)
-            df = trim_display_df(df, display_period)
-            if signal_df.empty:
-                signal = {"bucket": "watch", "message": "⚪ 抓不到判斷資料", "score": -999}
-            else:
-                signal_df = add_indicators(signal_df)
-                signal = analyze_stock_signal(signal_df)
-            bucket, status = signal["bucket"], signal["message"]
-            close_value = float(df.iloc[-1]["Close"])
-            close_text = f"{close_value:.2f}"
-            sort_metrics["close"] = close_value
-            sort_metrics["volume"] = float(df.iloc[-1]["Volume"]) if "Volume" in df.columns else 0.0
-            intraday_ref_close = float(df.iloc[-1]["RefClose"]) if period == "intraday" and "RefClose" in df.columns else None
-            prev_close = float(df.iloc[-2]["Close"]) if len(df) >= 2 else close_value
-            reference_close = intraday_ref_close if intraday_ref_close else prev_close
-            sort_metrics["change_pct"] = ((close_value - reference_close) / reference_close) * 100 if reference_close else 0.0
-            if show_target_price or card_sort == "target_ratio":
-                target_price_text = fetch_target_price(row.symbol)
-                try:
-                    target_price_value = float(target_price_text)
-                    if close_value != 0:
-                        sort_metrics["target_ratio"] = (target_price_value / close_value) * 100
-                        target_ratio_text = f"{sort_metrics['target_ratio']:.1f}%"
-                except (TypeError, ValueError):
-                    target_price_text = "-"
-                    target_ratio_text = "-"
-
-        if status_filter != "all" and bucket != status_filter:
+        stock_analysis = _build_stock_analysis(
+            row.symbol,
+            period,
+            fetch_period,
+            fetch_interval,
+            display_period,
+            price_data_map.get(row.symbol, pd.DataFrame()),
+            signal_data_map.get(row.symbol, pd.DataFrame()),
+            needs_target_price,
+        )
+        if status_filter != "all" and stock_analysis["bucket"] != status_filter:
             continue
         filtered_stocks.append({
             "row": row,
-            "df": df,
-            "signal": signal,
-            "status": status,
-            "close_text": close_text,
-            "sort_metrics": sort_metrics,
-            "target_price_text": target_price_text if show_target_price else "-",
-            "target_ratio_text": target_ratio_text if show_target_price else "-",
+            "df": stock_analysis["df"],
+            "signal": stock_analysis["signal"],
+            "status": stock_analysis["status"],
+            "close_text": stock_analysis["close_text"],
+            "sort_metrics": stock_analysis["sort_metrics"],
+            "target_price_text": stock_analysis["target_price_text"] if show_target_price else "-",
+            "target_ratio_text": stock_analysis["target_ratio_text"] if show_target_price else "-",
         })
 
     if card_sort == "symbol":
@@ -251,6 +337,15 @@ def app(environ, start_response):
         close_text = stock_item["close_text"]
         target_price_text = stock_item["target_price_text"]
         target_ratio_text = stock_item["target_ratio_text"]
+        if show_target_price and target_price_text == "-" and close_text != "-":
+            target_price_text = fetch_target_price(row.symbol)
+            try:
+                target_price_value = float(target_price_text)
+                close_value = float(close_text)
+                target_ratio_text = f"{(target_price_value / close_value) * 100:.1f}%" if close_value else "-"
+            except (TypeError, ValueError):
+                target_price_text = "-"
+                target_ratio_text = "-"
 
         symbol_key = _symbol_key(row.symbol)
         symbol_js = json.dumps(row.symbol, ensure_ascii=False)
@@ -491,14 +586,14 @@ def app(environ, start_response):
             <label class='form-field'>期間<select name='period'><option value='intraday' {'selected' if period=='intraday' else ''}>當日即時K</option><option value='1mo' {'selected' if period=='1mo' else ''}>1個月</option><option value='2mo' {'selected' if period=='2mo' else ''}>2個月</option><option value='3mo' {'selected' if period=='3mo' else ''}>3個月</option><option value='6mo' {'selected' if period=='6mo' else ''}>6個月</option><option value='1y' {'selected' if period=='1y' else ''}>1年</option><option value='5y' {'selected' if period=='5y' else ''}>5年</option></select></label>
             <label class='form-field'>週期<select name='interval'><option value='1m' {'selected' if interval=='1m' else ''}>1 分鐘</option><option value='5m' {'selected' if interval=='5m' else ''}>5 分鐘</option><option value='15m' {'selected' if interval=='15m' else ''}>15 分鐘</option><option value='1d' {'selected' if interval=='1d' else ''}>日線</option><option value='1wk' {'selected' if interval=='1wk' else ''}>週線</option></select></label>
             <label class='form-field'>每列檔數<select name='cards_per_row'>{''.join([f"<option value='{n}' {'selected' if cards_per_row==n else ''}>{n}</option>" for n in range(1, 16)])}</select></label>
-            <label class='form-field'>圖塊排序<select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option><option value='target_ratio' {'selected' if card_sort=='target_ratio' else ''}>目標價/現價</option></select></label>
+            <label class='form-field'>圖塊排序<select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='signal_score' {'selected' if card_sort=='signal_score' else ''}>形勢分數</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option><option value='target_ratio' {'selected' if card_sort=='target_ratio' else ''}>目標價/現價</option></select></label>
             <label class='form-field'>顯示量K線<select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select></label>
           </div>
         </fieldset>
         <fieldset>
           <legend>篩選與分頁</legend>
           <div class='field-stack'>
-            <label class='form-field'>判斷篩選<select name='status_filter'>{status_options}</select></label>
+            <label class='form-field'>形勢判斷篩選<select name='status_filter'>{status_options}</select></label>
             <label class='form-field'>檔數<input name='limit' value='{limit}' size='3'/></label>
             <label class='form-field'>頁碼<input name='page' value='{page}' size='3'/></label>
             <label class='form-field'>目標價<select name='show_target_price'><option value='0' {'selected' if not show_target_price else ''}>關閉（較快）</option><option value='1' {'selected' if show_target_price else ''}>開啟</option></select></label>
@@ -573,7 +668,7 @@ def app(environ, start_response):
         <div class='summary-item'><span class='summary-label'>頁面進度</span><span class='summary-value'>{page} / {total_pages}</span></div>
         <div class='summary-item'><span class='summary-label'>每頁顯示</span><span class='summary-value'>{limit} 檔</span></div>
       </div>
-      <div id='tableWrap' class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="15">無符合條件資料</td></tr>'}</table></div>
+      <div id='tableWrap' class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="15">無符合條件資料</td></tr>'}</table></div>
     </section>
     <section class='section-card' aria-labelledby='chartsTitle'>
       <div class='section-header'><h2 id='chartsTitle'>多股趨勢圖</h2></div>

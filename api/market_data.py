@@ -12,6 +12,11 @@ from api.constants import STATIC_CACHE_DIR
 
 PRICE_CACHE: dict[tuple[str, str, str], tuple[float, pd.DataFrame]] = {}
 TARGET_PRICE_CACHE: dict[str, tuple[float, str]] = {}
+MAX_PER_SYMBOL_FALLBACKS = 12
+
+
+def get_price_cache_ttl_seconds(interval: str) -> int:
+    return _cache_ttl_seconds(interval)
 
 
 def _symbol_key(symbol: str) -> str:
@@ -56,25 +61,31 @@ def _load_disk_cache(symbol: str, period: str, interval: str, ttl_seconds: int) 
         return None
 
 
-def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.DataFrame:
+def _cached_price(symbol: str, period: str, interval: str, now: float) -> pd.DataFrame | None:
     cache_key = (symbol, period, interval)
-    now = time.time()
-    cache_ttl = _cache_ttl_seconds(interval)
     cached = PRICE_CACHE.get(cache_key)
-    if cached and now - cached[0] < cache_ttl:
+    if cached and now - cached[0] < _cache_ttl_seconds(interval):
         return cached[1].copy()
 
     disk_cached = _load_disk_cache(symbol, period, interval, _disk_cache_max_age_seconds(interval))
     if disk_cached is not None:
         PRICE_CACHE[cache_key] = (now, disk_cached.copy())
         return disk_cached.copy()
+    return None
 
-    df = yf.download(symbol, period=period, interval=interval, auto_adjust=False, progress=False, threads=False)
+
+def _store_price_cache(symbol: str, period: str, interval: str, df: pd.DataFrame, now: float | None = None) -> pd.DataFrame:
+    PRICE_CACHE[(symbol, period, interval)] = (now or time.time(), df.copy())
+    return df
+
+
+def _prepare_price_df(symbol: str, df: pd.DataFrame | None, interval: str) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
+    df = df.copy()
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
-    df = df.rename_axis("Date").reset_index()
+    df = df.rename_axis("Date").reset_index() if "Date" not in df.columns else df.reset_index(drop=True)
     need = ["Date", "Open", "High", "Low", "Close", "Volume"]
     if not set(need).issubset(df.columns):
         return pd.DataFrame()
@@ -95,8 +106,20 @@ def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.Da
             reference_close = float(prev_day_close.iloc[-1]) if not prev_day_close.empty else float(df.iloc[0]["Open"])
             df = df[trade_dates == latest_date].copy()
             df["RefClose"] = reference_close
-    PRICE_CACHE[cache_key] = (now, df.copy())
     return df
+
+
+def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.DataFrame:
+    now = time.time()
+    cached = _cached_price(symbol, period, interval, now)
+    if cached is not None:
+        return cached
+
+    downloaded = yf.download(symbol, period=period, interval=interval, auto_adjust=False, progress=False, threads=False)
+    df = _prepare_price_df(symbol, downloaded, interval)
+    if df.empty:
+        return pd.DataFrame()
+    return _store_price_cache(symbol, period, interval, df, now)
 
 
 def fetch_target_price(symbol: str) -> str:
@@ -139,17 +162,58 @@ def resolve_price_params(period: str, interval: str) -> tuple[str, str, str]:
     return fetch_period, interval, period
 
 
-
-
 def prefetch_price_data(stocks: pd.DataFrame, period: str, interval: str) -> dict[str, pd.DataFrame]:
-    symbols = [s for s in stocks["symbol"].dropna().astype(str).tolist() if s]
+    symbols = list(dict.fromkeys(s for s in stocks["symbol"].dropna().astype(str).tolist() if s))
     if not symbols:
         return {}
 
-    max_workers = min(8, len(symbols))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        results = executor.map(lambda sym: (sym, fetch_price(sym, period, interval)), symbols)
-        return {symbol: df for symbol, df in results}
+    now = time.time()
+    price_map: dict[str, pd.DataFrame] = {}
+    missing_symbols: list[str] = []
+    for symbol in symbols:
+        cached = _cached_price(symbol, period, interval, now)
+        if cached is None:
+            missing_symbols.append(symbol)
+        else:
+            price_map[symbol] = cached
+
+    if price_map and len(missing_symbols) > MAX_PER_SYMBOL_FALLBACKS:
+        missing_symbols = []
+
+    if missing_symbols:
+        try:
+            downloaded = yf.download(
+                missing_symbols,
+                period=period,
+                interval=interval,
+                auto_adjust=False,
+                progress=False,
+                threads=True,
+                group_by="ticker",
+            )
+        except Exception:
+            downloaded = pd.DataFrame()
+
+        if not downloaded.empty:
+            for symbol in missing_symbols[:]:
+                if isinstance(downloaded.columns, pd.MultiIndex) and symbol in downloaded.columns.get_level_values(0):
+                    raw_df = downloaded[symbol]
+                elif len(missing_symbols) == 1:
+                    raw_df = downloaded
+                else:
+                    continue
+                df = _prepare_price_df(symbol, raw_df, interval)
+                if not df.empty:
+                    price_map[symbol] = _store_price_cache(symbol, period, interval, df, now).copy()
+
+    still_missing = [symbol for symbol in symbols if symbol not in price_map]
+    if 0 < len(still_missing) <= MAX_PER_SYMBOL_FALLBACKS:
+        max_workers = min(8, len(still_missing))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            results = executor.map(lambda sym: (sym, fetch_price(sym, period, interval)), still_missing)
+            price_map.update({symbol: df for symbol, df in results})
+
+    return {symbol: price_map.get(symbol, pd.DataFrame()) for symbol in symbols}
 
 def trim_display_df(df: pd.DataFrame, display_period: str) -> pd.DataFrame:
     if df.empty or display_period in {"intraday", "max"}:
