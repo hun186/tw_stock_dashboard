@@ -340,12 +340,12 @@ def app(environ, start_response):
     <input type='hidden' name='custom_watchlist' id='customWatchlist' value='{html.escape(','.join(watchlist['symbol'].tolist()))}'>
     </form>
     <h2>總覽</h2>
-    <div style='margin:4px 0 8px;color:#444;font-size:.9rem'>共 {total_stocks} 檔，現在第 {page}/{total_pages} 頁，每頁 {limit} 檔。</div>
-    <div style='display:flex;gap:6px;margin:0 0 8px'>
+    <div id='summaryInfo' style='margin:4px 0 8px;color:#444;font-size:.9rem'>共 {total_stocks} 檔，現在第 {page}/{total_pages} 頁，每頁 {limit} 檔。</div>
+    <div id='pageNav' style='display:flex;gap:6px;margin:0 0 8px'>
       <button type='button' onclick='goToPage({max(1, page-1)})' {'disabled' if page <= 1 else ''}>上一頁</button>
       <button type='button' onclick='goToPage({min(total_pages, page+1)})' {'disabled' if page >= total_pages else ''}>下一頁</button>
     </div>
-    <div class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>註記</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="11">無符合條件資料</td></tr>'}</table></div>
+    <div id='tableWrap' class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>註記</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="11">無符合條件資料</td></tr>'}</table></div>
     <h2>多股趨勢圖</h2><div id='cardsGrid' style='display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:8px'>{''.join([f"<div class='card' data-symbol='{html.escape(cd['symbol'])}'>{cd['card_html']}</div>" for cd in cards_data])}</div>
     <script>
     const defaultConfig = {json.dumps(save_payload, ensure_ascii=False)};
@@ -640,10 +640,63 @@ def app(environ, start_response):
       const el = document.querySelector(`[name="${{name}}"]`);
       if(el) el.addEventListener('change', autoSubmitConfig);
     }});
+    async function executeScripts(container){{
+      const scripts = Array.from(container.querySelectorAll('script'));
+      for(const oldScript of scripts){{
+        const script = document.createElement('script');
+        for(const attr of oldScript.attributes) script.setAttribute(attr.name, attr.value);
+        if(oldScript.src){{
+          if(window.Plotly && oldScript.src.includes('plotly')){{
+            oldScript.remove();
+            continue;
+          }}
+          await new Promise((resolve, reject)=>{{
+            script.onload = resolve;
+            script.onerror = reject;
+            oldScript.replaceWith(script);
+          }}).catch(()=>{{}});
+        }} else {{
+          script.text = oldScript.textContent;
+          oldScript.replaceWith(script);
+        }}
+      }}
+    }}
+    async function refreshIntradayInPlace(){{
+      if(refreshIntradayInPlace.busy || document.hidden || !isTwTradingHours()) return;
+      refreshIntradayInPlace.busy = true;
+      try {{
+        const response = await fetch(window.location.href, {{ cache: 'no-store' }});
+        if(!response.ok) throw new Error(`HTTP ${{response.status}}`);
+        const html = await response.text();
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const scrollX = window.scrollX;
+        const scrollY = window.scrollY;
+        ['summaryInfo', 'pageNav', 'tableWrap'].forEach((id)=>{{
+          const current = document.getElementById(id);
+          const fresh = doc.getElementById(id);
+          if(current && fresh) current.replaceWith(fresh);
+        }});
+        const currentGrid = document.getElementById('cardsGrid');
+        const freshGrid = doc.getElementById('cardsGrid');
+        if(currentGrid && freshGrid){{
+          currentGrid.replaceWith(freshGrid);
+          await executeScripts(freshGrid);
+        }}
+        document.querySelectorAll('.note-preset-select').forEach((el)=>{{
+          el.innerHTML = "<option value=''>清除註記</option>" + NOTE_PRESETS.map(v => `<option value="${{v}}">${{v}}</option>`).join('');
+        }});
+        applyNotesToTableAndCards();
+        updateResponsiveGrid();
+        window.scrollTo(scrollX, scrollY);
+        requestAnimationFrame(()=>window.scrollTo(scrollX, scrollY));
+      }} catch(e) {{
+        console.warn('即時K線背景刷新失敗，改用下次排程重試', e);
+      }} finally {{
+        refreshIntradayInPlace.busy = false;
+      }}
+    }}
     if(isIntradayMode){{
-      setInterval(()=>{{
-        if(!document.hidden && isTwTradingHours()) window.location.reload();
-      }}, autoRefreshMs);
+      setInterval(refreshIntradayInPlace, autoRefreshMs);
     }}
     function updateResponsiveGrid(){{
       const grid = document.getElementById('cardsGrid');
