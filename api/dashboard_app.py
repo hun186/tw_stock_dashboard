@@ -32,6 +32,8 @@ from api.stock_analysis import add_indicators, analyze_stock_signal
 
 
 STOCK_ANALYSIS_CACHE: dict[tuple[str, str, str, str, str, bool], tuple[float, dict]] = {}
+DEFAULT_LIVE_FETCH_THRESHOLD = 80
+SINGLE_CATEGORY_LIVE_FETCH_BUFFER = 20
 
 
 def _positive_int_param(params, name: str, default: int, *, max_value: int | None = None) -> int:
@@ -48,6 +50,31 @@ def _positive_int_param(params, name: str, default: int, *, max_value: int | Non
 
 def _analysis_cache_ttl_seconds(fetch_interval: str) -> int:
     return max(get_price_cache_ttl_seconds(fetch_interval), 300)
+
+
+def _resolve_live_fetch_controls(
+    *,
+    is_serverless_runtime: bool,
+    stock_count: int,
+    is_custom_watchlist: bool,
+    tab: str,
+    industry: str,
+) -> tuple[bool, int]:
+    is_single_industry_category = tab == "category" and industry != "all"
+    if is_single_industry_category:
+        max_live_symbols = max(DEFAULT_LIVE_FETCH_THRESHOLD, stock_count + SINGLE_CATEGORY_LIVE_FETCH_BUFFER)
+    elif is_custom_watchlist or not is_serverless_runtime:
+        max_live_symbols = max(DEFAULT_LIVE_FETCH_THRESHOLD, stock_count)
+    else:
+        max_live_symbols = DEFAULT_LIVE_FETCH_THRESHOLD
+
+    allow_live_fetch = (
+        (not is_serverless_runtime)
+        or stock_count <= DEFAULT_LIVE_FETCH_THRESHOLD
+        or is_custom_watchlist
+        or is_single_industry_category
+    )
+    return allow_live_fetch, max_live_symbols
 
 
 def _build_stock_analysis(
@@ -284,13 +311,15 @@ def app(environ, start_response):
     watchlist_symbol_keys = set(watchlist["symbol"].map(_symbol_key))
     # Vercel serverless functions time out quickly when a broad watchlist triggers
     # thousands of live Yahoo Finance requests. Prefer committed prebuilt cache
-    # files for broad pages, but allow custom watchlists to fill cache misses.
-    live_fetch_threshold = 80
+    # files for broad pages, but allow focused requests (custom lists and a single
+    # industry category) to refresh every selected symbol.
     is_custom_watchlist = bool(custom_watchlist_raw.strip())
-    allow_live_fetch = (
-        (not is_serverless_runtime)
-        or len(stocks) <= live_fetch_threshold
-        or is_custom_watchlist
+    allow_live_fetch, max_live_symbols = _resolve_live_fetch_controls(
+        is_serverless_runtime=is_serverless_runtime,
+        stock_count=len(stocks),
+        is_custom_watchlist=is_custom_watchlist,
+        tab=tab,
+        industry=industry,
     )
     price_data_map = prefetch_price_data(
         stocks,
@@ -298,7 +327,7 @@ def app(environ, start_response):
         fetch_interval,
         allow_live_fetch=allow_live_fetch,
         allow_stale_disk=True,
-        max_live_symbols=live_fetch_threshold,
+        max_live_symbols=max_live_symbols,
     )
     signal_data_map = (
         prefetch_price_data(
@@ -307,7 +336,7 @@ def app(environ, start_response):
             "1d",
             allow_live_fetch=allow_live_fetch,
             allow_stale_disk=True,
-            max_live_symbols=live_fetch_threshold,
+            max_live_symbols=max_live_symbols,
         )
         if period == "intraday"
         else {}

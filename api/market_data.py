@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pandas as pd
+from pandas.tseries.offsets import BDay
 import requests
 import yfinance as yf
 
@@ -218,11 +219,52 @@ def _market_history_requests(symbol: str, month_start: pd.Timestamp) -> list[tup
     return []
 
 
+def _taipei_now(now: pd.Timestamp | None = None) -> pd.Timestamp:
+    current = now or pd.Timestamp.now(tz="Asia/Taipei")
+    if current.tzinfo is not None:
+        current = current.tz_convert("Asia/Taipei").tz_localize(None)
+    return pd.Timestamp(current)
+
+
+def _expected_latest_tw_daily_date(now: pd.Timestamp | None = None) -> pd.Timestamp:
+    current = _taipei_now(now)
+    today = current.normalize()
+    market_has_opened = current.time() >= pd.Timestamp("09:00").time()
+    if today.weekday() < 5 and market_has_opened:
+        return today
+    return (today - BDay(1)).normalize()
+
+
+def _should_use_tw_intraday_daily_snapshot(now: pd.Timestamp | None = None) -> bool:
+    current = _taipei_now(now)
+    if current.weekday() >= 5:
+        return False
+    return pd.Timestamp("09:00").time() <= current.time() < pd.Timestamp("15:00").time()
+
+
+def _latest_price_date(df: pd.DataFrame) -> pd.Timestamp | None:
+    if df.empty or "Date" not in df.columns:
+        return None
+    dates = pd.to_datetime(df["Date"], errors="coerce").dropna()
+    if dates.empty:
+        return None
+    return pd.Timestamp(dates.max()).normalize()
+
+
+def _tw_daily_price_needs_official_refresh(df: pd.DataFrame) -> bool:
+    latest_date = _latest_price_date(df)
+    return latest_date is None or latest_date < _expected_latest_tw_daily_date()
+
+
+def _is_stale_tw_daily_price(symbol: str, interval: str, df: pd.DataFrame) -> bool:
+    return interval == "1d" and symbol.endswith((".TW", ".TWO")) and _tw_daily_price_needs_official_refresh(df)
+
+
 def _fetch_tw_official_daily_price(symbol: str, period: str) -> pd.DataFrame:
     if not symbol.endswith((".TW", ".TWO")):
         return pd.DataFrame()
 
-    today = pd.Timestamp.today().normalize()
+    today = pd.Timestamp.now(tz="Asia/Taipei").tz_localize(None).normalize()
     start = _period_start_date(period, today)
     rows: list[dict] = []
     session = requests.Session()
@@ -293,18 +335,113 @@ def _fetch_tw_official_daily_price(symbol: str, period: str) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
+def _tw_intraday_snapshot_from_minutes(symbol: str, minute_df: pd.DataFrame | None) -> pd.DataFrame:
+    intraday_df = _prepare_price_df(symbol, minute_df, "1m")
+    if intraday_df.empty:
+        return pd.DataFrame()
+
+    expected_date = _expected_latest_tw_daily_date()
+    intraday_df = intraday_df[pd.to_datetime(intraday_df["Date"], errors="coerce").dt.normalize() == expected_date]
+    if intraday_df.empty:
+        return pd.DataFrame()
+
+    return pd.DataFrame([{
+        "Date": expected_date,
+        "Open": float(intraday_df.iloc[0]["Open"]),
+        "High": float(intraday_df["High"].max()),
+        "Low": float(intraday_df["Low"].min()),
+        "Close": float(intraday_df.iloc[-1]["Close"]),
+        "Volume": float(intraday_df["Volume"].fillna(0).sum()),
+    }])
+
+
+def _fetch_tw_intraday_daily_snapshot(symbol: str) -> pd.DataFrame:
+    if not _should_use_tw_intraday_daily_snapshot():
+        return pd.DataFrame()
+    try:
+        minute_df = yf.download(symbol, period="1d", interval="1m", auto_adjust=False, progress=False, threads=False)
+    except Exception:
+        return pd.DataFrame()
+    return _tw_intraday_snapshot_from_minutes(symbol, minute_df)
+
+
+def _bulk_fetch_tw_intraday_daily_snapshots(symbols: list[str]) -> dict[str, pd.DataFrame]:
+    tw_symbols = [symbol for symbol in symbols if symbol.endswith((".TW", ".TWO"))]
+    if not tw_symbols or not _should_use_tw_intraday_daily_snapshot():
+        return {}
+    try:
+        downloaded = yf.download(
+            tw_symbols,
+            period="1d",
+            interval="1m",
+            auto_adjust=False,
+            progress=False,
+            threads=True,
+            group_by="ticker",
+        )
+    except Exception:
+        return {}
+    if downloaded.empty:
+        return {}
+
+    snapshots: dict[str, pd.DataFrame] = {}
+    for symbol in tw_symbols:
+        if isinstance(downloaded.columns, pd.MultiIndex) and symbol in downloaded.columns.get_level_values(0):
+            raw_df = downloaded[symbol]
+        elif len(tw_symbols) == 1:
+            raw_df = downloaded
+        else:
+            continue
+        snapshot_df = _tw_intraday_snapshot_from_minutes(symbol, raw_df)
+        if not snapshot_df.empty:
+            snapshots[symbol] = snapshot_df
+    return snapshots
+
+
+def _merge_price_frames(base_df: pd.DataFrame, update_df: pd.DataFrame) -> pd.DataFrame:
+    if update_df.empty:
+        return base_df
+    if base_df.empty:
+        return update_df.reset_index(drop=True)
+    return (
+        pd.concat([base_df, update_df], ignore_index=True)
+        .drop_duplicates(subset=["Date"], keep="last")
+        .sort_values("Date")
+        .reset_index(drop=True)
+    )
+
+
+def _merge_tw_daily_realtime_price(symbol: str, period: str, df: pd.DataFrame, intraday_snapshot: pd.DataFrame | None = None) -> pd.DataFrame:
+    if not symbol.endswith((".TW", ".TWO")):
+        return df
+
+    if _tw_daily_price_needs_official_refresh(df):
+        df = _merge_price_frames(df, _fetch_tw_official_daily_price(symbol, period))
+
+    if _should_use_tw_intraday_daily_snapshot():
+        snapshot_df = intraday_snapshot if intraday_snapshot is not None else _fetch_tw_intraday_daily_snapshot(symbol)
+        if _latest_price_date(snapshot_df) == _expected_latest_tw_daily_date():
+            df = _merge_price_frames(df, snapshot_df)
+
+    return df
+
+
 def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d", *, allow_stale_disk: bool = False) -> pd.DataFrame:
     now = time.time()
     cached = _cached_price(symbol, period, interval, now, allow_stale_disk=allow_stale_disk)
-    if cached is not None:
+    stale_cached = cached if cached is not None and _is_stale_tw_daily_price(symbol, interval, cached) else None
+    if cached is not None and stale_cached is None:
         return cached
 
-    downloaded = yf.download(symbol, period=period, interval=interval, auto_adjust=False, progress=False, threads=False)
+    try:
+        downloaded = yf.download(symbol, period=period, interval=interval, auto_adjust=False, progress=False, threads=False)
+    except Exception:
+        downloaded = pd.DataFrame()
     df = _prepare_price_df(symbol, downloaded, interval)
-    if df.empty and interval == "1d":
-        df = _fetch_tw_official_daily_price(symbol, period)
+    if interval == "1d":
+        df = _merge_tw_daily_realtime_price(symbol, period, df)
     if df.empty:
-        return pd.DataFrame()
+        return stale_cached.copy() if allow_stale_disk and stale_cached is not None else pd.DataFrame()
     return _store_price_cache(symbol, period, interval, df, now)
 
 
@@ -371,14 +508,16 @@ def prefetch_price_data(
     now = time.time()
     price_map: dict[str, pd.DataFrame] = {}
     missing_symbols: list[str] = []
+    initial_allow_stale_disk = allow_stale_disk and not allow_live_fetch
     for symbol in symbols:
-        cached = _cached_price(symbol, period, interval, now, allow_stale_disk=allow_stale_disk)
-        if cached is None:
+        cached = _cached_price(symbol, period, interval, now, allow_stale_disk=initial_allow_stale_disk)
+        if cached is None or (allow_live_fetch and _is_stale_tw_daily_price(symbol, interval, cached)):
             missing_symbols.append(symbol)
         else:
             price_map[symbol] = cached
 
     live_symbols = missing_symbols[:max_live_symbols] if allow_live_fetch else []
+    intraday_snapshot_map = _bulk_fetch_tw_intraday_daily_snapshots(live_symbols) if interval == "1d" else {}
     if live_symbols:
         try:
             downloaded = yf.download(
@@ -402,6 +541,8 @@ def prefetch_price_data(
                 else:
                     continue
                 df = _prepare_price_df(symbol, raw_df, interval)
+                if interval == "1d":
+                    df = _merge_tw_daily_realtime_price(symbol, period, df, intraday_snapshot_map.get(symbol, pd.DataFrame()))
                 if not df.empty:
                     price_map[symbol] = _store_price_cache(symbol, period, interval, df, now).copy()
 
@@ -410,10 +551,17 @@ def prefetch_price_data(
         max_workers = min(8, len(still_missing))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             results = executor.map(
-                lambda sym: (sym, fetch_price(sym, period, interval, allow_stale_disk=allow_stale_disk)),
+                lambda sym: (sym, fetch_price(sym, period, interval, allow_stale_disk=False)),
                 still_missing,
             )
             price_map.update({symbol: df for symbol, df in results})
+
+    if allow_stale_disk:
+        stale_fallback_symbols = [symbol for symbol in symbols if symbol not in price_map or price_map[symbol].empty]
+        for symbol in stale_fallback_symbols:
+            cached = _cached_price(symbol, period, interval, now, allow_stale_disk=True)
+            if cached is not None:
+                price_map[symbol] = cached
 
     return {symbol: price_map.get(symbol, pd.DataFrame()) for symbol in symbols}
 
