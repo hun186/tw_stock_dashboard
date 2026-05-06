@@ -881,7 +881,10 @@ def app(environ, start_response):
     }}
     function submitFormWithLoading(form, reason='更新儀表板'){{
       showLoadingProgress(reason);
-      window.setTimeout(()=>form.submit(), 30);
+      window.setTimeout(()=>{{
+        if(typeof form.requestSubmit === 'function') form.requestSubmit();
+        else form.submit();
+      }}, 30);
     }}
     function applyConfig(cfg){{
       const form = document.getElementById('cfgForm');
@@ -899,6 +902,14 @@ def app(environ, start_response):
       const filter = document.querySelector('[name="status_filter"]')?.value || 'all';
       return dashboardRenderItems.filter((item)=>filter === 'all' || item.bucket === filter);
     }}
+    function escapeHtmlAttr(value){{
+      return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll("'", '&#39;')
+        .replaceAll('"', '&quot;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+    }}
     async function renderDashboardPage(page=1){{
       const items = filteredDashboardItems();
       const total = items.length;
@@ -914,7 +925,7 @@ def app(environ, start_response):
       if(grid){{
         grid.innerHTML = pageItems
           .filter((item)=>item.card_html)
-          .map((item)=>`<div class='card' data-symbol='${{String(item.symbol).replaceAll("'", '&#39;")}}'>${{item.card_html}}</div>`)
+          .map((item)=>`<div class='card' data-symbol='${{escapeHtmlAttr(item.symbol)}}'>${{item.card_html}}</div>`)
           .join('');
         await executeScripts(grid);
       }}
@@ -1410,9 +1421,9 @@ def app(environ, start_response):
       syncStockMetaPayload();
       showLoadingProgress('更新儀表板');
     }});
-    ['tab','industry','period','interval','limit','group_filter','subgroup_filter','cards_per_row','show_volume','show_target_price','card_sort'].forEach((name)=>{{
-      const el = document.querySelector(`[name="${{name}}"]`);
-      if(el) el.addEventListener('change', autoSubmitConfig);
+    const AUTO_SUBMIT_FIELDS = new Set(['tab','industry','period','interval','limit','group_filter','subgroup_filter','cards_per_row','show_volume','show_target_price','card_sort']);
+    document.getElementById('cfgForm')?.addEventListener('change', (event)=>{{
+      if(AUTO_SUBMIT_FIELDS.has(event.target?.name)) autoSubmitConfig(event);
     }});
     document.querySelector('[name="status_filter"]')?.addEventListener('change', applyStatusFilterInPlace);
     async function executeScripts(container){{
