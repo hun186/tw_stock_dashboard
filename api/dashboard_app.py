@@ -317,7 +317,7 @@ def app(environ, start_response):
       .stock-jump{{border:0;background:none;color:#1565c0;text-decoration:underline;cursor:pointer;padding:0;font:inherit}}
       .stock-jump:hover,.stock-jump:focus{{color:#0d47a1;text-decoration-thickness:2px;outline:none}}
       .note-editor{{display:flex;gap:2px;align-items:center;white-space:nowrap}}
-      .note-editor .note-preset-select{{width:calc(72px + 16pt);min-width:0;padding:2px 3px;text-align:left;text-align-last:left}}
+      .note-editor .note-preset-select{{width:150px;min-width:0;padding:2px 3px;text-align:left;text-align-last:left}}
       .watchlist-action{{min-width:72px;cursor:pointer}}
       .watchlist-action.is-added{{color:#2e7d32;background:#eef8ee;border:1px solid #9ccc9c;cursor:default}}
       #watchlistStatus{{min-height:1.2em;color:#2e7d32;font-size:.86rem}}
@@ -336,7 +336,8 @@ def app(environ, start_response):
       .watchlist-batch-item small{{color:#666}}
       .watchlist-batch-paste{{width:100%;min-height:70px;box-sizing:border-box}}
       .watchlist-batch-help{{color:#666;font-size:.84rem}}
-      table th:nth-child(10), table td:nth-child(10), table th:nth-child(11), table td:nth-child(11){{width:96px;min-width:96px;max-width:96px}}
+      table th:nth-child(10), table td:nth-child(10){{width:160px;min-width:160px;max-width:160px}}
+      table th:nth-child(11), table td:nth-child(11){{width:96px;min-width:96px;max-width:96px}}
       @media (max-width: 900px){{ body{{margin:10px}} }}
       @media (max-width: 720px){{
         form{{gap:4px 6px}}
@@ -416,7 +417,13 @@ def app(environ, start_response):
     const isIntradayMode = defaultConfig.period === 'intraday';
     const WATCHLIST_STORAGE_KEY = 'tw_dashboard_watchlist';
     const NOTE_STORAGE_KEY = 'tw_dashboard_stock_notes';
-    const NOTE_PRESETS = ['續抱', '買進', '賣出', '停損觀察', '分批加碼', '減碼鎖利'];
+    const NOTE_PRESET_GROUPS = [
+      {{ label: '操作方法', options: ['波段', '短線', '當沖', '長期', '定期定額', '分批布局', '分批加碼', '減碼鎖利', '續抱', '汰弱留強', '停利觀察', '停損觀察', '空手等待'] }},
+      {{ label: '個股特性', options: ['強勢股', '題材股', '轉機股', '成長股', '價值股', '景氣循環股', '防禦股', '高股息股', '權值股', '低基期股', '落後補漲股', '籌碼股', '法人認養股'] }},
+      {{ label: '行情階段', options: ['極早股', '初升段', '主升段前段', '主升段中段', '主升段後段', '高檔震盪', '魚尾', '拉回整理', '築底期', '整理末端', '突破觀察', '跌深反彈'] }},
+      {{ label: '風險與觀察', options: ['量縮觀察', '爆量觀察', '籌碼鬆動', '技術轉弱', '財報觀察', '法說觀察', '除權息觀察', '利多出盡疑慮', '追高風險', '流動性不足'] }},
+    ];
+    const NOTE_PRESETS = NOTE_PRESET_GROUPS.flatMap((group)=>group.options);
     const CUSTOM_NOTE_PREFIX = '自訂：';
     function isTwTradingHours(){{
       const twNow = new Date(new Date().toLocaleString('en-US', {{ timeZone: 'Asia/Taipei' }}));
@@ -727,11 +734,35 @@ def app(environ, start_response):
     function setStockNotes(notes){{
       localStorage.setItem(NOTE_STORAGE_KEY, JSON.stringify(notes));
     }}
+    function appendOption(parent, value, label){{
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      parent.appendChild(option);
+      return option;
+    }}
+    function populateNotePresetSelects(){{
+      document.querySelectorAll('.note-preset-select').forEach((select)=>{{
+        const currentValue = select.value;
+        select.replaceChildren();
+        appendOption(select, '', '清除註記');
+        NOTE_PRESET_GROUPS.forEach((group)=>{{
+          const optgroup = document.createElement('optgroup');
+          optgroup.label = group.label;
+          group.options.forEach((note)=>appendOption(optgroup, note, note));
+          select.appendChild(optgroup);
+        }});
+        select.value = NOTE_PRESETS.includes(currentValue) ? currentValue : '';
+      }});
+    }}
     function refreshNoteFilterOptions(){{
       const filter = document.getElementById('noteFilter');
       const notes = getStockNotes();
-      const uniq = [...new Set(Object.values(notes).map(v => String(v).trim()).filter(Boolean))];
-      filter.innerHTML = "<option value='all'>全部註記</option><option value='none'>未註記</option>" + uniq.map(v => `<option value="${{v}}">${{v}}</option>`).join('');
+      const uniq = [...new Set(Object.values(notes).map(v => String(v).trim()).filter(Boolean))].sort((a, b)=>a.localeCompare(b, 'zh-Hant'));
+      filter.replaceChildren();
+      appendOption(filter, 'all', '全部註記');
+      appendOption(filter, 'none', '未註記');
+      uniq.forEach((note)=>appendOption(filter, note, note));
     }}
     function applyNotesToTableAndCards(){{
       const notes = getStockNotes();
@@ -784,9 +815,7 @@ def app(environ, start_response):
     }});
     initServerConfigPicker();
     renderBatchStockResults();
-    document.querySelectorAll('.note-preset-select').forEach((el)=>{{
-      el.innerHTML = "<option value=''>清除註記</option>" + NOTE_PRESETS.map(v => `<option value="${{v}}">${{v}}</option>`).join('');
-    }});
+    populateNotePresetSelects();
     refreshNoteFilterOptions();
     applyNotesToTableAndCards();
     document.getElementById('noteFilter').addEventListener('change', applyNoteFilter);
@@ -848,9 +877,7 @@ def app(environ, start_response):
           currentGrid.replaceWith(freshGrid);
           await executeScripts(freshGrid);
         }}
-        document.querySelectorAll('.note-preset-select').forEach((el)=>{{
-          el.innerHTML = "<option value=''>清除註記</option>" + NOTE_PRESETS.map(v => `<option value="${{v}}">${{v}}</option>`).join('');
-        }});
+        populateNotePresetSelects();
         applyNotesToTableAndCards();
         updateResponsiveGrid();
         window.scrollTo(scrollX, scrollY);
