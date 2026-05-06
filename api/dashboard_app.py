@@ -613,6 +613,8 @@ def app(environ, start_response):
       .loading-step.is-active{{color:#1d4ed8;font-weight:800}}
       .loading-step.is-active::before{{content:'●';color:#2563eb}}
       .loading-tip{{margin:14px 0 0;padding:10px 12px;border-radius:14px;background:#eff6ff;color:#1e40af;font-size:.86rem;font-weight:700}}
+      .loading-actions{{display:flex;justify-content:flex-end;margin-top:14px}}
+      .loading-actions button{{border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:999px;padding:8px 14px;font-weight:800;cursor:pointer}}
       @keyframes spin{{to{{transform:rotate(360deg)}}}}
       table{{border-collapse:separate;border-spacing:0;width:100%;font-size:.88rem}}
       th{{position:sticky;top:0;z-index:1;background:#f1f5f9;color:#334155;font-weight:800}}
@@ -681,7 +683,8 @@ def app(environ, start_response):
           <span class='loading-step'>計算均線、量能與形勢判斷</span>
           <span class='loading-step'>排序表格並繪製多股趨勢圖</span>
         </div>
-        <p class='loading-tip'>分類股池檔數較多時可能需要約 1 分鐘；此畫面代表系統仍在處理，請先不要重複送出。</p>
+        <p class='loading-tip'>分類股池檔數較多時可能需要約 1 分鐘；此畫面代表系統仍在處理，請先不要重複送出。若圖表已經顯示完成但提示仍停留，可先關閉提示繼續操作。</p>
+        <div class='loading-actions'><button type='button' onclick='hideLoadingProgress()'>圖表已出現，關閉提示</button></div>
       </div>
     </div>
     <div class='page-shell'>
@@ -859,6 +862,15 @@ def app(environ, start_response):
       const stockHint = countText ? `（目前畫面 ${{countText}}；新篩選會重新計算）` : '';
       return `${{reason}}：正在處理 ${{scope}} ${{stockHint}}。接著會讀取快取、必要時下載行情，並計算技術指標${{cadence ? `（${{cadence}}）` : ''}}。`;
     }}
+
+    function hideLoadingProgress(){{
+      const overlay = document.getElementById('loadingOverlay');
+      if(!overlay) return;
+      overlay.classList.remove('is-open');
+      overlay.setAttribute('aria-hidden', 'true');
+      window.clearInterval(loadingStepTimer);
+      loadingStepTimer = null;
+    }}
     function showLoadingProgress(reason='更新儀表板'){{
       const form = document.getElementById('cfgForm');
       const overlay = document.getElementById('loadingOverlay');
@@ -941,6 +953,7 @@ def app(environ, start_response):
       populateStockMetaControls();
       applyNotesToTableAndCards();
       updateResponsiveGrid();
+      hideLoadingProgress();
     }}
     function applyStatusFilterInPlace(){{
       renderDashboardPage(1);
@@ -1377,6 +1390,8 @@ def app(environ, start_response):
       if(e.key === 'Escape') closeBatchWatchlistDialog();
     }});
     initServerConfigPicker();
+    window.addEventListener('pageshow', hideLoadingProgress);
+    if(document.readyState !== 'loading') hideLoadingProgress();
     renderBatchStockResults();
     populateStockMetaControls();
     refreshStockMetaFilterOptions();
@@ -1437,8 +1452,9 @@ def app(environ, start_response):
             continue;
           }}
           await new Promise((resolve, reject)=>{{
-            script.onload = resolve;
-            script.onerror = reject;
+            const timer = window.setTimeout(resolve, 5000);
+            script.onload = () => {{ window.clearTimeout(timer); resolve(); }};
+            script.onerror = () => {{ window.clearTimeout(timer); reject(); }};
             oldScript.replaceWith(script);
           }}).catch(()=>{{}});
         }} else {{
