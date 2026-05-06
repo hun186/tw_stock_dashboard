@@ -298,6 +298,21 @@ def app(environ, start_response):
       .watchlist-action{{min-width:72px;cursor:pointer}}
       .watchlist-action.is-added{{color:#2e7d32;background:#eef8ee;border:1px solid #9ccc9c;cursor:default}}
       #watchlistStatus{{min-height:1.2em;color:#2e7d32;font-size:.86rem}}
+      .watchlist-batch-modal{{position:fixed;inset:0;background:rgba(0,0,0,.38);display:none;align-items:center;justify-content:center;z-index:9999;padding:16px}}
+      .watchlist-batch-modal.is-open{{display:flex}}
+      .watchlist-batch-dialog{{background:#fff;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.22);max-width:760px;width:min(760px, 100%);max-height:90vh;display:flex;flex-direction:column;overflow:hidden}}
+      .watchlist-batch-header,.watchlist-batch-footer{{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid #e5e5e5}}
+      .watchlist-batch-footer{{border-top:1px solid #e5e5e5;border-bottom:0;justify-content:flex-end;flex-wrap:wrap}}
+      .watchlist-batch-body{{padding:12px 14px;overflow:auto;display:grid;gap:10px}}
+      .watchlist-batch-row{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}
+      .watchlist-batch-list{{border:1px solid #ddd;border-radius:8px;max-height:260px;overflow:auto;background:#fafafa}}
+      .watchlist-batch-item{{display:flex;gap:8px;align-items:center;padding:6px 8px;border-bottom:1px solid #eee;cursor:pointer}}
+      .watchlist-batch-item:last-child{{border-bottom:0}}
+      .watchlist-batch-item:hover{{background:#f2f7ff}}
+      .watchlist-batch-item.is-added{{color:#777;background:#f5f5f5}}
+      .watchlist-batch-item small{{color:#666}}
+      .watchlist-batch-paste{{width:100%;min-height:70px;box-sizing:border-box}}
+      .watchlist-batch-help{{color:#666;font-size:.84rem}}
       table th:nth-child(10), table td:nth-child(10), table th:nth-child(11), table td:nth-child(11){{width:96px;min-width:96px;max-width:96px}}
       @media (max-width: 900px){{ body{{margin:10px}} }}
       @media (max-width: 720px){{
@@ -333,11 +348,35 @@ def app(environ, start_response):
     <button type='button' onclick="document.getElementById('memoryFile').click()">匯入備份檔</button>
     <small style='color:#666'>讀取推薦設定：由伺服器設定目錄提供；讀取本機設定：讀瀏覽器目前裝置已存內容；匯入備份檔：從 JSON 檔還原（可跨裝置）。</small>
     <hr>
-    <label>關鍵字</label><input id='watchKeyword' placeholder='輸入名稱或代號'>
-    <label>加入自選</label><select id='stockPicker'></select>
-    <button type='button' onclick='addSelectedStock()'>加入</button>
+    <button type='button' onclick='openBatchWatchlistDialog()'>批次加入自選</button>
     <span id='watchlistStatus' role='status' aria-live='polite'></span>
     <input type='hidden' name='custom_watchlist' id='customWatchlist' value='{html.escape(','.join(watchlist['symbol'].tolist()))}'>
+    <div id='watchlistBatchModal' class='watchlist-batch-modal' role='dialog' aria-modal='true' aria-labelledby='watchlistBatchTitle'>
+      <div class='watchlist-batch-dialog'>
+        <div class='watchlist-batch-header'>
+          <strong id='watchlistBatchTitle'>批次加入自選股</strong>
+          <button type='button' onclick='closeBatchWatchlistDialog()' aria-label='關閉'>×</button>
+        </div>
+        <div class='watchlist-batch-body'>
+          <div class='watchlist-batch-help'>先搜尋並勾選多檔股票，或在下方貼上多個代號（可用逗號、空白或換行分隔）；按「批次加入」後才會刷新頁面。</div>
+          <label for='watchKeyword'>關鍵字搜尋</label>
+          <div class='watchlist-batch-row'>
+            <input id='watchKeyword' placeholder='輸入名稱、代號、主題或次題材' style='flex:1;min-width:220px'>
+            <button type='button' onclick='selectVisibleBatchStocks(true)'>全選搜尋結果</button>
+            <button type='button' onclick='selectVisibleBatchStocks(false)'>清除搜尋勾選</button>
+          </div>
+          <div id='batchStockResults' class='watchlist-batch-list'></div>
+          <label for='batchStockSymbols'>貼上代號</label>
+          <textarea id='batchStockSymbols' class='watchlist-batch-paste' placeholder='例如：2330 2317
+2454, 2603'></textarea>
+          <div id='batchWatchlistPreview' class='watchlist-batch-help'></div>
+        </div>
+        <div class='watchlist-batch-footer'>
+          <button type='button' onclick='closeBatchWatchlistDialog()'>取消</button>
+          <button type='button' onclick='addBatchWatchlistStocks()'>批次加入並更新</button>
+        </div>
+      </div>
+    </div>
     </form>
     <h2>總覽</h2>
     <div id='summaryInfo' style='margin:4px 0 8px;color:#444;font-size:.9rem'>共 {total_stocks} 檔，現在第 {page}/{total_pages} 頁，每頁 {limit} 檔。</div>
@@ -545,16 +584,100 @@ def app(environ, start_response):
       }}
       submitConfig();
     }}
-    function fillStockPicker(keyword=''){{
-      const picker = document.getElementById('stockPicker');
-      const kw = keyword.trim().toLowerCase();
-      const rows = allStocks.filter(r => !kw || [r.symbol, r.name, r.group, r.subgroup].filter(Boolean).some(v => v.toLowerCase().includes(kw)));
-      picker.innerHTML = rows.slice(0, 200).map(r => `<option value="${{r.symbol}}">${{r.symbol}} - ${{r.name}} (${{r.group}})</option>`).join('');
+    const batchSelectedSymbols = new Map();
+    function getStockLabel(stock){{
+      return `${{stock.symbol}} - ${{stock.name || ''}} (${{stock.group || '未分類'}}${{stock.subgroup ? ' / ' + stock.subgroup : ''}})`;
     }}
-    function addSelectedStock(){{
-      const symbol = document.getElementById('stockPicker').value;
-      if(!symbol) return alert('請先選擇股票');
-      addWatchlistStock(symbol, {{ openWatchlist: true }});
+    function syncVisibleBatchSelections(){{
+      document.querySelectorAll('.batch-stock-check').forEach((el)=>{{
+        const key = normalizeWatchlistSymbol(el.value);
+        if(el.checked && !el.disabled) batchSelectedSymbols.set(key, el.value);
+        else batchSelectedSymbols.delete(key);
+      }});
+    }}
+    function getBatchCheckedSymbols(){{
+      syncVisibleBatchSelections();
+      return Array.from(batchSelectedSymbols.values());
+    }}
+    function parseBatchSymbolsText(){{
+      const el = document.getElementById('batchStockSymbols');
+      if(!el) return [];
+      return el.value.split(/[\s,，、;；]+/).map(x => x.trim()).filter(Boolean);
+    }}
+    function updateBatchWatchlistPreview(){{
+      const preview = document.getElementById('batchWatchlistPreview');
+      if(!preview) return;
+      const currentKeys = new Set(getWatchlistSymbols().map(normalizeWatchlistSymbol));
+      const candidates = [...getBatchCheckedSymbols(), ...parseBatchSymbolsText()];
+      const newKeys = [];
+      const duplicateKeys = [];
+      const seen = new Set();
+      candidates.forEach((symbol)=>{{
+        const key = normalizeWatchlistSymbol(symbol);
+        if(!key || seen.has(key)) return;
+        seen.add(key);
+        if(currentKeys.has(key)) duplicateKeys.push(key);
+        else newKeys.push(key);
+      }});
+      preview.textContent = `準備新增 ${{newKeys.length}} 檔；已在自選或重複 ${{duplicateKeys.length}} 檔。`;
+    }}
+    function renderBatchStockResults(keyword=''){{
+      const container = document.getElementById('batchStockResults');
+      if(!container) return;
+      const kw = keyword.trim().toLowerCase();
+      const currentKeys = new Set(getWatchlistSymbols().map(normalizeWatchlistSymbol));
+      syncVisibleBatchSelections();
+      const checkedKeys = new Set(batchSelectedSymbols.keys());
+      const rows = allStocks.filter(r => !kw || [r.symbol, r.name, r.group, r.subgroup].filter(Boolean).some(v => String(v).toLowerCase().includes(kw))).slice(0, 200);
+      if(!rows.length){{
+        container.innerHTML = `<div class='watchlist-batch-item'>找不到符合「${{keyword}}」的股票</div>`;
+        updateBatchWatchlistPreview();
+        return;
+      }}
+      container.innerHTML = rows.map((r)=>{{
+        const key = normalizeWatchlistSymbol(r.symbol);
+        const added = currentKeys.has(key);
+        const checked = checkedKeys.has(key) && !added;
+        return `<label class='watchlist-batch-item${{added ? ' is-added' : ''}}'>
+          <input class='batch-stock-check' type='checkbox' value="${{r.symbol}}" ${{checked ? 'checked' : ''}} ${{added ? 'disabled' : ''}} onchange='syncVisibleBatchSelections(); updateBatchWatchlistPreview()'>
+          <span>${{getStockLabel(r)}} ${{added ? '<small>已在自選</small>' : ''}}</span>
+        </label>`;
+      }}).join('');
+      updateBatchWatchlistPreview();
+    }}
+    function openBatchWatchlistDialog(){{
+      const modal = document.getElementById('watchlistBatchModal');
+      if(!modal) return;
+      batchSelectedSymbols.clear();
+      modal.classList.add('is-open');
+      renderBatchStockResults(document.getElementById('watchKeyword')?.value || '');
+      setTimeout(()=>document.getElementById('watchKeyword')?.focus(), 0);
+    }}
+    function closeBatchWatchlistDialog(){{
+      document.getElementById('watchlistBatchModal')?.classList.remove('is-open');
+    }}
+    function selectVisibleBatchStocks(checked){{
+      document.querySelectorAll('.batch-stock-check:not(:disabled)').forEach((el)=>{{ el.checked = checked; }});
+      syncVisibleBatchSelections();
+      updateBatchWatchlistPreview();
+    }}
+    function addBatchWatchlistStocks(){{
+      const before = getWatchlistSymbols();
+      const beforeCount = before.length;
+      setWatchlistSymbols([...before, ...getBatchCheckedSymbols(), ...parseBatchSymbolsText()]);
+      const after = getWatchlistSymbols();
+      const addedCount = after.length - beforeCount;
+      if(addedCount <= 0){{
+        setWatchlistSymbols(before);
+        updateBatchWatchlistPreview();
+        return alert('沒有新的股票可加入');
+      }}
+      saveWatchlistToBrowser(true);
+      syncWatchlistUrlParam();
+      batchSelectedSymbols.clear();
+      closeBatchWatchlistDialog();
+      showWatchlistStatus(`已批次加入 ${{addedCount}} 檔自選股，正在更新頁面`);
+      submitConfig({{tab: 'watchlist', page: '1'}});
     }}
     function getStockNotes(){{
       try {{
@@ -615,9 +738,16 @@ def app(environ, start_response):
       const preset = (selectEl.value || '').trim();
       saveNoteBySymbol(symbol, preset);
     }}
-    document.getElementById('watchKeyword').addEventListener('input', (e)=>fillStockPicker(e.target.value));
+    document.getElementById('watchKeyword')?.addEventListener('input', (e)=>renderBatchStockResults(e.target.value));
+    document.getElementById('batchStockSymbols')?.addEventListener('input', updateBatchWatchlistPreview);
+    document.getElementById('watchlistBatchModal')?.addEventListener('click', (e)=>{{
+      if(e.target.id === 'watchlistBatchModal') closeBatchWatchlistDialog();
+    }});
+    document.addEventListener('keydown', (e)=>{{
+      if(e.key === 'Escape') closeBatchWatchlistDialog();
+    }});
     initServerConfigPicker();
-    fillStockPicker();
+    renderBatchStockResults();
     document.querySelectorAll('.note-preset-select').forEach((el)=>{{
       el.innerHTML = "<option value=''>清除註記</option>" + NOTE_PRESETS.map(v => `<option value="${{v}}">${{v}}</option>`).join('');
     }});
