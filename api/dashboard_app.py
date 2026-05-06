@@ -180,9 +180,21 @@ def app(environ, start_response):
                 f"onclick='addWatchlistStock({symbol_js}, {{ stayOnPage: true }})'>加入自選</button>"
             )
         subgroup_text = row.subgroup if isinstance(row.subgroup, str) and row.subgroup else "-"
+        stock_meta_cells = "".join([
+            f"<td class='stock-meta-cell'><div class='note-editor' data-symbol='{html.escape(row.symbol)}'>"
+            f"<select class='stock-meta-select' data-field='{field}' title='{html.escape(label)}' onchange=\"saveInlineStockMeta(this)\"></select>"
+            "</div></td>"
+            for field, label in [
+                ("action", "操作方法"),
+                ("trait", "個股特性"),
+                ("stage", "行情階段"),
+                ("risk", "風險與觀察"),
+            ]
+        ])
         note_editor = (
             f"<div class='note-editor' data-symbol='{html.escape(row.symbol)}'>"
-            "<select class='note-preset-select' onchange=\"saveInlineNote(this)\"></select>"
+            "<input class='stock-note-input' type='text' maxlength='80' placeholder='輸入備註' "
+            "oninput=\"queueInlineStockNoteSave(this)\" onchange=\"saveInlineStockNote(this)\">"
             "</div>"
         )
         target_price_text = fetch_target_price(row.symbol) if show_target_price else "-"
@@ -202,7 +214,7 @@ def app(environ, start_response):
             f"{html.escape(row.name)}"
             "</button>"
         )
-        rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr data-symbol='{html.escape(row.symbol)}'><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{name_jump_button}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td><td class='note-cell'>{note_editor}</td><td>{action_btn}</td></tr>"})
+        rows_data.append({"score": signal["score"] if not df.empty else -999, "row_html": f"<tr data-symbol='{html.escape(row.symbol)}'><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{name_jump_button}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td>{stock_meta_cells}<td class='note-cell'>{note_editor}</td><td>{action_btn}</td></tr>"})
         if not df.empty:
             show_ma = period != "intraday"
             intraday_ref_close = float(df.iloc[-1]["RefClose"]) if show_ma is False and "RefClose" in df.columns else None
@@ -317,7 +329,6 @@ def app(environ, start_response):
       .stock-jump{{border:0;background:none;color:#1565c0;text-decoration:underline;cursor:pointer;padding:0;font:inherit}}
       .stock-jump:hover,.stock-jump:focus{{color:#0d47a1;text-decoration-thickness:2px;outline:none}}
       .note-editor{{display:flex;gap:2px;align-items:center;white-space:nowrap}}
-      .note-editor .note-preset-select{{width:150px;min-width:0;padding:2px 3px;text-align:left;text-align-last:left}}
       .watchlist-action{{min-width:72px;cursor:pointer}}
       .watchlist-action.is-added{{color:#2e7d32;background:#eef8ee;border:1px solid #9ccc9c;cursor:default}}
       #watchlistStatus{{min-height:1.2em;color:#2e7d32;font-size:.86rem}}
@@ -336,8 +347,11 @@ def app(environ, start_response):
       .watchlist-batch-item small{{color:#666}}
       .watchlist-batch-paste{{width:100%;min-height:70px;box-sizing:border-box}}
       .watchlist-batch-help{{color:#666;font-size:.84rem}}
-      table th:nth-child(10), table td:nth-child(10){{width:160px;min-width:160px;max-width:160px}}
-      table th:nth-child(11), table td:nth-child(11){{width:96px;min-width:96px;max-width:96px}}
+      .stock-meta-cell{{width:116px;min-width:116px;max-width:116px}}
+      .note-cell{{width:190px;min-width:190px;max-width:190px}}
+      .note-editor .stock-meta-select{{width:104px;min-width:0;padding:2px 3px;text-align:left;text-align-last:left}}
+      .note-editor .stock-note-input{{width:170px;min-width:120px;padding:2px 3px}}
+      table th:nth-child(15), table td:nth-child(15){{width:96px;min-width:96px;max-width:96px}}
       @media (max-width: 900px){{ body{{margin:10px}} }}
       @media (max-width: 720px){{
         form{{gap:4px 6px}}
@@ -361,7 +375,10 @@ def app(environ, start_response):
     <label>顯示量K線</label><select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select>
     <label>目標價</label><select name='show_target_price'><option value='0' {'selected' if not show_target_price else ''}>關閉（較快）</option><option value='1' {'selected' if show_target_price else ''}>開啟</option></select>
     <label>圖塊排序</label><select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option><option value='target_ratio' {'selected' if card_sort=='target_ratio' else ''}>目標價/現價</option></select>
-    <label>註記篩選</label><select id='noteFilter'><option value='all'>全部註記</option></select>
+    <label>操作方法篩選</label><select id='stockMetaFilter-action'></select>
+    <label>個股特性篩選</label><select id='stockMetaFilter-trait'></select>
+    <label>行情階段篩選</label><select id='stockMetaFilter-stage'></select>
+    <label>風險觀察篩選</label><select id='stockMetaFilter-risk'></select>
     <button type='submit'>更新</button>
     <button type='button' onclick='saveLocal()'>儲存目前設定</button>
     <button type='button' onclick='loadLocal()'>讀取本機設定</button>
@@ -408,7 +425,7 @@ def app(environ, start_response):
       <button type='button' onclick='goToPage({max(1, page-1)})' {'disabled' if page <= 1 else ''}>上一頁</button>
       <button type='button' onclick='goToPage({min(total_pages, page+1)})' {'disabled' if page >= total_pages else ''}>下一頁</button>
     </div>
-    <div id='tableWrap' class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>註記</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="11">無符合條件資料</td></tr>'}</table></div>
+    <div id='tableWrap' class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="15">無符合條件資料</td></tr>'}</table></div>
     <h2>多股趨勢圖</h2><div id='cardsGrid' style='display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:8px'>{''.join([f"<div class='card' data-symbol='{html.escape(cd['symbol'])}'>{cd['card_html']}</div>" for cd in cards_data])}</div>
     <script>
     const defaultConfig = {json.dumps(save_payload, ensure_ascii=False)};
@@ -417,14 +434,17 @@ def app(environ, start_response):
     const isIntradayMode = defaultConfig.period === 'intraday';
     const WATCHLIST_STORAGE_KEY = 'tw_dashboard_watchlist';
     const NOTE_STORAGE_KEY = 'tw_dashboard_stock_notes';
-    const NOTE_PRESET_GROUPS = [
-      {{ label: '操作方法', options: ['波段', '短線', '當沖', '長期', '定期定額', '分批布局', '分批加碼', '減碼鎖利', '續抱', '汰弱留強', '停利觀察', '停損觀察', '空手等待'] }},
-      {{ label: '個股特性', options: ['強勢股', '題材股', '轉機股', '成長股', '價值股', '景氣循環股', '防禦股', '高股息股', '權值股', '低基期股', '落後補漲股', '籌碼股', '法人認養股'] }},
-      {{ label: '行情階段', options: ['極早股', '初升段', '主升段前段', '主升段中段', '主升段後段', '高檔震盪', '魚尾', '拉回整理', '築底期', '整理末端', '突破觀察', '跌深反彈'] }},
-      {{ label: '風險與觀察', options: ['量縮觀察', '爆量觀察', '籌碼鬆動', '技術轉弱', '財報觀察', '法說觀察', '除權息觀察', '利多出盡疑慮', '追高風險', '流動性不足'] }},
+    const STOCK_META_GROUPS = [
+      {{ id: 'action', label: '操作方法', allLabel: '全部操作方法', noneLabel: '未設定操作方法', options: ['波段', '短線', '當沖', '長期', '定期定額', '分批布局', '分批加碼', '減碼鎖利', '續抱', '汰弱留強', '停利觀察', '停損觀察', '空手等待'] }},
+      {{ id: 'trait', label: '個股特性', allLabel: '全部個股特性', noneLabel: '未設定個股特性', options: ['強勢股', '題材股', '轉機股', '成長股', '價值股', '景氣循環股', '防禦股', '高股息股', '權值股', '低基期股', '落後補漲股', '籌碼股', '法人認養股'] }},
+      {{ id: 'stage', label: '行情階段', allLabel: '全部行情階段', noneLabel: '未設定行情階段', options: ['極早股', '初升段', '主升段前段', '主升段中段', '主升段後段', '高檔震盪', '魚尾', '拉回整理', '築底期', '整理末端', '突破觀察', '跌深反彈'] }},
+      {{ id: 'risk', label: '風險與觀察', allLabel: '全部風險觀察', noneLabel: '未設定風險觀察', options: ['量縮觀察', '爆量觀察', '籌碼鬆動', '技術轉弱', '財報觀察', '法說觀察', '除權息觀察', '利多出盡疑慮', '追高風險', '流動性不足'] }},
     ];
-    const NOTE_PRESETS = NOTE_PRESET_GROUPS.flatMap((group)=>group.options);
-    const CUSTOM_NOTE_PREFIX = '自訂：';
+    const STOCK_META_FIELDS = STOCK_META_GROUPS.map((group)=>group.id);
+    const STOCK_META_PRESET_LOOKUP = STOCK_META_GROUPS.reduce((lookup, group)=>{{
+      group.options.forEach((option)=>{{ lookup[option] = group.id; }});
+      return lookup;
+    }}, {{}});
     function isTwTradingHours(){{
       const twNow = new Date(new Date().toLocaleString('en-US', {{ timeZone: 'Asia/Taipei' }}));
       const day = twNow.getDay();
@@ -622,7 +642,7 @@ def app(environ, start_response):
       if(options.stayOnPage){{
         markWatchlistStockRemoved(symbol);
         showWatchlistStatus(`已將 ${{symbol}} 移出自選股，剩餘 ${{symbols.length}} 檔`);
-        applyNoteFilter();
+        applyStockMetaFilters();
         return;
       }}
       submitConfig();
@@ -722,17 +742,43 @@ def app(environ, start_response):
       showWatchlistStatus(`已批次加入 ${{addedCount}} 檔自選股，正在更新頁面`);
       submitConfig({{tab: 'watchlist', page: '1'}});
     }}
+    function normalizeStockMetaEntry(entry){{
+      const meta = {{ action: '', trait: '', stage: '', risk: '', note: '' }};
+      if(typeof entry === 'string'){{
+        const legacyValue = entry.trim();
+        const legacyField = STOCK_META_PRESET_LOOKUP[legacyValue];
+        if(legacyField) meta[legacyField] = legacyValue;
+        else meta.note = legacyValue;
+        return meta;
+      }}
+      if(entry && typeof entry === 'object'){{
+        STOCK_META_FIELDS.forEach((field)=>{{
+          meta[field] = String(entry[field] || '').trim();
+        }});
+        meta.note = String(entry.note || entry.memo || '').trim();
+      }}
+      return meta;
+    }}
+    function isEmptyStockMeta(meta){{
+      return !meta.note && STOCK_META_FIELDS.every((field)=>!meta[field]);
+    }}
     function getStockNotes(){{
       try {{
         const raw = localStorage.getItem(NOTE_STORAGE_KEY) || '{{}}';
         const obj = JSON.parse(raw);
-        return (obj && typeof obj === 'object') ? obj : {{}};
+        if(!obj || typeof obj !== 'object') return {{}};
+        return Object.fromEntries(Object.entries(obj).map(([symbol, entry])=>[symbol, normalizeStockMetaEntry(entry)]));
       }} catch(e) {{
         return {{}};
       }}
     }}
     function setStockNotes(notes){{
-      localStorage.setItem(NOTE_STORAGE_KEY, JSON.stringify(notes));
+      const compact = {{}};
+      Object.entries(notes || {{}}).forEach(([symbol, entry])=>{{
+        const meta = normalizeStockMetaEntry(entry);
+        if(!isEmptyStockMeta(meta)) compact[symbol] = meta;
+      }});
+      localStorage.setItem(NOTE_STORAGE_KEY, JSON.stringify(compact));
     }}
     function appendOption(parent, value, label){{
       const option = document.createElement('option');
@@ -741,47 +787,61 @@ def app(environ, start_response):
       parent.appendChild(option);
       return option;
     }}
-    function populateNotePresetSelects(){{
-      document.querySelectorAll('.note-preset-select').forEach((select)=>{{
+    function populateStockMetaControls(){{
+      document.querySelectorAll('.stock-meta-select').forEach((select)=>{{
         const currentValue = select.value;
+        const group = STOCK_META_GROUPS.find((item)=>item.id === select.dataset.field);
         select.replaceChildren();
-        appendOption(select, '', '清除註記');
-        NOTE_PRESET_GROUPS.forEach((group)=>{{
-          const optgroup = document.createElement('optgroup');
-          optgroup.label = group.label;
-          group.options.forEach((note)=>appendOption(optgroup, note, note));
-          select.appendChild(optgroup);
-        }});
-        select.value = NOTE_PRESETS.includes(currentValue) ? currentValue : '';
+        appendOption(select, '', group ? `設定${{group.label}}` : '未設定');
+        if(group) group.options.forEach((value)=>appendOption(select, value, value));
+        select.value = group?.options.includes(currentValue) ? currentValue : '';
       }});
     }}
-    function refreshNoteFilterOptions(){{
-      const filter = document.getElementById('noteFilter');
-      const notes = getStockNotes();
-      const uniq = [...new Set(Object.values(notes).map(v => String(v).trim()).filter(Boolean))].sort((a, b)=>a.localeCompare(b, 'zh-Hant'));
-      filter.replaceChildren();
-      appendOption(filter, 'all', '全部註記');
-      appendOption(filter, 'none', '未註記');
-      uniq.forEach((note)=>appendOption(filter, note, note));
+    function refreshStockMetaFilterOptions(){{
+      STOCK_META_GROUPS.forEach((group)=>{{
+        const filter = document.getElementById(`stockMetaFilter-${{group.id}}`);
+        if(!filter) return;
+        const currentValue = filter.value || 'all';
+        filter.replaceChildren();
+        appendOption(filter, 'all', group.allLabel);
+        appendOption(filter, 'none', group.noneLabel);
+        group.options.forEach((value)=>appendOption(filter, value, value));
+        filter.value = [...group.options, 'all', 'none'].includes(currentValue) ? currentValue : 'all';
+      }});
     }}
     function applyNotesToTableAndCards(){{
       const notes = getStockNotes();
       document.querySelectorAll('tr[data-symbol]').forEach((tr)=>{{
         const symbol = tr.dataset.symbol;
-        const note = (notes[symbol] || '').trim();
-        tr.dataset.note = note || 'none';
-        const presetSelect = tr.querySelector('.note-preset-select');
-        if(presetSelect) presetSelect.value = NOTE_PRESETS.includes(note) ? note : '';
+        const meta = normalizeStockMetaEntry(notes[symbol]);
+        STOCK_META_FIELDS.forEach((field)=>{{
+          tr.dataset[field] = meta[field] || 'none';
+          const select = tr.querySelector(`.stock-meta-select[data-field="${{field}}"]`);
+          if(select) select.value = meta[field] || '';
+        }});
+        tr.dataset.note = meta.note || '';
+        const noteInput = tr.querySelector('.stock-note-input');
+        if(noteInput && document.activeElement !== noteInput) noteInput.value = meta.note || '';
       }});
-      applyNoteFilter();
+      applyStockMetaFilters();
     }}
-    function applyNoteFilter(){{
-      const selected = document.getElementById('noteFilter').value || 'all';
+    function selectedStockMetaFilters(){{
+      return Object.fromEntries(STOCK_META_GROUPS.map((group)=>[
+        group.id,
+        document.getElementById(`stockMetaFilter-${{group.id}}`)?.value || 'all'
+      ]));
+    }}
+    function applyStockMetaFilters(){{
+      const filters = selectedStockMetaFilters();
       const visibleSymbols = new Set();
       document.querySelectorAll('tr[data-symbol]').forEach((tr)=>{{
-        const note = tr.dataset.note || 'none';
         const removed = tr.dataset.removed === '1';
-        const visible = !removed && (selected === 'all' || note === selected || (selected === 'none' && note === 'none'));
+        const matched = STOCK_META_FIELDS.every((field)=>{{
+          const selected = filters[field] || 'all';
+          const value = tr.dataset[field] || 'none';
+          return selected === 'all' || value === selected || (selected === 'none' && value === 'none');
+        }});
+        const visible = !removed && matched;
         tr.style.display = visible ? '' : 'none';
         if(visible) visibleSymbols.add(tr.dataset.symbol);
       }});
@@ -790,20 +850,31 @@ def app(environ, start_response):
         card.style.display = !removed && visibleSymbols.has(card.dataset.symbol) ? '' : 'none';
       }});
     }}
-    function saveNoteBySymbol(symbol, note){{
+    function saveStockMetaBySymbol(symbol, patch){{
       const notes = getStockNotes();
-      if(note) notes[symbol] = note;
-      else delete notes[symbol];
+      const meta = normalizeStockMetaEntry(notes[symbol]);
+      Object.assign(meta, patch);
+      if(isEmptyStockMeta(meta)) delete notes[symbol];
+      else notes[symbol] = meta;
       setStockNotes(notes);
-      refreshNoteFilterOptions();
       applyNotesToTableAndCards();
     }}
-    function saveInlineNote(selectEl){{
+    function saveInlineStockMeta(selectEl){{
       const editor = selectEl.closest('.note-editor');
       if(!editor) return;
-      const symbol = editor.dataset.symbol;
-      const preset = (selectEl.value || '').trim();
-      saveNoteBySymbol(symbol, preset);
+      const field = selectEl.dataset.field;
+      if(!STOCK_META_FIELDS.includes(field)) return;
+      saveStockMetaBySymbol(editor.dataset.symbol, {{ [field]: (selectEl.value || '').trim() }});
+    }}
+    function saveInlineStockNote(inputEl){{
+      const editor = inputEl.closest('.note-editor');
+      if(!editor) return;
+      window.clearTimeout(inputEl._saveTimer);
+      saveStockMetaBySymbol(editor.dataset.symbol, {{ note: (inputEl.value || '').trim() }});
+    }}
+    function queueInlineStockNoteSave(inputEl){{
+      window.clearTimeout(inputEl._saveTimer);
+      inputEl._saveTimer = window.setTimeout(()=>saveInlineStockNote(inputEl), 450);
     }}
     document.getElementById('watchKeyword')?.addEventListener('input', (e)=>renderBatchStockResults(e.target.value));
     document.getElementById('batchStockSymbols')?.addEventListener('input', updateBatchWatchlistPreview);
@@ -815,10 +886,12 @@ def app(environ, start_response):
     }});
     initServerConfigPicker();
     renderBatchStockResults();
-    populateNotePresetSelects();
-    refreshNoteFilterOptions();
+    populateStockMetaControls();
+    refreshStockMetaFilterOptions();
     applyNotesToTableAndCards();
-    document.getElementById('noteFilter').addEventListener('change', applyNoteFilter);
+    STOCK_META_GROUPS.forEach((group)=>{{
+      document.getElementById(`stockMetaFilter-${{group.id}}`)?.addEventListener('change', applyStockMetaFilters);
+    }});
     const hasSavedWatchlist = Boolean(localStorage.getItem(WATCHLIST_STORAGE_KEY));
     if(hasSavedWatchlist && !window.location.search.includes('custom_watchlist=')){{
       try {{
@@ -877,7 +950,7 @@ def app(environ, start_response):
           currentGrid.replaceWith(freshGrid);
           await executeScripts(freshGrid);
         }}
-        populateNotePresetSelects();
+        populateStockMetaControls();
         applyNotesToTableAndCards();
         updateResponsiveGrid();
         window.scrollTo(scrollX, scrollY);
