@@ -313,84 +313,152 @@ def app(environ, start_response):
 
     body = f"""<!doctype html><html lang='zh-Hant'><head><meta charset='utf-8'><title>TW Dashboard</title>
     <style>
-      body{{font-family:Arial;margin:16px;line-height:1.35}}
-      h1{{font-size:1.35rem;margin:0 0 10px}}
-      h2{{font-size:1.1rem;margin:12px 0 8px}}
-      form{{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center}}
-      label{{font-size:.9rem;color:#333}}
-      input,select,button{{font-size:.9rem;padding:4px 6px}}
-      table{{border-collapse:collapse;width:100%;font-size:.88rem}}
-      td,th{{border:1px solid #ddd;padding:5px;white-space:nowrap}}
+      :root{{--bg:#f4f7fb;--panel:#fff;--ink:#172033;--muted:#64748b;--line:#dbe4f0;--brand:#2563eb;--brand-dark:#1d4ed8;--brand-soft:#eaf1ff;--shadow:0 14px 36px rgba(15,23,42,.09);--radius:18px}}
+      *{{box-sizing:border-box}}
+      body{{font-family:Arial,'Noto Sans TC',sans-serif;margin:0;line-height:1.45;color:var(--ink);background:linear-gradient(180deg,#eef4ff 0,#f7f9fc 240px,var(--bg) 100%);padding:20px}}
+      .page-shell{{max-width:1680px;margin:0 auto}}
+      .hero{{display:flex;justify-content:space-between;gap:18px;align-items:flex-end;margin:0 0 16px;padding:22px 24px;border:1px solid rgba(255,255,255,.7);border-radius:24px;background:linear-gradient(135deg,#12213f,#2563eb 58%,#43b5ff);box-shadow:var(--shadow);color:#fff}}
+      .hero h1{{font-size:1.65rem;margin:0 0 6px;letter-spacing:.02em}}
+      .hero p{{margin:0;color:rgba(255,255,255,.82);font-size:.95rem}}
+      .hero-badge{{white-space:nowrap;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:8px 12px;font-size:.88rem}}
+      h2{{font-size:1.12rem;margin:0;color:#1e293b}}
+      .section-card,.control-panel{{background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}}
+      .control-panel{{padding:16px;margin-bottom:16px}}
+      .filter-grid{{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:12px;align-items:stretch}}
+      fieldset{{border:1px solid var(--line);border-radius:14px;padding:12px;margin:0;background:#fbfdff;min-width:0}}
+      legend{{padding:0 7px;color:#334155;font-size:.86rem;font-weight:700}}
+      .field-stack{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}}
+      .form-field{{display:grid;gap:4px;color:var(--muted);font-size:.78rem;font-weight:700;letter-spacing:.02em}}
+      input,select,button,textarea{{font:inherit}}
+      input,select,textarea{{width:100%;font-size:.9rem;padding:8px 10px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#0f172a;min-height:38px}}
+      input:focus,select:focus,textarea:focus{{outline:2px solid rgba(37,99,235,.22);border-color:var(--brand)}}
+      button{{font-size:.9rem;padding:8px 12px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#1e293b;cursor:pointer;transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease,background .16s ease}}
+      button:hover:not(:disabled){{transform:translateY(-1px);box-shadow:0 8px 18px rgba(15,23,42,.12);border-color:#94a3b8}}
+      button:disabled{{cursor:not-allowed;opacity:.48}}
+      .btn-primary{{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:700}}
+      .btn-primary:hover:not(:disabled){{background:var(--brand-dark);border-color:var(--brand-dark)}}
+      .btn-soft{{background:var(--brand-soft);border-color:#bfdbfe;color:#1d4ed8;font-weight:700}}
+      .form-actions{{display:grid;grid-template-columns:minmax(150px,auto) 1fr;gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line);align-items:center}}
+      .primary-actions,.utility-actions,.watchlist-actions{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}
+      .utility-actions{{justify-content:flex-end}}
+      .preset-picker{{display:flex;align-items:center;gap:8px;min-width:280px}}
+      .preset-picker label{{color:var(--muted);font-size:.82rem;font-weight:700;white-space:nowrap}}
+      .preset-picker select{{min-width:180px}}
+      .form-help{{grid-column:1 / -1;color:var(--muted);font-size:.82rem;margin:0}}
+      table{{border-collapse:separate;border-spacing:0;width:100%;font-size:.88rem}}
+      th{{position:sticky;top:0;z-index:1;background:#f1f5f9;color:#334155;font-weight:800}}
+      td,th{{border-bottom:1px solid #e2e8f0;padding:8px 9px;white-space:nowrap}}
+      td:first-child,th:first-child{{border-left:1px solid #e2e8f0}}
+      td:last-child,th:last-child{{border-right:1px solid #e2e8f0}}
+      tr:hover td{{background:#f8fbff}}
       table th:nth-child(7), table td:nth-child(7), table th:nth-child(8), table td:nth-child(8), table th:nth-child(9), table td:nth-child(9){{text-align:right}}
-      .table-wrap{{overflow-x:auto}}
-      .card{{margin:8px 0;padding:8px;border:1px solid #ddd;border-radius:8px;transition:border-color .2s ease,box-shadow .2s ease,background .2s ease}}
-      .card h3{{font-size:.95rem;margin:4px 0 6px}}
-      .card.is-jump-target{{border-color:#1976d2;box-shadow:0 0 0 3px rgba(25,118,210,.16);background:#f5fbff}}
-      .stock-jump{{border:0;background:none;color:#1565c0;text-decoration:underline;cursor:pointer;padding:0;font:inherit}}
-      .stock-jump:hover,.stock-jump:focus{{color:#0d47a1;text-decoration-thickness:2px;outline:none}}
+      .table-wrap{{overflow:auto;border-radius:14px;border:1px solid #e2e8f0;background:#fff}}
+      .section-card{{padding:16px;margin:16px 0}}
+      .section-header{{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:12px}}
+      .summary-strip{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 12px}}
+      .summary-item{{border:1px solid var(--line);border-radius:14px;padding:12px;background:linear-gradient(180deg,#fff,#f8fbff)}}
+      .summary-label{{display:block;color:var(--muted);font-size:.78rem;font-weight:700}}
+      .summary-value{{display:block;font-size:1.12rem;font-weight:800;margin-top:2px}}
+      .page-nav{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}
+      .cards-grid{{display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:14px}}
+      .card{{margin:0;padding:12px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 8px 22px rgba(15,23,42,.06);transition:border-color .2s ease,box-shadow .2s ease,background .2s ease,transform .2s ease;overflow:hidden}}
+      .card:hover{{transform:translateY(-2px);box-shadow:0 16px 32px rgba(15,23,42,.12)}}
+      .card h3{{font-size:.96rem;margin:0 0 8px}}
+      .card.is-jump-target{{border-color:#1976d2;box-shadow:0 0 0 3px rgba(25,118,210,.16),var(--shadow);background:#f5fbff}}
+      .stock-jump{{border:0;background:none;color:#1565c0;text-decoration:underline;cursor:pointer;padding:0;font:inherit;border-radius:4px}}
+      .stock-jump:hover,.stock-jump:focus{{color:#0d47a1;text-decoration-thickness:2px;outline:none;box-shadow:none;transform:none}}
       .note-editor{{display:flex;gap:2px;align-items:center;white-space:nowrap}}
-      .watchlist-action{{min-width:72px;cursor:pointer}}
+      .watchlist-action{{min-width:72px;cursor:pointer;padding:6px 10px}}
       .watchlist-action.is-added{{color:#2e7d32;background:#eef8ee;border:1px solid #9ccc9c;cursor:default}}
       #watchlistStatus{{min-height:1.2em;color:#2e7d32;font-size:.86rem}}
       .watchlist-batch-modal{{position:fixed;inset:0;background:rgba(0,0,0,.38);display:none;align-items:center;justify-content:center;z-index:9999;padding:16px}}
       .watchlist-batch-modal.is-open{{display:flex}}
-      .watchlist-batch-dialog{{background:#fff;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.22);max-width:760px;width:min(760px, 100%);max-height:90vh;display:flex;flex-direction:column;overflow:hidden}}
+      .watchlist-batch-dialog{{background:#fff;border-radius:18px;box-shadow:0 18px 42px rgba(0,0,0,.24);max-width:760px;width:min(760px, 100%);max-height:90vh;display:flex;flex-direction:column;overflow:hidden}}
       .watchlist-batch-header,.watchlist-batch-footer{{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid #e5e5e5}}
       .watchlist-batch-footer{{border-top:1px solid #e5e5e5;border-bottom:0;justify-content:flex-end;flex-wrap:wrap}}
       .watchlist-batch-body{{padding:12px 14px;overflow:auto;display:grid;gap:10px}}
       .watchlist-batch-row{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}
-      .watchlist-batch-list{{border:1px solid #ddd;border-radius:8px;max-height:260px;overflow:auto;background:#fafafa}}
-      .watchlist-batch-item{{display:flex;gap:8px;align-items:center;padding:6px 8px;border-bottom:1px solid #eee;cursor:pointer}}
+      .watchlist-batch-list{{border:1px solid #ddd;border-radius:12px;max-height:260px;overflow:auto;background:#fafafa}}
+      .watchlist-batch-item{{display:flex;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid #eee;cursor:pointer}}
       .watchlist-batch-item:last-child{{border-bottom:0}}
       .watchlist-batch-item:hover{{background:#f2f7ff}}
       .watchlist-batch-item.is-added{{color:#777;background:#f5f5f5}}
       .watchlist-batch-item small{{color:#666}}
-      .watchlist-batch-paste{{width:100%;min-height:70px;box-sizing:border-box}}
+      .watchlist-batch-paste{{width:100%;min-height:70px}}
       .watchlist-batch-help{{color:#666;font-size:.84rem}}
       .stock-meta-cell{{width:116px;min-width:116px;max-width:116px}}
       .note-cell{{width:190px;min-width:190px;max-width:190px}}
-      .note-editor .stock-meta-select{{width:104px;min-width:0;padding:2px 3px;text-align:left;text-align-last:left}}
-      .note-editor .stock-note-input{{width:170px;min-width:120px;padding:2px 3px}}
+      .note-editor .stock-meta-select{{width:104px;min-width:0;padding:4px 6px;text-align:left;text-align-last:left;min-height:30px}}
+      .note-editor .stock-note-input{{width:170px;min-width:120px;padding:4px 6px;min-height:30px}}
       table th:nth-child(15), table td:nth-child(15){{width:96px;min-width:96px;max-width:96px}}
-      @media (max-width: 900px){{ body{{margin:10px}} }}
-      @media (max-width: 720px){{
-        form{{gap:4px 6px}}
-        input,select,button{{font-size:.82rem;padding:3px 5px}}
-        label{{font-size:.8rem}}
-        table{{font-size:.8rem}}
-      }}
+      @media (max-width: 1180px){{.filter-grid{{grid-template-columns:repeat(2,minmax(220px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
+      @media (max-width: 760px){{body{{padding:10px}}.hero{{display:block;padding:18px}}.hero-badge{{display:inline-block;margin-top:12px}}.filter-grid,.field-stack,.summary-strip{{grid-template-columns:1fr}}.form-actions{{grid-template-columns:1fr}}.utility-actions{{justify-content:flex-start}}.preset-picker{{min-width:100%;flex-wrap:wrap}}.cards-grid{{grid-template-columns:1fr}}input,select,button{{font-size:.84rem}}table{{font-size:.8rem}}}}
     </style></head><body>
-    <h1>多台股監控 Dashboard（Vercel 版）</h1>
-    <form id='cfgForm'>
-    <label>頁籤</label><select name='tab'><option value='watchlist' {'selected' if tab=='watchlist' else ''}>自選股監控</option><option value='category' {'selected' if tab=='category' else ''}>分類股池</option></select>
-    <label>產業</label><select name='industry'>{industry_options}</select>
-    <label>期間</label><select name='period'><option value='intraday' {'selected' if period=='intraday' else ''}>當日即時K</option><option value='1mo' {'selected' if period=='1mo' else ''}>1個月</option><option value='2mo' {'selected' if period=='2mo' else ''}>2個月</option><option value='3mo' {'selected' if period=='3mo' else ''}>3個月</option><option value='6mo' {'selected' if period=='6mo' else ''}>6個月</option><option value='1y' {'selected' if period=='1y' else ''}>1年</option><option value='5y' {'selected' if period=='5y' else ''}>5年</option></select>
-    <label>週期</label><select name='interval'><option value='1m' {'selected' if interval=='1m' else ''}>1 分鐘</option><option value='5m' {'selected' if interval=='5m' else ''}>5 分鐘</option><option value='15m' {'selected' if interval=='15m' else ''}>15 分鐘</option><option value='1d' {'selected' if interval=='1d' else ''}>日線</option><option value='1wk' {'selected' if interval=='1wk' else ''}>週線</option></select>
-    <label>檔數</label><input name='limit' value='{limit}' size='3'/>
-    <label>頁碼</label><input name='page' value='{page}' size='3'/>
-    <label>主題</label><select name='group_filter'>{group_options}</select>
-    <label>次題材</label><select name='subgroup_filter'>{subgroup_options}</select>
-    <label>判斷篩選</label><select name='status_filter'>{status_options}</select>
-    <label>每列檔數</label><select name='cards_per_row'>{''.join([f"<option value='{n}' {'selected' if cards_per_row==n else ''}>{n}</option>" for n in range(1, 16)])}</select>
-    <label>顯示量K線</label><select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select>
-    <label>目標價</label><select name='show_target_price'><option value='0' {'selected' if not show_target_price else ''}>關閉（較快）</option><option value='1' {'selected' if show_target_price else ''}>開啟</option></select>
-    <label>圖塊排序</label><select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option><option value='target_ratio' {'selected' if card_sort=='target_ratio' else ''}>目標價/現價</option></select>
-    <label>操作方法篩選</label><select id='stockMetaFilter-action'></select>
-    <label>個股特性篩選</label><select id='stockMetaFilter-trait'></select>
-    <label>行情階段篩選</label><select id='stockMetaFilter-stage'></select>
-    <label>風險觀察篩選</label><select id='stockMetaFilter-risk'></select>
-    <button type='submit'>更新</button>
-    <button type='button' onclick='saveLocal()'>儲存目前設定</button>
-    <button type='button' onclick='loadLocal()'>讀取本機設定</button>
-    <label>推薦設定檔</label><select id='serverConfigSelect'><option value=''>請選擇</option></select>
-    <button type='button' onclick='loadServerConfig()'>讀取推薦設定</button>
-    <button type='button' onclick='exportBrowserMemory()'>匯出完整備份檔</button>
-    <input type='file' id='memoryFile' accept='application/json' style='display:none' onchange='importBrowserMemory(event)'>
-    <button type='button' onclick="document.getElementById('memoryFile').click()">匯入備份檔</button>
-    <small style='color:#666'>讀取推薦設定：由伺服器設定目錄提供；讀取本機設定：讀瀏覽器目前裝置已存內容；匯入備份檔：從 JSON 檔還原（可跨裝置）。</small>
-    <hr>
-    <button type='button' onclick='openBatchWatchlistDialog()'>批次加入自選</button>
-    <span id='watchlistStatus' role='status' aria-live='polite'></span>
+    <div class='page-shell'>
+    <header class='hero'>
+      <div>
+        <h1>多台股監控 Dashboard</h1>
+        <p>把股池、技術線圖、篩選條件與自選管理整理到同一個清楚工作台。</p>
+      </div>
+      <div class='hero-badge'>Vercel 版・即時觀察</div>
+    </header>
+    <form id='cfgForm' class='control-panel'>
+      <div class='filter-grid'>
+        <fieldset>
+          <legend>股池與分類</legend>
+          <div class='field-stack'>
+            <label class='form-field'>頁籤<select name='tab'><option value='watchlist' {'selected' if tab=='watchlist' else ''}>自選股監控</option><option value='category' {'selected' if tab=='category' else ''}>分類股池</option></select></label>
+            <label class='form-field'>產業<select name='industry'>{industry_options}</select></label>
+            <label class='form-field'>主題<select name='group_filter'>{group_options}</select></label>
+            <label class='form-field'>次題材<select name='subgroup_filter'>{subgroup_options}</select></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>K 線與顯示</legend>
+          <div class='field-stack'>
+            <label class='form-field'>期間<select name='period'><option value='intraday' {'selected' if period=='intraday' else ''}>當日即時K</option><option value='1mo' {'selected' if period=='1mo' else ''}>1個月</option><option value='2mo' {'selected' if period=='2mo' else ''}>2個月</option><option value='3mo' {'selected' if period=='3mo' else ''}>3個月</option><option value='6mo' {'selected' if period=='6mo' else ''}>6個月</option><option value='1y' {'selected' if period=='1y' else ''}>1年</option><option value='5y' {'selected' if period=='5y' else ''}>5年</option></select></label>
+            <label class='form-field'>週期<select name='interval'><option value='1m' {'selected' if interval=='1m' else ''}>1 分鐘</option><option value='5m' {'selected' if interval=='5m' else ''}>5 分鐘</option><option value='15m' {'selected' if interval=='15m' else ''}>15 分鐘</option><option value='1d' {'selected' if interval=='1d' else ''}>日線</option><option value='1wk' {'selected' if interval=='1wk' else ''}>週線</option></select></label>
+            <label class='form-field'>每列檔數<select name='cards_per_row'>{''.join([f"<option value='{n}' {'selected' if cards_per_row==n else ''}>{n}</option>" for n in range(1, 16)])}</select></label>
+            <label class='form-field'>圖塊排序<select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option><option value='target_ratio' {'selected' if card_sort=='target_ratio' else ''}>目標價/現價</option></select></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>篩選與分頁</legend>
+          <div class='field-stack'>
+            <label class='form-field'>判斷篩選<select name='status_filter'>{status_options}</select></label>
+            <label class='form-field'>檔數<input name='limit' value='{limit}' size='3'/></label>
+            <label class='form-field'>頁碼<input name='page' value='{page}' size='3'/></label>
+            <label class='form-field'>目標價<select name='show_target_price'><option value='0' {'selected' if not show_target_price else ''}>關閉（較快）</option><option value='1' {'selected' if show_target_price else ''}>開啟</option></select></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>個人標籤篩選</legend>
+          <div class='field-stack'>
+            <label class='form-field'>操作方法<select id='stockMetaFilter-action'></select></label>
+            <label class='form-field'>個股特性<select id='stockMetaFilter-trait'></select></label>
+            <label class='form-field'>行情階段<select id='stockMetaFilter-stage'></select></label>
+            <label class='form-field'>風險觀察<select id='stockMetaFilter-risk'></select></label>
+            <label class='form-field'>顯示量K線<select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select></label>
+          </div>
+        </fieldset>
+      </div>
+      <div class='form-actions'>
+        <div class='primary-actions'>
+          <button type='submit' class='btn-primary'>更新儀表板</button>
+          <button type='button' class='btn-soft' onclick='openBatchWatchlistDialog()'>批次加入自選</button>
+          <span id='watchlistStatus' role='status' aria-live='polite'></span>
+        </div>
+        <div class='utility-actions'>
+          <button type='button' onclick='saveLocal()'>儲存目前設定</button>
+          <button type='button' onclick='loadLocal()'>讀取本機設定</button>
+          <span class='preset-picker'><label>推薦設定檔</label><select id='serverConfigSelect'><option value=''>請選擇</option></select></span>
+          <button type='button' onclick='loadServerConfig()'>讀取推薦設定</button>
+          <button type='button' onclick='exportBrowserMemory()'>匯出完整備份檔</button>
+          <input type='file' id='memoryFile' accept='application/json' style='display:none' onchange='importBrowserMemory(event)'>
+          <button type='button' onclick="document.getElementById('memoryFile').click()">匯入備份檔</button>
+        </div>
+        <p class='form-help'>推薦設定由伺服器設定目錄提供；本機設定與完整備份檔會保存在瀏覽器，可跨裝置匯入還原。</p>
+      </div>
     <input type='hidden' name='custom_watchlist' id='customWatchlist' value='{html.escape(','.join(watchlist['symbol'].tolist()))}'>
     <div id='watchlistBatchModal' class='watchlist-batch-modal' role='dialog' aria-modal='true' aria-labelledby='watchlistBatchTitle'>
       <div class='watchlist-batch-dialog'>
@@ -419,14 +487,25 @@ def app(environ, start_response):
       </div>
     </div>
     </form>
-    <h2>總覽</h2>
-    <div id='summaryInfo' style='margin:4px 0 8px;color:#444;font-size:.9rem'>共 {total_stocks} 檔，現在第 {page}/{total_pages} 頁，每頁 {limit} 檔。</div>
-    <div id='pageNav' style='display:flex;gap:6px;margin:0 0 8px'>
-      <button type='button' onclick='goToPage({max(1, page-1)})' {'disabled' if page <= 1 else ''}>上一頁</button>
-      <button type='button' onclick='goToPage({min(total_pages, page+1)})' {'disabled' if page >= total_pages else ''}>下一頁</button>
-    </div>
-    <div id='tableWrap' class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="15">無符合條件資料</td></tr>'}</table></div>
-    <h2>多股趨勢圖</h2><div id='cardsGrid' style='display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:8px'>{''.join([f"<div class='card' data-symbol='{html.escape(cd['symbol'])}'>{cd['card_html']}</div>" for cd in cards_data])}</div>
+    <section class='section-card' aria-labelledby='overviewTitle'>
+      <div class='section-header'>
+        <h2 id='overviewTitle'>總覽</h2>
+        <div id='pageNav' class='page-nav'>
+          <button type='button' onclick='goToPage({max(1, page-1)})' {'disabled' if page <= 1 else ''}>上一頁</button>
+          <button type='button' onclick='goToPage({min(total_pages, page+1)})' {'disabled' if page >= total_pages else ''}>下一頁</button>
+        </div>
+      </div>
+      <div id='summaryInfo' class='summary-strip'>
+        <div class='summary-item'><span class='summary-label'>符合股數</span><span class='summary-value'>{total_stocks} 檔</span></div>
+        <div class='summary-item'><span class='summary-label'>頁面進度</span><span class='summary-value'>{page} / {total_pages}</span></div>
+        <div class='summary-item'><span class='summary-label'>每頁顯示</span><span class='summary-value'>{limit} 檔</span></div>
+      </div>
+      <div id='tableWrap' class='table-wrap'><table><tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th>互動</th></tr>{''.join(rows) if rows else '<tr><td colspan="15">無符合條件資料</td></tr>'}</table></div>
+    </section>
+    <section class='section-card' aria-labelledby='chartsTitle'>
+      <div class='section-header'><h2 id='chartsTitle'>多股趨勢圖</h2></div>
+      <div id='cardsGrid' class='cards-grid'>{''.join([f"<div class='card' data-symbol='{html.escape(cd['symbol'])}'>{cd['card_html']}</div>" for cd in cards_data])}</div>
+    </section>
     <script>
     const defaultConfig = {json.dumps(save_payload, ensure_ascii=False)};
     const serverConfigPresets = {json.dumps(server_config_presets, ensure_ascii=False)};
@@ -974,6 +1053,7 @@ def app(environ, start_response):
     window.addEventListener('resize', updateResponsiveGrid);
     updateResponsiveGrid();
     </script>
+    </div>
     </body></html>"""
 
     data = body.encode("utf-8")
