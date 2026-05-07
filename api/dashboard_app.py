@@ -624,13 +624,18 @@ def app(environ, start_response):
       .btn-primary{{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:700}}
       .btn-primary:hover:not(:disabled){{background:var(--brand-dark);border-color:var(--brand-dark)}}
       .btn-soft{{background:var(--brand-soft);border-color:#bfdbfe;color:#1d4ed8;font-weight:700}}
-      .form-actions{{display:grid;grid-template-columns:minmax(150px,auto) 1fr;gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line);align-items:center}}
-      .primary-actions,.utility-actions,.watchlist-actions{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}
-      .utility-actions{{justify-content:flex-end}}
-      .preset-picker{{display:flex;align-items:center;gap:8px;min-width:280px}}
-      .preset-picker label{{color:var(--muted);font-size:.82rem;font-weight:700;white-space:nowrap}}
-      .preset-picker select{{min-width:180px}}
-      .form-help{{grid-column:1 / -1;color:var(--muted);font-size:.82rem;margin:0}}
+      .form-actions{{display:grid;grid-template-columns:minmax(240px,.76fr) minmax(360px,1.24fr);gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line);align-items:stretch}}
+      .primary-actions,.utility-actions{{position:relative;display:grid;gap:8px;align-content:start;border:1px solid #dbeafe;border-radius:16px;background:linear-gradient(180deg,#fff,#f8fbff);padding:34px 12px 12px;min-width:0}}
+      .primary-actions::before,.utility-actions::before{{content:attr(data-title);position:absolute;top:10px;left:12px;color:#1e3a8a;font-size:.78rem;font-weight:900;letter-spacing:.06em}}
+      .primary-actions{{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      .utility-actions{{grid-template-columns:repeat(4,minmax(112px,1fr))}}
+      .primary-actions button,.utility-actions button{{width:100%;min-height:40px;display:inline-flex;align-items:center;justify-content:center;text-align:center;line-height:1.2}}
+      .watchlist-actions{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}
+      #watchlistStatus{{grid-column:1 / -1;min-height:1.2em;color:#2e7d32;font-size:.86rem}}
+      .preset-picker{{grid-column:span 2;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;min-width:0;padding:6px 8px;border:1px solid #dbeafe;border-radius:999px;background:#fff}}
+      .preset-picker label{{color:var(--muted);font-size:.78rem;font-weight:800;white-space:nowrap}}
+      .preset-picker select{{min-width:0;min-height:34px;padding:6px 8px;border-radius:999px}}
+      .form-help{{grid-column:1 / -1;color:var(--muted);font-size:.82rem;margin:0;padding:0 4px}}
       .pipeline-progress{{margin:14px 0 0;padding:14px;border:1px solid #bfdbfe;border-radius:16px;background:#f8fbff;color:#172033}}
       .pipeline-progress.is-updating{{border-color:#60a5fa;background:#eff6ff}}
       .pipeline-progress-header{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px}}
@@ -681,7 +686,6 @@ def app(environ, start_response):
       .note-editor{{display:flex;gap:2px;align-items:center;white-space:nowrap}}
       .watchlist-action{{min-width:72px;cursor:pointer;padding:6px 10px}}
       .watchlist-action.is-added{{color:#2e7d32;background:#eef8ee;border:1px solid #9ccc9c;cursor:default}}
-      #watchlistStatus{{min-height:1.2em;color:#2e7d32;font-size:.86rem}}
       .watchlist-batch-modal{{position:fixed;inset:0;background:rgba(0,0,0,.38);display:none;align-items:center;justify-content:center;z-index:9999;padding:16px}}
       .watchlist-batch-modal.is-open{{display:flex}}
       .watchlist-batch-dialog{{background:#fff;border-radius:18px;box-shadow:0 18px 42px rgba(0,0,0,.24);max-width:760px;width:min(760px, 100%);max-height:90vh;display:flex;flex-direction:column;overflow:hidden}}
@@ -704,8 +708,9 @@ def app(environ, start_response):
       .note-editor .stock-meta-select{{width:104px;min-width:0;padding:4px 6px;text-align:left;text-align-last:left;min-height:30px}}
       .note-editor .stock-note-input{{width:170px;min-width:120px;padding:4px 6px;min-height:30px}}
       table th:nth-child(15), table td:nth-child(15){{width:96px;min-width:96px;max-width:96px}}
-      @media (max-width: 1180px){{.filter-grid{{grid-template-columns:repeat(2,minmax(220px,1fr))}}.pipeline-progress-list{{grid-template-columns:repeat(2,minmax(160px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
-      @media (max-width: 760px){{body{{padding:10px}}.hero{{display:block;padding:18px}}.hero-badge{{display:inline-block;margin-top:12px}}.filter-grid,.field-stack,.summary-strip,.pipeline-progress-list{{grid-template-columns:1fr}}.form-actions{{grid-template-columns:1fr}}.utility-actions{{justify-content:flex-start}}.preset-picker{{min-width:100%;flex-wrap:wrap}}.cards-grid{{grid-template-columns:1fr}}input,select,button{{font-size:.84rem}}table{{font-size:.8rem}}}}
+      @media (max-width: 1180px){{.filter-grid{{grid-template-columns:repeat(2,minmax(220px,1fr))}}.form-actions{{grid-template-columns:1fr}}.utility-actions{{grid-template-columns:repeat(4,minmax(112px,1fr))}}.pipeline-progress-list{{grid-template-columns:repeat(2,minmax(160px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
+      @media (max-width: 760px){{body{{padding:10px}}.hero{{display:block;padding:18px}}.hero-badge{{display:inline-block;margin-top:12px}}.filter-grid,.field-stack,.summary-strip,.pipeline-progress-list{{grid-template-columns:1fr}}.form-actions{{grid-template-columns:1fr;gap:10px}}.primary-actions,.utility-actions{{grid-template-columns:repeat(2,minmax(0,1fr));padding:32px 10px 10px;border-radius:14px}}.preset-picker{{grid-column:1 / -1;grid-template-columns:1fr;border-radius:14px;gap:4px}}.cards-grid{{grid-template-columns:1fr}}input,select,button{{font-size:.84rem}}table{{font-size:.8rem}}}}
+      @media (max-width: 390px){{.primary-actions,.utility-actions{{grid-template-columns:1fr}}.preset-picker{{grid-column:1}}}}
     </style></head><body>
     <div class='page-shell'>
     <header class='hero'>
@@ -758,12 +763,12 @@ def app(environ, start_response):
       </div>
       <input type='hidden' name='stock_meta_payload' id='stockMetaPayload' value='{html.escape(stock_meta_payload_raw, quote=True)}'>
       <div class='form-actions'>
-        <div class='primary-actions'>
+        <div class='primary-actions' data-title='主要操作'>
           <button type='submit' class='btn-primary'>更新儀表板</button>
           <button type='button' class='btn-soft' onclick='openBatchWatchlistDialog()'>批次加入自選</button>
           <span id='watchlistStatus' role='status' aria-live='polite'></span>
         </div>
-        <div class='utility-actions'>
+        <div class='utility-actions' data-title='設定與備份'>
           <button type='button' onclick='saveLocal()'>儲存目前設定</button>
           <button type='button' onclick='loadLocal()'>讀取本機設定</button>
           <span class='preset-picker'><label>推薦設定檔</label><select id='serverConfigSelect'><option value=''>請選擇</option></select></span>
