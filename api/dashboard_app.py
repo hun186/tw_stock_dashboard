@@ -458,6 +458,8 @@ def app(environ, start_response):
         )
         row_html = f"<tr data-symbol='{html.escape(row.symbol)}'><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{name_jump_button}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td>{stock_meta_cells}<td class='note-cell'>{note_editor}</td><td>{action_btn}</td></tr>"
         card_html = ""
+        card_html_with_volume = ""
+        card_html_without_volume = ""
         should_render_card = client_render_all_cards or row.symbol in initial_page_symbols
         if should_render_card and not df.empty:
             show_ma = period != "intraday"
@@ -488,19 +490,30 @@ def app(environ, start_response):
                         target_ratio_color = "#0b8f3a"
                 except ValueError:
                     target_ratio_color = "#666"
-            card_html = (
+            card_header_html = (
                 "<h3 style='display:flex;justify-content:space-between;align-items:center;gap:8px'>"
                 f"<span>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 "
                 f"<span style='color:{close_color};font-weight:700'>{close_text}{change_text}</span>{html.escape(signal_brief)}</span>"
                 f"<span style='font-size:.82rem;color:{target_ratio_color};font-weight:700'>目標價/現價：{target_ratio_text}</span>"
                 "</h3>"
-                f"{make_chart_html(df, row.name, show_volume, show_ma, intraday_ref_close=intraday_ref_close)}"
             )
+            card_html_with_volume = (
+                card_header_html
+                + make_chart_html(df, row.name, True, show_ma, intraday_ref_close=intraday_ref_close)
+            )
+            card_html_without_volume = (
+                card_header_html
+                + make_chart_html(df, row.name, False, show_ma, intraday_ref_close=intraday_ref_close)
+            )
+            card_html = card_html_with_volume if show_volume else card_html_without_volume
         rendered_stock_items.append({
             "symbol": row.symbol,
             "bucket": stock_item["bucket"],
+            "has_chart_data": not df.empty,
             "row_html": row_html,
             "card_html": card_html,
+            "card_html_with_volume": card_html_with_volume,
+            "card_html_without_volume": card_html_without_volume,
         })
 
     visible_rendered_items = [
@@ -861,6 +874,8 @@ def app(environ, start_response):
     const dashboardPageSize = Number(defaultConfig.limit || 30);
     const dashboardHasAllClientCards = {json.dumps(client_render_all_cards)};
     let dashboardCurrentPage = Number(defaultConfig.page || 1);
+    let dashboardCardsPerRow = Number(defaultConfig.cards_per_row || 3);
+    let dashboardShowVolume = String(defaultConfig.show_volume ?? '1') === '1';
     const STOCK_META_PRESET_LOOKUP = STOCK_META_GROUPS.reduce((lookup, group)=>{{
       group.options.forEach((option)=>{{ lookup[option] = group.id; }});
       return lookup;
@@ -965,7 +980,23 @@ def app(environ, start_response):
         .replaceAll('<', '&lt;')
         .replaceAll('>', '&gt;');
     }}
-    async function renderDashboardPage(page=1){{
+    function selectedCardHtml(item){{
+      if(dashboardShowVolume && item.card_html_with_volume) return item.card_html_with_volume;
+      if(!dashboardShowVolume && item.card_html_without_volume) return item.card_html_without_volume;
+      return item.card_html || '';
+    }}
+    function syncRenderOnlyUrlParams(){{
+      const form = document.getElementById('cfgForm');
+      const url = new URL(window.location.href);
+      if(form?.elements?.page) form.elements.page.value = String(dashboardCurrentPage);
+      if(form?.elements?.cards_per_row) form.elements.cards_per_row.value = String(dashboardCardsPerRow);
+      if(form?.elements?.show_volume) form.elements.show_volume.value = dashboardShowVolume ? '1' : '0';
+      url.searchParams.set('page', String(dashboardCurrentPage));
+      url.searchParams.set('cards_per_row', String(dashboardCardsPerRow));
+      url.searchParams.set('show_volume', dashboardShowVolume ? '1' : '0');
+      window.history.replaceState(null, '', url.toString());
+    }}
+    async function renderDashboardPage(page=dashboardCurrentPage){{
       const items = filteredDashboardItems();
       const total = items.length;
       const totalPages = Math.max(1, Math.ceil(total / dashboardPageSize));
@@ -979,8 +1010,9 @@ def app(environ, start_response):
       const grid = document.getElementById('cardsGrid');
       if(grid){{
         grid.innerHTML = pageItems
-          .filter((item)=>item.card_html)
-          .map((item)=>`<div class='card' data-symbol='${{escapeHtmlAttr(item.symbol)}}'>${{item.card_html}}</div>`)
+          .map((item)=>({{...item, selected_card_html: selectedCardHtml(item)}}))
+          .filter((item)=>item.selected_card_html)
+          .map((item)=>`<div class='card' data-symbol='${{escapeHtmlAttr(item.symbol)}}'>${{item.selected_card_html}}</div>`)
           .join('');
         await executeScripts(grid);
       }}
@@ -996,18 +1028,26 @@ def app(environ, start_response):
       populateStockMetaControls();
       applyNotesToTableAndCards();
       updateResponsiveGrid();
+      syncRenderOnlyUrlParams();
       hideLoadingProgress();
     }}
     function applyStatusFilterInPlace(){{
-      renderDashboardPage(1);
+      renderDashboardPage(dashboardCurrentPage);
       const selectedText = selectedOptionText(document.getElementById('cfgForm'), 'status_filter') || '全部';
       const isAll = (document.querySelector('[name="status_filter"]')?.value || 'all') === 'all';
       const actionText = isAll ? '已恢復顯示全部形勢判斷' : `已套用「${{selectedText}}」形勢判斷篩選`;
       const cardNote = dashboardHasAllClientCards ? '' : '（大型股池僅表格即時篩選；若要補齊其他頁圖表再換頁更新。）';
       showWatchlistStatus(`${{actionText}}，仍使用目前載入的完整股池，未重新下載行情。${{cardNote}}`);
     }}
+    function pageHasClientCards(page){{
+      const items = filteredDashboardItems();
+      const totalPages = Math.max(1, Math.ceil(items.length / dashboardPageSize));
+      const targetPage = Math.min(Math.max(Number(page) || 1, 1), totalPages);
+      const start = (targetPage - 1) * dashboardPageSize;
+      return items.slice(start, start + dashboardPageSize).every((item)=>!item.has_chart_data || Boolean(selectedCardHtml(item)));
+    }}
     function goToPage(page){{
-      if(dashboardRenderItems.length && dashboardHasAllClientCards){{
+      if(dashboardRenderItems.length && (dashboardHasAllClientCards || pageHasClientCards(page))){{
         renderDashboardPage(page);
         return;
       }}
@@ -1479,8 +1519,22 @@ def app(environ, start_response):
       syncStockMetaPayload();
       showLoadingProgress('更新儀表板');
     }});
-    const AUTO_SUBMIT_FIELDS = new Set(['tab','industry','period','interval','limit','group_filter','subgroup_filter','cards_per_row','show_volume','show_target_price','compact_progress','card_sort']);
+    const AUTO_SUBMIT_FIELDS = new Set(['tab','industry','period','interval','limit','group_filter','subgroup_filter','show_target_price','compact_progress','card_sort']);
     document.getElementById('cfgForm')?.addEventListener('change', (event)=>{{
+      const fieldName = event.target?.name;
+      if(fieldName === 'cards_per_row'){{
+        dashboardCardsPerRow = Math.min(Math.max(Number(event.target.value) || 3, 1), 15);
+        updateResponsiveGrid();
+        syncRenderOnlyUrlParams();
+        showWatchlistStatus(`已改成每列 ${{dashboardCardsPerRow}} 檔，未重新下載行情或重算篩選。`);
+        return;
+      }}
+      if(fieldName === 'show_volume'){{
+        dashboardShowVolume = String(event.target.value) === '1';
+        renderDashboardPage(dashboardCurrentPage);
+        showWatchlistStatus(`已${{dashboardShowVolume ? '開啟' : '關閉'}}量K線，保留目前頁碼且未重新下載行情。`);
+        return;
+      }}
       if(AUTO_SUBMIT_FIELDS.has(event.target?.name)) autoSubmitConfig(event);
     }});
     document.querySelector('[name="status_filter"]')?.addEventListener('change', applyStatusFilterInPlace);
@@ -1543,10 +1597,9 @@ def app(environ, start_response):
     }}
     function updateResponsiveGrid(){{
       const grid = document.getElementById('cardsGrid');
-      const w = window.innerWidth;
-      if (w <= 640) grid.style.gridTemplateColumns = '1fr';
-      else if (w <= 1024) grid.style.gridTemplateColumns = 'repeat(2, minmax(0,1fr))';
-      else grid.style.gridTemplateColumns = `repeat(${{defaultConfig.cards_per_row || 3}}, minmax(0,1fr))`;
+      if(!grid) return;
+      const columns = Math.min(Math.max(Number(dashboardCardsPerRow) || 3, 1), 15);
+      grid.style.gridTemplateColumns = `repeat(${{columns}}, minmax(0,1fr))`;
     }}
     window.addEventListener('resize', updateResponsiveGrid);
     updateResponsiveGrid();
