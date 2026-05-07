@@ -2,6 +2,8 @@
 
 這個專案已全面改為 **Vercel 部署版本**，統一使用 `api/main.py` 的 WSGI Dashboard。
 
+線上展示網址：[https://tw-stock-dashboard-six.vercel.app/](https://tw-stock-dashboard-six.vercel.app/)
+
 > 已移除 Streamlit 版本，避免雙軌維護造成重構與維運混亂。
 
 ## 功能
@@ -13,6 +15,17 @@
 - 形勢判斷與篩選（資料不足 / 偏多 / 觀察 / 風險 / 轉弱 / 中性）
 - 可切換期間、K 線週期、股池來源（自選 / 分類）
 - 支援設定儲存到瀏覽器、匯入 / 匯出 JSON 設定
+
+
+## 功能截圖
+
+### Dashboard 總覽
+
+![多台股監控 Dashboard 總覽](docs/screenshots/dashboard-overview.svg)
+
+### 總表個人標籤
+
+![總表個人標籤與觀察備註](docs/screenshots/stock-meta-table.svg)
 
 ## 本機開發
 

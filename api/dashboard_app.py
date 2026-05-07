@@ -765,9 +765,9 @@ def app(environ, start_response):
       .watchlist-batch-item small{{color:#666;margin-left:6px}}
       .watchlist-batch-paste{{width:100%;min-height:70px}}
       .watchlist-batch-help{{color:#666;font-size:.84rem}}
-      .stock-meta-cell{{width:116px;min-width:116px;max-width:116px}}
+      .stock-meta-cell{{width:132px;min-width:132px;max-width:132px}}
       .note-cell{{width:190px;min-width:190px;max-width:190px}}
-      .note-editor .stock-meta-select{{width:104px;min-width:0;padding:4px 6px;text-align:left;text-align-last:left;min-height:30px}}
+      .note-editor .stock-meta-select{{width:120px;min-width:0;padding:4px 6px;text-align:left;text-align-last:left;min-height:30px}}
       .note-editor .stock-note-input{{width:170px;min-width:120px;padding:4px 6px;min-height:30px}}
       table th:nth-child(15), table td:nth-child(15){{width:96px;min-width:96px;max-width:96px}}
       @media (max-width: 1180px){{.form-actions{{grid-template-columns:1fr}}.utility-actions{{grid-template-columns:repeat(4,minmax(120px,1fr))}}.pipeline-progress-list{{grid-template-columns:repeat(2,minmax(160px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
