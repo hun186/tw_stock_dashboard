@@ -19,11 +19,31 @@
 
 ## 功能截圖
 
-### Dashboard 總覽
+### 篩選與排序選項
+
+![篩選與排序選項](docs/screenshots/filter_option.png)
+
+### 設定匯入 / 匯出
+
+![設定匯入與匯出](docs/screenshots/config_io.png)
+
+### 股票總表與個人標籤
+
+![股票總表與個人標籤](docs/screenshots/stock_tables.png)
+
+### Dashboard 曲線圖
+
+![Dashboard 曲線圖](docs/screenshots/dashboard_curves.png)
+
+### Dashboard 文字摘要
+
+![Dashboard 文字摘要](docs/screenshots/dashboard_text.png)
+
+### Dashboard 總覽（示意圖）
 
 ![多台股監控 Dashboard 總覽](docs/screenshots/dashboard-overview.svg)
 
-### 總表個人標籤
+### 總表個人標籤（示意圖）
 
 ![總表個人標籤與觀察備註](docs/screenshots/stock-meta-table.svg)
 
