@@ -791,9 +791,9 @@ def app(environ, start_response):
       .watchlist-batch-item small{{color:#666;margin-left:6px}}
       .watchlist-batch-paste{{width:100%;min-height:70px}}
       .watchlist-batch-help{{color:#666;font-size:.84rem}}
-      .stock-filter-picker{{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center}}
+      .stock-filter-picker{{display:block}}
       .stock-filter-picker input[type='hidden']{{display:none}}
-      .stock-filter-summary{{color:#475569;font-size:.82rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+      .stock-filter-picker button{{width:100%;min-height:38px}}
       .stock-meta-cell{{width:132px;min-width:132px;max-width:132px}}
       .note-cell{{width:190px;min-width:190px;max-width:190px}}
       .note-editor .stock-meta-select{{width:120px;min-width:0;padding:4px 6px;text-align:left;text-align-last:left;min-height:30px}}
@@ -860,8 +860,7 @@ def app(environ, start_response):
             <label class='form-field'>股名／代號篩選
               <span class='stock-filter-picker'>
                 <input type='hidden' id='stockMetaFilter-stock' name='stock_meta_stock' value='{html.escape(stock_meta_stock_filter, quote=True)}'>
-                <span id='stockFilterSummary' class='stock-filter-summary'>尚未限制股名</span>
-                <button type='button' class='btn-soft' onclick='openStockFilterDialog()'>{html.escape(stock_filter_button_text)}</button>
+                <button type='button' id='stockFilterButton' class='btn-soft' onclick='openStockFilterDialog()'>{html.escape(stock_filter_button_text)}</button>
               </span>
             </label>
           </div>
@@ -1507,16 +1506,16 @@ def app(environ, start_response):
       return getStockPickerCheckedSymbols(stockFilterSelectedSymbols, syncVisibleStockFilterSelections);
     }}
     function updateStockFilterSummary(){{
-      const summary = document.getElementById('stockFilterSummary');
-      if(!summary) return;
+      const button = document.getElementById('stockFilterButton');
+      if(!button) return;
       const symbols = parseStockFilterValue();
       if(!symbols.length){{
-        summary.textContent = '尚未限制股名';
-        summary.title = '未套用股名／代號篩選';
+        button.textContent = '選擇自選股';
+        button.title = '未套用股名／代號篩選';
         return;
       }}
-      summary.textContent = `已選 ${{symbols.length}} 檔：${{symbols.slice(0, 4).join('、')}}${{symbols.length > 4 ? '…' : ''}}`;
-      summary.title = symbols.join('、');
+      button.textContent = `已選 ${{symbols.length}} 筆條件`;
+      button.title = symbols.join('、');
     }}
     function updateStockFilterPreview(){{
       const preview = document.getElementById('stockFilterPreview');
