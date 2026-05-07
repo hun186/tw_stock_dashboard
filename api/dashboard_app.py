@@ -168,6 +168,7 @@ def app(environ, start_response):
         field: params.get(f"stock_meta_{field}", ["all"])[0]
         for field in ("action", "trait", "stage", "risk")
     }
+    stock_meta_note_filter = params.get("stock_meta_note", [""])[0].strip()
     stock_meta_payload_raw = params.get("stock_meta_payload", [""])[0]
     cards_per_row = _positive_int_param(params, "cards_per_row", 3, max_value=15)
     custom_watchlist_raw = params.get("custom_watchlist", [""])[0]
@@ -202,7 +203,7 @@ def app(environ, start_response):
         field: value if value and value != "all" else "all"
         for field, value in stock_meta_filters.items()
     }
-    has_stock_meta_filter = any(value != "all" for value in stock_meta_filters.values())
+    has_stock_meta_filter = any(value != "all" for value in stock_meta_filters.values()) or bool(stock_meta_note_filter)
 
     fetch_period, fetch_interval, display_period = resolve_price_params(period, interval)
 
@@ -297,17 +298,21 @@ def app(environ, start_response):
     for field, selected in stock_meta_filters.items():
         if selected != "all" and selected not in stock_meta_filter_values[field]:
             stock_meta_filters[field] = "all"
-    has_stock_meta_filter = any(value != "all" for value in stock_meta_filters.values())
+    has_stock_meta_filter = any(value != "all" for value in stock_meta_filters.values()) or bool(stock_meta_note_filter)
 
     if has_stock_meta_filter:
+        note_filter_lower = stock_meta_note_filter.lower()
+
         def stock_matches_meta_filters(symbol):
             meta = normalize_stock_meta_entry(stock_meta_payload.get(str(symbol), {}))
-            return all(
+            tags_match = all(
                 selected == "all"
                 or (selected == "none" and not meta[field])
                 or meta[field] == selected
                 for field, selected in stock_meta_filters.items()
             )
+            note_matches = not note_filter_lower or note_filter_lower in meta["note"].lower()
+            return tags_match and note_matches
 
         stocks = stocks[stocks["symbol"].astype(str).map(stock_matches_meta_filters)]
 
@@ -420,17 +425,25 @@ def app(environ, start_response):
         symbol_js = json.dumps(row.symbol, ensure_ascii=False)
         if tab == "watchlist":
             action_btn = (
-                "<button type='button' class='watchlist-action' "
+                "<button type='button' class='watchlist-action is-icon is-remove' "
                 f"data-symbol='{html.escape(row.symbol, quote=True)}' "
-                f"onclick='removeWatchlistStock({symbol_js}, {{ stayOnPage: true }})'>移出自選</button>"
+                f"aria-label='移除 {html.escape(row.name, quote=True)} 自選股' "
+                f"title='移除 {html.escape(row.name, quote=True)} 自選股' "
+                f"onclick='removeWatchlistStock({symbol_js}, {{ stayOnPage: true }})'>−</button>"
             )
         elif symbol_key in watchlist_symbol_keys:
-            action_btn = "<button type='button' class='watchlist-action is-added' disabled>已在自選</button>"
+            action_btn = (
+                "<button type='button' class='watchlist-action is-icon is-added' "
+                f"aria-label='{html.escape(row.name, quote=True)} 已在自選' "
+                f"title='{html.escape(row.name, quote=True)} 已在自選' disabled>✓</button>"
+            )
         else:
             action_btn = (
-                "<button type='button' class='watchlist-action' "
+                "<button type='button' class='watchlist-action is-icon is-add' "
                 f"data-symbol='{html.escape(row.symbol, quote=True)}' "
-                f"onclick='addWatchlistStock({symbol_js}, {{ stayOnPage: true }})'>加入自選</button>"
+                f"aria-label='加入 {html.escape(row.name, quote=True)} 到自選股' "
+                f"title='加入 {html.escape(row.name, quote=True)} 到自選股' "
+                f"onclick='addWatchlistStock({symbol_js}, {{ stayOnPage: true }})'>＋</button>"
             )
         subgroup_text = row.subgroup if isinstance(row.subgroup, str) and row.subgroup else "-"
         stock_meta_cells = "".join([
@@ -457,7 +470,7 @@ def app(environ, start_response):
             f"{html.escape(row.name)}"
             "</button>"
         )
-        row_html = f"<tr data-symbol='{html.escape(row.symbol)}'><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{name_jump_button}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td>{stock_meta_cells}<td class='note-cell'>{note_editor}</td><td>{action_btn}</td></tr>"
+        row_html = f"<tr data-symbol='{html.escape(row.symbol)}'><td class='row-action-cell'>{action_btn}</td><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{name_jump_button}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td>{stock_meta_cells}<td class='note-cell'>{note_editor}</td></tr>"
         card_html = ""
         card_html_with_volume = ""
         card_html_without_volume = ""
@@ -591,6 +604,7 @@ def app(environ, start_response):
         "group_filter": group_filter,
         "subgroup_filter": subgroup_filter,
         **{f"stock_meta_{field}": value for field, value in stock_meta_filters.items()},
+        "stock_meta_note": stock_meta_note_filter,
         "stock_meta_payload": stock_meta_payload_raw,
         "cards_per_row": cards_per_row,
         "custom_watchlist": ",".join(watchlist["symbol"].tolist()),
@@ -633,7 +647,8 @@ def app(environ, start_response):
 
     progress_panel_class = "pipeline-progress is-compact" if compact_progress else "pipeline-progress"
 
-    table_header_html = "<tr><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th>互動</th></tr>"
+    action_column_label = "移除" if tab == "watchlist" else "自選"
+    table_header_html = f"<tr><th>{action_column_label}</th><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th></tr>"
     dashboard_render_items_json = json.dumps(rendered_stock_items, ensure_ascii=False).replace("</", "<\/")
     table_header_html_json = json.dumps(table_header_html, ensure_ascii=False).replace("</", "<\/")
 
@@ -706,7 +721,8 @@ def app(environ, start_response):
       td:first-child,th:first-child{{border-left:1px solid #e2e8f0}}
       td:last-child,th:last-child{{border-right:1px solid #e2e8f0}}
       tr:hover td{{background:#f8fbff}}
-      table th:nth-child(7), table td:nth-child(7), table th:nth-child(8), table td:nth-child(8), table th:nth-child(9), table td:nth-child(9){{text-align:right}}
+      table th:nth-child(8), table td:nth-child(8), table th:nth-child(9), table td:nth-child(9), table th:nth-child(10), table td:nth-child(10){{text-align:right}}
+      .row-action-cell{{text-align:center;width:42px;min-width:42px}}
       .table-wrap{{overflow:auto;border-radius:14px;border:1px solid #e2e8f0;background:#fff}}
       .section-card{{padding:16px;margin:16px 0}}
       .section-header{{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:12px}}
@@ -725,6 +741,12 @@ def app(environ, start_response):
       .stock-jump:hover,.stock-jump:focus{{color:#0d47a1;text-decoration-thickness:2px;outline:none;box-shadow:none;transform:none}}
       .note-editor{{display:flex;gap:2px;align-items:center;white-space:nowrap}}
       .watchlist-action{{min-width:72px;cursor:pointer;padding:6px 10px}}
+      .watchlist-action.is-icon{{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;min-width:28px;padding:0;border-radius:999px;font-size:1.12rem;font-weight:900;line-height:1;border:1px solid #cbd5e1;background:#fff;box-shadow:0 2px 6px rgba(15,23,42,.08);transition:background .16s ease,border-color .16s ease,color .16s ease,transform .16s ease,box-shadow .16s ease}}
+      .watchlist-action.is-icon:hover,.watchlist-action.is-icon:focus{{transform:translateY(-1px);box-shadow:0 6px 14px rgba(15,23,42,.14);outline:none}}
+      .watchlist-action.is-remove{{color:#dc2626;border-color:#fecaca;background:#fff5f5}}
+      .watchlist-action.is-remove:hover,.watchlist-action.is-remove:focus{{background:#fee2e2;border-color:#f87171;color:#b91c1c}}
+      .watchlist-action.is-add{{color:#2563eb;border-color:#bfdbfe;background:#eff6ff}}
+      .watchlist-action.is-add:hover,.watchlist-action.is-add:focus{{background:#dbeafe;border-color:#60a5fa;color:#1d4ed8}}
       .watchlist-action.is-added{{color:#2e7d32;background:#eef8ee;border:1px solid #9ccc9c;cursor:default}}
       .watchlist-batch-modal{{position:fixed;inset:0;background:rgba(0,0,0,.38);display:none;align-items:center;justify-content:center;z-index:9999;padding:16px}}
       .watchlist-batch-modal.is-open{{display:flex}}
@@ -805,6 +827,7 @@ def app(environ, start_response):
             <label class='form-field'>個股特性<select id='stockMetaFilter-trait' name='stock_meta_trait'><option value='{html.escape(stock_meta_filters['trait'])}' selected></option></select></label>
             <label class='form-field'>行情階段<select id='stockMetaFilter-stage' name='stock_meta_stage'><option value='{html.escape(stock_meta_filters['stage'])}' selected></option></select></label>
             <label class='form-field'>風險觀察<select id='stockMetaFilter-risk' name='stock_meta_risk'><option value='{html.escape(stock_meta_filters['risk'])}' selected></option></select></label>
+            <label class='form-field'>備註關鍵字<input id='stockMetaFilter-note' name='stock_meta_note' value='{html.escape(stock_meta_note_filter, quote=True)}' placeholder='輸入備註文字篩選'></label>
           </div>
         </fieldset>
       </div>
@@ -1208,9 +1231,12 @@ def app(environ, start_response):
       const key = normalizeWatchlistSymbol(symbol);
       document.querySelectorAll('.watchlist-action[data-symbol]').forEach((btn)=>{{
         if(normalizeWatchlistSymbol(btn.dataset.symbol) !== key) return;
-        btn.textContent = '已在自選';
+        btn.textContent = btn.classList.contains('is-icon') ? '✓' : '已在自選';
+        btn.classList.remove('is-add');
         btn.classList.add('is-added');
         btn.disabled = true;
+        btn.title = `${{symbol}} 已在自選`;
+        btn.setAttribute('aria-label', `${{symbol}} 已在自選`);
         btn.removeAttribute('onclick');
       }});
     }}
@@ -1223,8 +1249,10 @@ def app(environ, start_response):
       }});
       document.querySelectorAll('.watchlist-action[data-symbol]').forEach((btn)=>{{
         if(normalizeWatchlistSymbol(btn.dataset.symbol) !== key) return;
-        btn.textContent = '已移出';
+        btn.textContent = btn.classList.contains('is-icon') ? '✓' : '已移出';
         btn.disabled = true;
+        btn.title = `${{symbol}} 已移出自選`;
+        btn.setAttribute('aria-label', `${{symbol}} 已移出自選`);
       }});
     }}
     function showWatchlistStatus(message){{
@@ -1450,22 +1478,25 @@ def app(environ, start_response):
       applyStockMetaFilters();
     }}
     function selectedStockMetaFilters(){{
-      return Object.fromEntries(STOCK_META_GROUPS.map((group)=>[
+      const filters = Object.fromEntries(STOCK_META_GROUPS.map((group)=>[
         group.id,
         document.getElementById(`stockMetaFilter-${{group.id}}`)?.value || 'all'
       ]));
+      filters.note = (document.getElementById('stockMetaFilter-note')?.value || '').trim().toLowerCase();
+      return filters;
     }}
     function applyStockMetaFilters(){{
       const filters = selectedStockMetaFilters();
       const visibleSymbols = new Set();
       document.querySelectorAll('tr[data-symbol]').forEach((tr)=>{{
         const removed = tr.dataset.removed === '1';
-        const matched = STOCK_META_FIELDS.every((field)=>{{
+        const tagMatched = STOCK_META_FIELDS.every((field)=>{{
           const selected = filters[field] || 'all';
           const value = tr.dataset[field] || 'none';
           return selected === 'all' || value === selected || (selected === 'none' && value === 'none');
         }});
-        const visible = !removed && matched;
+        const noteMatched = !filters.note || String(tr.dataset.note || '').toLowerCase().includes(filters.note);
+        const visible = !removed && tagMatched && noteMatched;
         tr.style.display = visible ? '' : 'none';
         if(visible) visibleSymbols.add(tr.dataset.symbol);
       }});
@@ -1520,6 +1551,12 @@ def app(environ, start_response):
         applyStockMetaFilters();
         submitConfig({{ page: '1', [event.target.name]: event.target.value }});
       }});
+    }});
+    const stockMetaNoteFilter = document.getElementById('stockMetaFilter-note');
+    stockMetaNoteFilter?.addEventListener('input', applyStockMetaFilters);
+    stockMetaNoteFilter?.addEventListener('change', (event)=>{{
+      applyStockMetaFilters();
+      submitConfig({{ page: '1', [event.target.name]: event.target.value }});
     }});
     function watchlistSignature(symbols){{
       return symbols.map(normalizeWatchlistSymbol).join(',');
