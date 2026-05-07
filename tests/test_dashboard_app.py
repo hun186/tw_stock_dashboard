@@ -113,6 +113,8 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         self.assertIn("renderStockPickerResults", response)
         self.assertIn("syncVisibleStockPickerSelections", response)
         self.assertIn("id='stockMetaFilter-stock' name='stock_meta_stock'", response)
+        self.assertNotIn("stockFilterSummary", response)
+        self.assertNotIn("stock-filter-summary", response)
         self.assertIn("const stockFilterStocks = [{\"symbol\": \"2330.TW\"", response)
         self.assertIn("const autoRefreshMs = 60000;", response)
         self.assertIn("intradayRefreshUrl", response)
