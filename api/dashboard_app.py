@@ -623,7 +623,7 @@ def app(environ, start_response):
       h2{{font-size:1.12rem;margin:0;color:#1e293b}}
       .section-card,.control-panel{{background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}}
       .control-panel{{padding:16px;margin-bottom:16px}}
-      .filter-grid{{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:12px;align-items:stretch}}
+      .filter-grid{{display:grid;grid-template-columns:repeat(4,minmax(160px,1fr));gap:10px;align-items:stretch}}
       fieldset{{border:1px solid var(--line);border-radius:14px;padding:12px;margin:0;background:#fbfdff;min-width:0}}
       legend{{padding:0 7px;color:#334155;font-size:.86rem;font-weight:700}}
       .field-stack{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}}
@@ -721,7 +721,8 @@ def app(environ, start_response):
       .note-editor .stock-meta-select{{width:104px;min-width:0;padding:4px 6px;text-align:left;text-align-last:left;min-height:30px}}
       .note-editor .stock-note-input{{width:170px;min-width:120px;padding:4px 6px;min-height:30px}}
       table th:nth-child(15), table td:nth-child(15){{width:96px;min-width:96px;max-width:96px}}
-      @media (max-width: 1180px){{.filter-grid{{grid-template-columns:repeat(2,minmax(220px,1fr))}}.form-actions{{grid-template-columns:1fr}}.utility-actions{{grid-template-columns:repeat(4,minmax(112px,1fr))}}.pipeline-progress-list{{grid-template-columns:repeat(2,minmax(160px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
+      @media (max-width: 1180px){{.form-actions{{grid-template-columns:1fr}}.utility-actions{{grid-template-columns:repeat(4,minmax(112px,1fr))}}.pipeline-progress-list{{grid-template-columns:repeat(2,minmax(160px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
+      @media (max-width: 900px){{.filter-grid{{grid-template-columns:repeat(2,minmax(160px,1fr))}}}}
       @media (max-width: 760px){{body{{padding:10px}}.hero{{display:block;padding:18px}}.hero-badge{{display:inline-block;margin-top:12px}}.filter-grid,.field-stack,.summary-strip,.pipeline-progress-list{{grid-template-columns:1fr}}.form-actions{{grid-template-columns:1fr;gap:10px}}.primary-actions,.utility-actions{{grid-template-columns:repeat(2,minmax(0,1fr));padding:32px 10px 10px;border-radius:14px}}.preset-picker{{grid-column:1 / -1;grid-template-columns:1fr;border-radius:14px;gap:4px}}.cards-grid{{grid-template-columns:1fr}}input,select,button{{font-size:.84rem}}table{{font-size:.8rem}}}}
       @media (max-width: 390px){{.primary-actions,.utility-actions{{grid-template-columns:1fr}}.preset-picker{{grid-column:1}}}}
     </style></head><body>
@@ -784,11 +785,11 @@ def app(environ, start_response):
         <div class='utility-actions' data-title='設定與備份'>
           <button type='button' onclick='saveLocal()'>儲存目前設定</button>
           <button type='button' onclick='loadLocal()'>讀取本機設定</button>
-          <span class='preset-picker'><label>推薦設定檔</label><select id='serverConfigSelect'><option value=''>請選擇</option></select></span>
-          <button type='button' onclick='loadServerConfig()'>讀取推薦設定</button>
           <button type='button' onclick='exportBrowserMemory()'>匯出完整備份檔</button>
           <input type='file' id='memoryFile' accept='application/json' style='display:none' onchange='importBrowserMemory(event)'>
           <button type='button' onclick="document.getElementById('memoryFile').click()">匯入備份檔</button>
+          <span class='preset-picker'><label>推薦設定檔</label><select id='serverConfigSelect'><option value=''>請選擇</option></select></span>
+          <button type='button' onclick='loadServerConfig()'>讀取推薦設定</button>
         </div>
         <p class='form-help'>推薦設定由伺服器設定目錄提供；本機設定與完整備份檔會保存在瀏覽器，可跨裝置匯入還原。下方進度區只顯示目前頁面實際完成的階段與比例，不再用跳動提示假裝後端進度；可用「精簡進度」開關縮成單列顯示。</p>
         <div id='pipelineProgress' class='{progress_panel_class}' role='status' aria-live='polite'>
