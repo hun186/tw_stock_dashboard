@@ -91,14 +91,18 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         self.assertIn("tw-dashboard-backup.json", response)
         self.assertIn("class='primary-actions' data-title='主要操作'", response)
         self.assertIn("class='utility-actions' data-title='設定與備份'", response)
-        self.assertIn(".filter-grid{display:grid;grid-template-columns:repeat(4,minmax(160px,1fr))", response)
-        self.assertIn("@media (max-width: 900px){.filter-grid{grid-template-columns:repeat(2,minmax(160px,1fr))}}", response)
+        self.assertRegex(
+            response,
+            r"<legend>股池與分類</legend>[\s\S]*class='primary-actions' data-title='主要操作'[\s\S]*<legend>K 線與顯示</legend>[\s\S]*<legend>篩選與分頁</legend>[\s\S]*<legend>個人標籤篩選</legend>",
+        )
+        self.assertIn(".filter-grid{display:grid;grid-template-columns:repeat(3,minmax(220px,1fr))", response)
+        self.assertIn("@media (max-width: 900px){.filter-grid{grid-template-columns:repeat(2,minmax(180px,1fr))}}", response)
         self.assertNotIn("@media (max-width: 1180px){.filter-grid{grid-template-columns:repeat(2", response)
         self.assertRegex(
             response,
             r"儲存目前設定[\s\S]*讀取本機設定[\s\S]*匯出完整備份檔[\s\S]*匯入備份檔[\s\S]*推薦設定檔[\s\S]*讀取推薦設定",
         )
-        self.assertIn(".primary-actions,.utility-actions{grid-template-columns:repeat(2,minmax(0,1fr))", response)
+        self.assertIn(".primary-actions{grid-template-columns:1fr}", response)
         self.assertIn("initServerConfigPicker();", response)
         self.assertIn(".watchlist-batch-item .batch-stock-check", response)
         self.assertIn('class="batch-stock-label"', response)

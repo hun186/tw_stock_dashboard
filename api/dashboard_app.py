@@ -623,7 +623,7 @@ def app(environ, start_response):
       h2{{font-size:1.12rem;margin:0;color:#1e293b}}
       .section-card,.control-panel{{background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}}
       .control-panel{{padding:16px;margin-bottom:16px}}
-      .filter-grid{{display:grid;grid-template-columns:repeat(4,minmax(160px,1fr));gap:10px;align-items:stretch}}
+      .filter-grid{{display:grid;grid-template-columns:repeat(3,minmax(220px,1fr));gap:10px;align-items:stretch}}
       fieldset{{border:1px solid var(--line);border-radius:14px;padding:12px;margin:0;background:#fbfdff;min-width:0}}
       legend{{padding:0 7px;color:#334155;font-size:.86rem;font-weight:700}}
       .field-stack{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}}
@@ -637,11 +637,11 @@ def app(environ, start_response):
       .btn-primary{{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:700}}
       .btn-primary:hover:not(:disabled){{background:var(--brand-dark);border-color:var(--brand-dark)}}
       .btn-soft{{background:var(--brand-soft);border-color:#bfdbfe;color:#1d4ed8;font-weight:700}}
-      .form-actions{{display:grid;grid-template-columns:minmax(240px,.76fr) minmax(360px,1.24fr);gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line);align-items:stretch}}
+      .form-actions{{display:grid;grid-template-columns:1fr;gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line);align-items:stretch}}
       .primary-actions,.utility-actions{{position:relative;display:grid;gap:8px;align-content:start;border:1px solid #dbeafe;border-radius:16px;background:linear-gradient(180deg,#fff,#f8fbff);padding:34px 12px 12px;min-width:0}}
       .primary-actions::before,.utility-actions::before{{content:attr(data-title);position:absolute;top:10px;left:12px;color:#1e3a8a;font-size:.78rem;font-weight:900;letter-spacing:.06em}}
-      .primary-actions{{grid-template-columns:repeat(2,minmax(0,1fr))}}
-      .utility-actions{{grid-template-columns:repeat(4,minmax(112px,1fr))}}
+      .primary-actions{{grid-template-columns:1fr}}
+      .utility-actions{{grid-template-columns:repeat(4,minmax(120px,1fr))}}
       .primary-actions button,.utility-actions button{{width:100%;min-height:40px;display:inline-flex;align-items:center;justify-content:center;text-align:center;line-height:1.2}}
       .watchlist-actions{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}
       #watchlistStatus{{grid-column:1 / -1;min-height:1.2em;color:#2e7d32;font-size:.86rem}}
@@ -721,10 +721,10 @@ def app(environ, start_response):
       .note-editor .stock-meta-select{{width:104px;min-width:0;padding:4px 6px;text-align:left;text-align-last:left;min-height:30px}}
       .note-editor .stock-note-input{{width:170px;min-width:120px;padding:4px 6px;min-height:30px}}
       table th:nth-child(15), table td:nth-child(15){{width:96px;min-width:96px;max-width:96px}}
-      @media (max-width: 1180px){{.form-actions{{grid-template-columns:1fr}}.utility-actions{{grid-template-columns:repeat(4,minmax(112px,1fr))}}.pipeline-progress-list{{grid-template-columns:repeat(2,minmax(160px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
-      @media (max-width: 900px){{.filter-grid{{grid-template-columns:repeat(2,minmax(160px,1fr))}}}}
-      @media (max-width: 760px){{body{{padding:10px}}.hero{{display:block;padding:18px}}.hero-badge{{display:inline-block;margin-top:12px}}.filter-grid,.field-stack,.summary-strip,.pipeline-progress-list{{grid-template-columns:1fr}}.form-actions{{grid-template-columns:1fr;gap:10px}}.primary-actions,.utility-actions{{grid-template-columns:repeat(2,minmax(0,1fr));padding:32px 10px 10px;border-radius:14px}}.preset-picker{{grid-column:1 / -1;grid-template-columns:1fr;border-radius:14px;gap:4px}}.cards-grid{{grid-template-columns:1fr}}input,select,button{{font-size:.84rem}}table{{font-size:.8rem}}}}
-      @media (max-width: 390px){{.primary-actions,.utility-actions{{grid-template-columns:1fr}}.preset-picker{{grid-column:1}}}}
+      @media (max-width: 1180px){{.form-actions{{grid-template-columns:1fr}}.utility-actions{{grid-template-columns:repeat(4,minmax(120px,1fr))}}.pipeline-progress-list{{grid-template-columns:repeat(2,minmax(160px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
+      @media (max-width: 900px){{.filter-grid{{grid-template-columns:repeat(2,minmax(180px,1fr))}}}}
+      @media (max-width: 760px){{body{{padding:10px}}.hero{{display:block;padding:18px}}.hero-badge{{display:inline-block;margin-top:12px}}.filter-grid,.field-stack,.summary-strip,.pipeline-progress-list{{grid-template-columns:1fr}}.form-actions{{gap:10px}}.primary-actions{{grid-template-columns:1fr;padding:32px 10px 10px;border-radius:14px}}.utility-actions{{grid-template-columns:repeat(2,minmax(0,1fr));padding:32px 10px 10px;border-radius:14px}}.preset-picker{{grid-column:1 / -1;grid-template-columns:1fr;border-radius:14px;gap:4px}}.cards-grid{{grid-template-columns:1fr}}input,select,button{{font-size:.84rem}}table{{font-size:.8rem}}}}
+      @media (max-width: 390px){{.utility-actions{{grid-template-columns:1fr}}.preset-picker{{grid-column:1}}}}
     </style></head><body>
     <div class='page-shell'>
     <header class='hero'>
@@ -745,6 +745,11 @@ def app(environ, start_response):
             <label class='form-field'>次題材<select name='subgroup_filter'>{subgroup_options}</select></label>
           </div>
         </fieldset>
+        <div class='primary-actions' data-title='主要操作'>
+          <button type='submit' class='btn-primary'>更新儀表板</button>
+          <button type='button' class='btn-soft' onclick='openBatchWatchlistDialog()'>批次加入自選</button>
+          <span id='watchlistStatus' role='status' aria-live='polite'></span>
+        </div>
         <fieldset>
           <legend>K 線與顯示</legend>
           <div class='field-stack'>
@@ -777,11 +782,6 @@ def app(environ, start_response):
       </div>
       <input type='hidden' name='stock_meta_payload' id='stockMetaPayload' value='{html.escape(stock_meta_payload_raw, quote=True)}'>
       <div class='form-actions'>
-        <div class='primary-actions' data-title='主要操作'>
-          <button type='submit' class='btn-primary'>更新儀表板</button>
-          <button type='button' class='btn-soft' onclick='openBatchWatchlistDialog()'>批次加入自選</button>
-          <span id='watchlistStatus' role='status' aria-live='polite'></span>
-        </div>
         <div class='utility-actions' data-title='設定與備份'>
           <button type='button' onclick='saveLocal()'>儲存目前設定</button>
           <button type='button' onclick='loadLocal()'>讀取本機設定</button>
