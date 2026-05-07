@@ -108,6 +108,11 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         self.assertIn('class="batch-stock-label"', response)
         self.assertIn("顯示價K線", response)
         self.assertIn("const autoRefreshMs = 60000;", response)
+        self.assertIn("intradayRefreshUrl", response)
+        self.assertIn("_intraday_refresh", response)
+        self.assertIn("refreshIntradayAfterResume", response)
+        self.assertIn("visibilitychange", response)
+        self.assertIn("window.addEventListener('focus'", response)
         self.assertEqual(captured_counts, [2])
 
     def test_dashboard_renders_loading_progress_for_slow_category_requests(self) -> None:

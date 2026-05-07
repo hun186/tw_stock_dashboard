@@ -69,6 +69,49 @@ class MarketDataFreshnessTests(unittest.TestCase):
         self.assertEqual(float(result.iloc[-1]["Close"]), 105.0)
         self.assertEqual(float(result.iloc[-1]["Volume"]), 6000.0)
 
+
+    def test_intraday_realtime_quote_appends_newer_current_bar(self) -> None:
+        base = minute_df().reset_index()
+        quote = pd.DataFrame([{
+            "Date": pd.Timestamp("2026-05-07 12:50"),
+            "Open": 107.0,
+            "High": 107.0,
+            "Low": 107.0,
+            "Close": 107.0,
+            "Volume": 0.0,
+        }])
+
+        result = market_data._merge_intraday_realtime_quote("2330.TW", base, quote)
+
+        self.assertEqual(result["Date"].max(), pd.Timestamp("2026-05-07 12:50"))
+        self.assertEqual(float(result.iloc[-1]["Close"]), 107.0)
+
+    def test_fetch_tw_realtime_quote_snapshot_parses_twse_mis_payload(self) -> None:
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "msgArray": [{
+                        "tlong": str(int(pd.Timestamp("2026-05-07 12:50", tz="Asia/Taipei").timestamp() * 1000)),
+                        "z": "107.00",
+                        "o": "101.00",
+                        "h": "108.00",
+                        "l": "100.00",
+                        "v": "123",
+                    }]
+                }
+
+        with patch.object(market_data, "_expected_latest_tw_daily_date", return_value=pd.Timestamp("2026-05-07")), \
+             patch.object(market_data, "_should_use_tw_intraday_daily_snapshot", return_value=True), \
+             patch.object(market_data.requests.Session, "get", return_value=FakeResponse()):
+            result = market_data._fetch_tw_realtime_quote_snapshot("2330.TW", "1d")
+
+        self.assertEqual(result.iloc[0]["Date"], pd.Timestamp("2026-05-07"))
+        self.assertEqual(float(result.iloc[0]["Close"]), 107.0)
+        self.assertEqual(float(result.iloc[0]["Volume"]), 123000.0)
+
     def test_prefetch_refreshes_stale_daily_cache_when_live_fetch_is_allowed(self) -> None:
         stocks = pd.DataFrame({"symbol": ["2330.TW"]})
         stale = price_df("2026-05-05", 100.0)
