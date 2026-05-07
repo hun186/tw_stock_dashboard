@@ -38,6 +38,9 @@ class MarketDataFreshnessTests(unittest.TestCase):
     def setUp(self) -> None:
         market_data.PRICE_CACHE.clear()
 
+    def test_one_minute_interval_cache_ttl_is_one_minute(self) -> None:
+        self.assertEqual(market_data.get_price_cache_ttl_seconds("1m"), 60)
+
     def test_expected_latest_tw_daily_date_uses_previous_business_day_before_market_opens(self) -> None:
         latest = market_data._expected_latest_tw_daily_date(pd.Timestamp("2026-05-07 00:12", tz="Asia/Taipei"))
 

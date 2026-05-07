@@ -106,6 +106,8 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         self.assertIn("initServerConfigPicker();", response)
         self.assertIn(".watchlist-batch-item .batch-stock-check", response)
         self.assertIn('class="batch-stock-label"', response)
+        self.assertIn("顯示價K線", response)
+        self.assertIn("const autoRefreshMs = 60000;", response)
         self.assertEqual(captured_counts, [2])
 
     def test_dashboard_renders_loading_progress_for_slow_category_requests(self) -> None:
@@ -168,6 +170,7 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         self.assertTrue(scripts)
         self.assertIn("function escapeHtmlAttr", response)
         self.assertIn("${escapeHtmlAttr(item.symbol)}", response)
+        self.assertIn("fieldName === 'show_price'", response)
         with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8") as script_file:
             script_file.write("\n".join(scripts))
             script_file.flush()

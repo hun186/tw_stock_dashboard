@@ -32,7 +32,7 @@ def _symbol_key(symbol: str) -> str:
 
 def _cache_ttl_seconds(interval: str) -> int:
     if interval == "1m":
-        return 20
+        return 60
     if interval.endswith("m"):
         return 60
     return 300
