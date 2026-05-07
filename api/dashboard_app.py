@@ -1691,11 +1691,24 @@ def app(environ, start_response):
         if(!document.hidden) refreshIntradayAfterResume('頁面回到前景');
       }});
     }}
+    function resizeDashboardCharts(){{
+      if(!window.Plotly?.Plots?.resize) return;
+      document.querySelectorAll('#cardsGrid .js-plotly-plot').forEach((chart)=>{{
+        if(!chart.offsetParent) return;
+        window.Plotly.Plots.resize(chart);
+      }});
+    }}
+    function scheduleDashboardChartAutosize(){{
+      window.clearTimeout(scheduleDashboardChartAutosize.timer);
+      requestAnimationFrame(()=>requestAnimationFrame(resizeDashboardCharts));
+      scheduleDashboardChartAutosize.timer = window.setTimeout(resizeDashboardCharts, 250);
+    }}
     function updateResponsiveGrid(){{
       const grid = document.getElementById('cardsGrid');
       if(!grid) return;
       const columns = Math.min(Math.max(Number(dashboardCardsPerRow) || 3, 1), 15);
       grid.style.gridTemplateColumns = `repeat(${{columns}}, minmax(0,1fr))`;
+      scheduleDashboardChartAutosize();
     }}
     window.addEventListener('resize', updateResponsiveGrid);
     updateResponsiveGrid();
