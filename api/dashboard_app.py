@@ -169,6 +169,7 @@ def app(environ, start_response):
         for field in ("action", "trait", "stage", "risk")
     }
     stock_meta_note_filter = params.get("stock_meta_note", [""])[0].strip()
+    stock_meta_stock_filter = params.get("stock_meta_stock", [""])[0].strip()
     stock_meta_payload_raw = params.get("stock_meta_payload", [""])[0]
     cards_per_row = _positive_int_param(params, "cards_per_row", 3, max_value=15)
     custom_watchlist_raw = params.get("custom_watchlist", [""])[0]
@@ -203,7 +204,11 @@ def app(environ, start_response):
         field: value if value and value != "all" else "all"
         for field, value in stock_meta_filters.items()
     }
-    has_stock_meta_filter = any(value != "all" for value in stock_meta_filters.values()) or bool(stock_meta_note_filter)
+    has_stock_meta_filter = (
+        any(value != "all" for value in stock_meta_filters.values())
+        or bool(stock_meta_note_filter)
+        or bool(stock_meta_stock_filter)
+    )
 
     fetch_period, fetch_interval, display_period = resolve_price_params(period, interval)
 
@@ -298,13 +303,25 @@ def app(environ, start_response):
     for field, selected in stock_meta_filters.items():
         if selected != "all" and selected not in stock_meta_filter_values[field]:
             stock_meta_filters[field] = "all"
-    has_stock_meta_filter = any(value != "all" for value in stock_meta_filters.values()) or bool(stock_meta_note_filter)
+    has_stock_meta_filter = (
+        any(value != "all" for value in stock_meta_filters.values())
+        or bool(stock_meta_note_filter)
+        or bool(stock_meta_stock_filter)
+    )
 
     if has_stock_meta_filter:
         note_filter_lower = stock_meta_note_filter.lower()
+        stock_filter_tokens = [
+            token.strip().lower()
+            for token in stock_meta_stock_filter.replace("，", ",").replace("、", ",").replace(";", ",").replace("；", ",").split(",")
+            for token in token.split()
+            if token.strip()
+        ]
 
-        def stock_matches_meta_filters(symbol):
-            meta = normalize_stock_meta_entry(stock_meta_payload.get(str(symbol), {}))
+        def stock_matches_meta_filters(row):
+            symbol = str(row["symbol"])
+            name = str(row["name"] or "")
+            meta = normalize_stock_meta_entry(stock_meta_payload.get(symbol, {}))
             tags_match = all(
                 selected == "all"
                 or (selected == "none" and not meta[field])
@@ -312,9 +329,16 @@ def app(environ, start_response):
                 for field, selected in stock_meta_filters.items()
             )
             note_matches = not note_filter_lower or note_filter_lower in meta["note"].lower()
-            return tags_match and note_matches
+            symbol_lower = symbol.lower()
+            symbol_key_lower = _symbol_key(symbol).lower()
+            name_lower = name.lower()
+            stock_matches = not stock_filter_tokens or any(
+                token in symbol_lower or token in symbol_key_lower or token in name_lower
+                for token in stock_filter_tokens
+            )
+            return tags_match and note_matches and stock_matches
 
-        stocks = stocks[stocks["symbol"].astype(str).map(stock_matches_meta_filters)]
+        stocks = stocks[stocks.apply(stock_matches_meta_filters, axis=1)]
 
     is_serverless_runtime = os.environ.get("VERCEL") == "1" or bool(os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
     max_serverless_analysis_stocks = 240
@@ -470,7 +494,7 @@ def app(environ, start_response):
             f"{html.escape(row.name)}"
             "</button>"
         )
-        row_html = f"<tr data-symbol='{html.escape(row.symbol)}'><td class='row-action-cell'>{action_btn}</td><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{name_jump_button}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td>{stock_meta_cells}<td class='note-cell'>{note_editor}</td></tr>"
+        row_html = f"<tr data-symbol='{html.escape(row.symbol)}' data-name='{html.escape(row.name, quote=True)}'><td class='row-action-cell'>{action_btn}</td><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{name_jump_button}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td>{stock_meta_cells}<td class='note-cell'>{note_editor}</td></tr>"
         card_html = ""
         card_html_with_volume = ""
         card_html_without_volume = ""
@@ -605,6 +629,7 @@ def app(environ, start_response):
         "subgroup_filter": subgroup_filter,
         **{f"stock_meta_{field}": value for field, value in stock_meta_filters.items()},
         "stock_meta_note": stock_meta_note_filter,
+        "stock_meta_stock": stock_meta_stock_filter,
         "stock_meta_payload": stock_meta_payload_raw,
         "cards_per_row": cards_per_row,
         "custom_watchlist": ",".join(watchlist["symbol"].tolist()),
@@ -828,6 +853,7 @@ def app(environ, start_response):
             <label class='form-field'>行情階段<select id='stockMetaFilter-stage' name='stock_meta_stage'><option value='{html.escape(stock_meta_filters['stage'])}' selected></option></select></label>
             <label class='form-field'>風險觀察<select id='stockMetaFilter-risk' name='stock_meta_risk'><option value='{html.escape(stock_meta_filters['risk'])}' selected></option></select></label>
             <label class='form-field'>備註關鍵字<input id='stockMetaFilter-note' name='stock_meta_note' value='{html.escape(stock_meta_note_filter, quote=True)}' placeholder='輸入備註文字篩選'></label>
+            <label class='form-field'>股名／代號／清單<input id='stockMetaFilter-stock' name='stock_meta_stock' value='{html.escape(stock_meta_stock_filter, quote=True)}' placeholder='如：2330 台積電；多檔可逗號或換行'></label>
           </div>
         </fieldset>
       </div>
@@ -1483,6 +1509,10 @@ def app(environ, start_response):
         document.getElementById(`stockMetaFilter-${{group.id}}`)?.value || 'all'
       ]));
       filters.note = (document.getElementById('stockMetaFilter-note')?.value || '').trim().toLowerCase();
+      filters.stockTokens = (document.getElementById('stockMetaFilter-stock')?.value || '')
+        .split(/[\s,，、;；]+/)
+        .map((token)=>token.trim().toLowerCase())
+        .filter(Boolean);
       return filters;
     }}
     function applyStockMetaFilters(){{
@@ -1496,7 +1526,13 @@ def app(environ, start_response):
           return selected === 'all' || value === selected || (selected === 'none' && value === 'none');
         }});
         const noteMatched = !filters.note || String(tr.dataset.note || '').toLowerCase().includes(filters.note);
-        const visible = !removed && tagMatched && noteMatched;
+        const stockMatched = !filters.stockTokens.length || filters.stockTokens.some((token)=>{{
+          const symbol = String(tr.dataset.symbol || '').toLowerCase();
+          const symbolKey = symbol.split('.')[0];
+          const name = String(tr.dataset.name || '').toLowerCase();
+          return symbol.includes(token) || symbolKey.includes(token) || name.includes(token);
+        }});
+        const visible = !removed && tagMatched && noteMatched && stockMatched;
         tr.style.display = visible ? '' : 'none';
         if(visible) visibleSymbols.add(tr.dataset.symbol);
       }});
@@ -1552,11 +1588,16 @@ def app(environ, start_response):
         submitConfig({{ page: '1', [event.target.name]: event.target.value }});
       }});
     }});
-    const stockMetaNoteFilter = document.getElementById('stockMetaFilter-note');
-    stockMetaNoteFilter?.addEventListener('input', applyStockMetaFilters);
-    stockMetaNoteFilter?.addEventListener('change', (event)=>{{
-      applyStockMetaFilters();
-      submitConfig({{ page: '1', [event.target.name]: event.target.value }});
+    const stockMetaTextFilters = [
+      document.getElementById('stockMetaFilter-note'),
+      document.getElementById('stockMetaFilter-stock'),
+    ].filter(Boolean);
+    stockMetaTextFilters.forEach((filter)=>{{
+      filter.addEventListener('input', applyStockMetaFilters);
+      filter.addEventListener('change', (event)=>{{
+        applyStockMetaFilters();
+        submitConfig({{ page: '1', [event.target.name]: event.target.value }});
+      }});
     }});
     function watchlistSignature(symbols){{
       return symbols.map(normalizeWatchlistSymbol).join(',');
