@@ -25,11 +25,21 @@ def chart_df() -> pd.DataFrame:
 
 
 class ChartVisibilityTests(unittest.TestCase):
-    def test_can_hide_price_candlestick_while_keeping_ma_lines(self) -> None:
-        html = make_chart_html(chart_df(), "測試", show_volume=False, show_ma=True, show_price=False)
+    def test_hiding_price_candlestick_removes_price_panel_but_keeps_volume_panel(self) -> None:
+        html = make_chart_html(chart_df(), "測試", show_volume=True, show_ma=True, show_price=False)
 
         self.assertNotIn("candlestick", html)
-        self.assertIn("MA5", html)
+        self.assertNotIn("價格", html)
+        self.assertNotIn("\\u50f9\\u683c", html)
+        self.assertNotIn('"name":"MA5"', html)
+        self.assertIn("\\u91cfK\\u7dda", html)
+        self.assertIn("\\u6210\\u4ea4\\u91cf", html)
+        self.assertIn("VMA5", html)
+
+    def test_hiding_price_and_volume_returns_no_chart(self) -> None:
+        html = make_chart_html(chart_df(), "測試", show_volume=False, show_ma=True, show_price=False)
+
+        self.assertEqual(html, "")
 
 
 if __name__ == "__main__":
