@@ -17,6 +17,16 @@
 - 支援設定儲存到瀏覽器、匯入 / 匯出 JSON 設定
 
 
+## 示意圖
+
+### Dashboard 總覽
+
+![多台股監控 Dashboard 總覽](docs/screenshots/dashboard-overview.svg)
+
+### 總表個人標籤
+
+![總表個人標籤與觀察備註](docs/screenshots/stock-meta-table.svg)
+
 ## 功能截圖
 
 ### 篩選與排序選項
@@ -38,14 +48,6 @@
 ### Dashboard 文字摘要
 
 ![Dashboard 文字摘要](docs/screenshots/dashboard_text.png)
-
-### Dashboard 總覽（示意圖）
-
-![多台股監控 Dashboard 總覽](docs/screenshots/dashboard-overview.svg)
-
-### 總表個人標籤（示意圖）
-
-![總表個人標籤與觀察備註](docs/screenshots/stock-meta-table.svg)
 
 ## 本機開發
 
