@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">多台股監控 Dashboard 總覽</title>
+  <desc id="desc">展示 Dashboard 的上方控制面板、摘要統計、K 線卡片與總表版面。</desc>
+  <defs>
+    <linearGradient id="hero" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#12213f"/>
+      <stop offset="0.58" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#43b5ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="720" fill="#f4f7fb"/>
+  <rect x="48" y="36" width="1184" height="96" rx="24" fill="url(#hero)" filter="url(#shadow)"/>
+  <text x="80" y="82" fill="#fff" font-size="30" font-family="Arial, 'Noto Sans TC', sans-serif" font-weight="700">多台股監控 Dashboard</text>
+  <text x="80" y="112" fill="#dbeafe" font-size="17" font-family="Arial, 'Noto Sans TC', sans-serif">自選股、分類股池、K 線與形勢判斷集中觀察</text>
+  <rect x="1020" y="65" width="176" height="38" rx="19" fill="#ffffff" opacity="0.16" stroke="#ffffff" stroke-opacity="0.32"/>
+  <text x="1046" y="90" fill="#fff" font-size="16" font-family="Arial, 'Noto Sans TC', sans-serif">Vercel 版</text>
+
+  <rect x="48" y="154" width="1184" height="178" rx="18" fill="#fff" stroke="#dbe4f0" filter="url(#shadow)"/>
+  <text x="72" y="188" fill="#1e293b" font-size="22" font-family="Arial, 'Noto Sans TC', sans-serif" font-weight="700">控制面板</text>
+  <g font-family="Arial, 'Noto Sans TC', sans-serif" font-size="14">
+    <g transform="translate(72,208)">
+      <rect width="206" height="44" rx="10" fill="#fbfdff" stroke="#cbd5e1"/><text x="16" y="28" fill="#64748b">頁籤：自選股監控</text>
+    </g>
+    <g transform="translate(298,208)">
+      <rect width="206" height="44" rx="10" fill="#fbfdff" stroke="#cbd5e1"/><text x="16" y="28" fill="#64748b">期間：3 個月</text>
+    </g>
+    <g transform="translate(524,208)">
+      <rect width="206" height="44" rx="10" fill="#fbfdff" stroke="#cbd5e1"/><text x="16" y="28" fill="#64748b">週期：日線</text>
+    </g>
+    <g transform="translate(750,208)">
+      <rect width="206" height="44" rx="10" fill="#fbfdff" stroke="#cbd5e1"/><text x="16" y="28" fill="#64748b">形勢判斷篩選</text>
+    </g>
+    <g transform="translate(976,208)">
+      <rect width="206" height="44" rx="10" fill="#fbfdff" stroke="#cbd5e1"/><text x="16" y="28" fill="#64748b">個人標籤篩選</text>
+    </g>
+  </g>
+  <g transform="translate(72,274)">
+    <rect width="1088" height="30" rx="15" fill="#eff6ff" stroke="#bfdbfe"/>
+    <circle cx="28" cy="15" r="7" fill="#2563eb"/><circle cx="214" cy="15" r="7" fill="#2563eb"/><circle cx="400" cy="15" r="7" fill="#2563eb"/><circle cx="586" cy="15" r="7" fill="#93c5fd"/><circle cx="772" cy="15" r="7" fill="#93c5fd"/>
+    <text x="50" y="20" fill="#1e3a8a" font-size="14" font-family="Arial, 'Noto Sans TC', sans-serif" font-weight="700">資料載入 → 指標計算 → 圖表產生</text>
+  </g>
+
+  <g transform="translate(48,356)" filter="url(#shadow)">
+    <rect width="368" height="218" rx="18" fill="#fff" stroke="#dbe4f0"/>
+    <text x="24" y="38" fill="#0f172a" font-size="20" font-family="Arial, 'Noto Sans TC', sans-serif" font-weight="700">2330.TW 台積電</text>
+    <text x="24" y="64" fill="#2563eb" font-size="15" font-family="Arial, 'Noto Sans TC', sans-serif">🟢 偏多觀察</text>
+    <polyline points="24,168 70,142 118,151 164,104 212,118 260,78 314,92 344,58" fill="none" stroke="#2563eb" stroke-width="4" stroke-linecap="round"/>
+    <rect x="24" y="186" width="320" height="10" rx="5" fill="#dbeafe"/>
+  </g>
+  <g transform="translate(456,356)" filter="url(#shadow)">
+    <rect width="368" height="218" rx="18" fill="#fff" stroke="#dbe4f0"/>
+    <text x="24" y="38" fill="#0f172a" font-size="20" font-family="Arial, 'Noto Sans TC', sans-serif" font-weight="700">4977.TW 眾達-KY</text>
+    <text x="24" y="64" fill="#f59e0b" font-size="15" font-family="Arial, 'Noto Sans TC', sans-serif">🟡 觀察</text>
+    <polyline points="24,122 72,108 120,120 168,94 216,112 264,106 312,86 344,96" fill="none" stroke="#f59e0b" stroke-width="4" stroke-linecap="round"/>
+    <rect x="24" y="186" width="320" height="10" rx="5" fill="#fef3c7"/>
+  </g>
+  <g transform="translate(864,356)" filter="url(#shadow)">
+    <rect width="368" height="218" rx="18" fill="#fff" stroke="#dbe4f0"/>
+    <text x="24" y="38" fill="#0f172a" font-size="20" font-family="Arial, 'Noto Sans TC', sans-serif" font-weight="700">總表與個人標籤</text>
+    <rect x="24" y="72" width="320" height="28" rx="6" fill="#eef2ff"/>
+    <rect x="24" y="112" width="320" height="28" rx="6" fill="#f8fafc"/>
+    <rect x="24" y="152" width="320" height="28" rx="6" fill="#f8fafc"/>
+    <text x="40" y="91" fill="#1e3a8a" font-size="13" font-family="Arial, 'Noto Sans TC', sans-serif">操作方法｜個股特性｜行情階段｜風險觀察</text>
+  </g>
+</svg>
