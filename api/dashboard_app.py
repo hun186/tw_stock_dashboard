@@ -674,6 +674,7 @@ def app(environ, start_response):
 
     action_column_label = "移除" if tab == "watchlist" else "自選"
     table_header_html = f"<tr><th>{action_column_label}</th><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th></tr>"
+    stock_filter_button_text = "選擇自選股" if not stock_meta_stock_filter else f"已選 {len([x for x in stock_meta_stock_filter.replace('，', ',').replace('、', ',').replace(';', ',').replace('；', ',').split(',') for x in x.split() if x.strip()])} 筆條件"
     dashboard_render_items_json = json.dumps(rendered_stock_items, ensure_ascii=False).replace("</", "<\/")
     table_header_html_json = json.dumps(table_header_html, ensure_ascii=False).replace("</", "<\/")
 
@@ -790,6 +791,9 @@ def app(environ, start_response):
       .watchlist-batch-item small{{color:#666;margin-left:6px}}
       .watchlist-batch-paste{{width:100%;min-height:70px}}
       .watchlist-batch-help{{color:#666;font-size:.84rem}}
+      .stock-filter-picker{{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center}}
+      .stock-filter-picker input[type='hidden']{{display:none}}
+      .stock-filter-summary{{color:#475569;font-size:.82rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
       .stock-meta-cell{{width:132px;min-width:132px;max-width:132px}}
       .note-cell{{width:190px;min-width:190px;max-width:190px}}
       .note-editor .stock-meta-select{{width:120px;min-width:0;padding:4px 6px;text-align:left;text-align-last:left;min-height:30px}}
@@ -853,7 +857,13 @@ def app(environ, start_response):
             <label class='form-field'>行情階段<select id='stockMetaFilter-stage' name='stock_meta_stage'><option value='{html.escape(stock_meta_filters['stage'])}' selected></option></select></label>
             <label class='form-field'>風險觀察<select id='stockMetaFilter-risk' name='stock_meta_risk'><option value='{html.escape(stock_meta_filters['risk'])}' selected></option></select></label>
             <label class='form-field'>備註關鍵字<input id='stockMetaFilter-note' name='stock_meta_note' value='{html.escape(stock_meta_note_filter, quote=True)}' placeholder='輸入備註文字篩選'></label>
-            <label class='form-field'>股名／代號／清單<input id='stockMetaFilter-stock' name='stock_meta_stock' value='{html.escape(stock_meta_stock_filter, quote=True)}' placeholder='如：2330 台積電；多檔可逗號或換行'></label>
+            <label class='form-field'>股名／代號篩選
+              <span class='stock-filter-picker'>
+                <input type='hidden' id='stockMetaFilter-stock' name='stock_meta_stock' value='{html.escape(stock_meta_stock_filter, quote=True)}'>
+                <span id='stockFilterSummary' class='stock-filter-summary'>尚未限制股名</span>
+                <button type='button' class='btn-soft' onclick='openStockFilterDialog()'>{html.escape(stock_filter_button_text)}</button>
+              </span>
+            </label>
           </div>
         </fieldset>
       </div>
@@ -904,6 +914,30 @@ def app(environ, start_response):
         <div class='watchlist-batch-footer'>
           <button type='button' onclick='closeBatchWatchlistDialog()'>取消</button>
           <button type='button' onclick='addBatchWatchlistStocks()'>批次加入並更新</button>
+        </div>
+      </div>
+    </div>
+    <div id='stockFilterModal' class='watchlist-batch-modal' role='dialog' aria-modal='true' aria-labelledby='stockFilterTitle'>
+      <div class='watchlist-batch-dialog'>
+        <div class='watchlist-batch-header'>
+          <strong id='stockFilterTitle'>股名／代號篩選</strong>
+          <button type='button' onclick='closeStockFilterDialog()' aria-label='關閉'>×</button>
+        </div>
+        <div class='watchlist-batch-body'>
+          <div class='watchlist-batch-help'>用和「批次加入自選」相同的搜尋勾選方式建立股名篩選；可勾選的來源僅限目前自選股清單。</div>
+          <label for='stockFilterKeyword'>關鍵字搜尋</label>
+          <div class='watchlist-batch-row'>
+            <input id='stockFilterKeyword' placeholder='輸入名稱、代號、主題或次題材' style='flex:1;min-width:220px'>
+            <button type='button' onclick='selectVisibleStockFilterStocks(true)'>全選搜尋結果</button>
+            <button type='button' onclick='selectVisibleStockFilterStocks(false)'>清除搜尋勾選</button>
+          </div>
+          <div id='stockFilterResults' class='watchlist-batch-list'></div>
+          <div id='stockFilterPreview' class='watchlist-batch-help'></div>
+        </div>
+        <div class='watchlist-batch-footer'>
+          <button type='button' onclick='clearStockFilterSelection()'>清除股名篩選</button>
+          <button type='button' onclick='closeStockFilterDialog()'>取消</button>
+          <button type='button' onclick='applyStockFilterSelection()'>套用篩選並更新</button>
         </div>
       </div>
     </div>
@@ -1211,6 +1245,7 @@ def app(environ, start_response):
     }}
 
     const allStocks = {json.dumps(picker_stocks[['symbol', 'name', 'group', 'subgroup']].to_dict(orient='records'), ensure_ascii=False)};
+    const stockFilterStocks = {json.dumps(watchlist[['symbol', 'name', 'group', 'subgroup']].drop_duplicates(subset=['symbol']).to_dict(orient='records'), ensure_ascii=False)};
     function getWatchlistSymbols(){{
       const raw = document.getElementById('customWatchlist').value.trim();
       return raw ? raw.split(',').map(x=>x.trim()).filter(Boolean) : [];
@@ -1325,21 +1360,57 @@ def app(environ, start_response):
     function getStockLabel(stock){{
       return `${{stock.symbol}} - ${{stock.name || ''}} (${{stock.group || '未分類'}}${{stock.subgroup ? ' / ' + stock.subgroup : ''}})`;
     }}
-    function syncVisibleBatchSelections(){{
-      document.querySelectorAll('.batch-stock-check').forEach((el)=>{{
+    function splitStockTokens(value){{
+      return String(value || '').split(/[\s,，、;；]+/).map(x => x.trim()).filter(Boolean);
+    }}
+    function stockMatchesKeyword(stock, keyword=''){{
+      const kw = keyword.trim().toLowerCase();
+      return !kw || [stock.symbol, stock.name, stock.group, stock.subgroup]
+        .filter(Boolean)
+        .some(v => String(v).toLowerCase().includes(kw));
+    }}
+    function syncVisibleStockPickerSelections(selectedSymbols, checkboxSelector, options={{}}){{
+      const skipDisabled = options.skipDisabled !== false;
+      document.querySelectorAll(checkboxSelector).forEach((el)=>{{
         const key = normalizeWatchlistSymbol(el.value);
-        if(el.checked && !el.disabled) batchSelectedSymbols.set(key, el.value);
-        else batchSelectedSymbols.delete(key);
+        if(el.checked && (!skipDisabled || !el.disabled)) selectedSymbols.set(key, el.value);
+        else selectedSymbols.delete(key);
       }});
     }}
+    function getStockPickerCheckedSymbols(selectedSymbols, syncFn){{
+      syncFn();
+      return Array.from(selectedSymbols.values());
+    }}
+    function renderStockPickerResults({{ keyword='', containerId, stocks, selectedSymbols, checkboxClass, onChange, updatePreview, emptyText, rowState }}){{
+      const container = document.getElementById(containerId);
+      if(!container) return;
+      const rows = stocks.filter(r => stockMatchesKeyword(r, keyword)).slice(0, 200);
+      const checkedKeys = new Set(selectedSymbols.keys());
+      if(!rows.length){{
+        container.innerHTML = `<div class='watchlist-batch-item'>${{emptyText(keyword)}}</div>`;
+        updatePreview();
+        return;
+      }}
+      container.innerHTML = rows.map((r)=>{{
+        const state = rowState ? rowState(r) : {{ disabled: false, itemClass: '', suffix: '' }};
+        const key = normalizeWatchlistSymbol(r.symbol);
+        const disabled = Boolean(state.disabled);
+        const checked = checkedKeys.has(key) && !disabled;
+        return `<label class='watchlist-batch-item${{state.itemClass || ''}}'>
+          <input class='${{checkboxClass}}' type='checkbox' value="${{r.symbol}}" ${{checked ? 'checked' : ''}} ${{disabled ? 'disabled' : ''}} onchange='${{onChange}}'>
+          <span class="batch-stock-label">${{getStockLabel(r)}}${{state.suffix || ''}}</span>
+        </label>`;
+      }}).join('');
+      updatePreview();
+    }}
+    function syncVisibleBatchSelections(){{
+      syncVisibleStockPickerSelections(batchSelectedSymbols, '.batch-watchlist-check');
+    }}
     function getBatchCheckedSymbols(){{
-      syncVisibleBatchSelections();
-      return Array.from(batchSelectedSymbols.values());
+      return getStockPickerCheckedSymbols(batchSelectedSymbols, syncVisibleBatchSelections);
     }}
     function parseBatchSymbolsText(){{
-      const el = document.getElementById('batchStockSymbols');
-      if(!el) return [];
-      return el.value.split(/[\s,，、;；]+/).map(x => x.trim()).filter(Boolean);
+      return splitStockTokens(document.getElementById('batchStockSymbols')?.value || '');
     }}
     function updateBatchWatchlistPreview(){{
       const preview = document.getElementById('batchWatchlistPreview');
@@ -1359,28 +1430,22 @@ def app(environ, start_response):
       preview.textContent = `準備新增 ${{newKeys.length}} 檔；已在自選或重複 ${{duplicateKeys.length}} 檔。`;
     }}
     function renderBatchStockResults(keyword=''){{
-      const container = document.getElementById('batchStockResults');
-      if(!container) return;
-      const kw = keyword.trim().toLowerCase();
-      const currentKeys = new Set(getWatchlistSymbols().map(normalizeWatchlistSymbol));
       syncVisibleBatchSelections();
-      const checkedKeys = new Set(batchSelectedSymbols.keys());
-      const rows = allStocks.filter(r => !kw || [r.symbol, r.name, r.group, r.subgroup].filter(Boolean).some(v => String(v).toLowerCase().includes(kw))).slice(0, 200);
-      if(!rows.length){{
-        container.innerHTML = `<div class='watchlist-batch-item'>找不到符合「${{keyword}}」的股票</div>`;
-        updateBatchWatchlistPreview();
-        return;
-      }}
-      container.innerHTML = rows.map((r)=>{{
-        const key = normalizeWatchlistSymbol(r.symbol);
-        const added = currentKeys.has(key);
-        const checked = checkedKeys.has(key) && !added;
-        return `<label class='watchlist-batch-item${{added ? ' is-added' : ''}}'>
-          <input class='batch-stock-check' type='checkbox' value="${{r.symbol}}" ${{checked ? 'checked' : ''}} ${{added ? 'disabled' : ''}} onchange='syncVisibleBatchSelections(); updateBatchWatchlistPreview()'>
-          <span class="batch-stock-label">${{getStockLabel(r)}}${{added ? '<small>已在自選</small>' : ''}}</span>
-        </label>`;
-      }}).join('');
-      updateBatchWatchlistPreview();
+      const currentKeys = new Set(getWatchlistSymbols().map(normalizeWatchlistSymbol));
+      renderStockPickerResults({{
+        keyword,
+        containerId: 'batchStockResults',
+        stocks: allStocks,
+        selectedSymbols: batchSelectedSymbols,
+        checkboxClass: 'batch-watchlist-check batch-stock-check',
+        onChange: 'syncVisibleBatchSelections(); updateBatchWatchlistPreview()',
+        updatePreview: updateBatchWatchlistPreview,
+        emptyText: (kw)=>`找不到符合「${{kw}}」的股票`,
+        rowState: (stock)=>{{
+          const added = currentKeys.has(normalizeWatchlistSymbol(stock.symbol));
+          return {{ disabled: added, itemClass: added ? ' is-added' : '', suffix: added ? '<small>已在自選</small>' : '' }};
+        }},
+      }});
     }}
     function openBatchWatchlistDialog(){{
       const modal = document.getElementById('watchlistBatchModal');
@@ -1394,7 +1459,7 @@ def app(environ, start_response):
       document.getElementById('watchlistBatchModal')?.classList.remove('is-open');
     }}
     function selectVisibleBatchStocks(checked){{
-      document.querySelectorAll('.batch-stock-check:not(:disabled)').forEach((el)=>{{ el.checked = checked; }});
+      document.querySelectorAll('.batch-watchlist-check:not(:disabled)').forEach((el)=>{{ el.checked = checked; }});
       syncVisibleBatchSelections();
       updateBatchWatchlistPreview();
     }}
@@ -1415,6 +1480,99 @@ def app(environ, start_response):
       closeBatchWatchlistDialog();
       showWatchlistStatus(`已批次加入 ${{addedCount}} 檔自選股，正在更新頁面`);
       submitConfig({{tab: 'watchlist', page: '1'}});
+    }}
+    const stockFilterSelectedSymbols = new Map();
+    function parseStockFilterValue(){{
+      return splitStockTokens(document.getElementById('stockMetaFilter-stock')?.value || '');
+    }}
+    function seedStockFilterSelectionsFromInput(){{
+      stockFilterSelectedSymbols.clear();
+      const tokens = parseStockFilterValue();
+      if(!tokens.length) return;
+      const tokenSet = new Set(tokens.map(normalizeWatchlistSymbol));
+      const lowerTokens = tokens.map((token)=>token.toLowerCase());
+      stockFilterStocks.forEach((stock)=>{{
+        const key = normalizeWatchlistSymbol(stock.symbol);
+        const symbol = String(stock.symbol || '').toLowerCase();
+        const name = String(stock.name || '').toLowerCase();
+        if(tokenSet.has(key) || lowerTokens.some((token)=>symbol.includes(token) || name.includes(token))){{
+          stockFilterSelectedSymbols.set(key, stock.symbol);
+        }}
+      }});
+    }}
+    function syncVisibleStockFilterSelections(){{
+      syncVisibleStockPickerSelections(stockFilterSelectedSymbols, '.stock-filter-check');
+    }}
+    function getStockFilterCheckedSymbols(){{
+      return getStockPickerCheckedSymbols(stockFilterSelectedSymbols, syncVisibleStockFilterSelections);
+    }}
+    function updateStockFilterSummary(){{
+      const summary = document.getElementById('stockFilterSummary');
+      if(!summary) return;
+      const symbols = parseStockFilterValue();
+      if(!symbols.length){{
+        summary.textContent = '尚未限制股名';
+        summary.title = '未套用股名／代號篩選';
+        return;
+      }}
+      summary.textContent = `已選 ${{symbols.length}} 檔：${{symbols.slice(0, 4).join('、')}}${{symbols.length > 4 ? '…' : ''}}`;
+      summary.title = symbols.join('、');
+    }}
+    function updateStockFilterPreview(){{
+      const preview = document.getElementById('stockFilterPreview');
+      if(!preview) return;
+      const selected = getStockFilterCheckedSymbols();
+      preview.textContent = selected.length ? `準備以 ${{selected.length}} 檔自選股篩選。` : '未勾選時會清除股名篩選。';
+    }}
+    function renderStockFilterResults(keyword=''){{
+      syncVisibleStockFilterSelections();
+      renderStockPickerResults({{
+        keyword,
+        containerId: 'stockFilterResults',
+        stocks: stockFilterStocks,
+        selectedSymbols: stockFilterSelectedSymbols,
+        checkboxClass: 'stock-filter-check batch-stock-check',
+        onChange: 'syncVisibleStockFilterSelections(); updateStockFilterPreview()',
+        updatePreview: updateStockFilterPreview,
+        emptyText: (kw)=>stockFilterStocks.length ? `找不到符合「${{kw}}」的自選股` : '目前沒有自選股可供股名篩選',
+      }});
+    }}
+    function openStockFilterDialog(){{
+      const modal = document.getElementById('stockFilterModal');
+      if(!modal) return;
+      seedStockFilterSelectionsFromInput();
+      modal.classList.add('is-open');
+      renderStockFilterResults(document.getElementById('stockFilterKeyword')?.value || '');
+      setTimeout(()=>document.getElementById('stockFilterKeyword')?.focus(), 0);
+    }}
+    function closeStockFilterDialog(){{
+      syncVisibleStockFilterSelections();
+      document.getElementById('stockFilterModal')?.classList.remove('is-open');
+    }}
+    function selectVisibleStockFilterStocks(checked){{
+      document.querySelectorAll('.stock-filter-check:not(:disabled)').forEach((el)=>{{ el.checked = checked; }});
+      syncVisibleStockFilterSelections();
+      updateStockFilterPreview();
+    }}
+    function setStockFilterValue(symbols){{
+      const input = document.getElementById('stockMetaFilter-stock');
+      if(input) input.value = symbols.join(',');
+      updateStockFilterSummary();
+    }}
+    function applyStockFilterSelection(){{
+      const selected = getStockFilterCheckedSymbols();
+      setStockFilterValue(selected);
+      closeStockFilterDialog();
+      applyStockMetaFilters();
+      submitConfig({{ page: '1', stock_meta_stock: selected.join(',') }});
+    }}
+    function clearStockFilterSelection(){{
+      stockFilterSelectedSymbols.clear();
+      setStockFilterValue([]);
+      renderStockFilterResults(document.getElementById('stockFilterKeyword')?.value || '');
+      closeStockFilterDialog();
+      applyStockMetaFilters();
+      submitConfig({{ page: '1', stock_meta_stock: '' }});
     }}
     function normalizeStockMetaEntry(entry){{
       const meta = {{ action: '', trait: '', stage: '', risk: '', note: '' }};
@@ -1569,16 +1727,25 @@ def app(environ, start_response):
     }}
     document.getElementById('watchKeyword')?.addEventListener('input', (e)=>renderBatchStockResults(e.target.value));
     document.getElementById('batchStockSymbols')?.addEventListener('input', updateBatchWatchlistPreview);
+    document.getElementById('stockFilterKeyword')?.addEventListener('input', (e)=>renderStockFilterResults(e.target.value));
     document.getElementById('watchlistBatchModal')?.addEventListener('click', (e)=>{{
       if(e.target.id === 'watchlistBatchModal') closeBatchWatchlistDialog();
     }});
+    document.getElementById('stockFilterModal')?.addEventListener('click', (e)=>{{
+      if(e.target.id === 'stockFilterModal') closeStockFilterDialog();
+    }});
     document.addEventListener('keydown', (e)=>{{
-      if(e.key === 'Escape') closeBatchWatchlistDialog();
+      if(e.key === 'Escape'){{
+        closeBatchWatchlistDialog();
+        closeStockFilterDialog();
+      }}
     }});
     initServerConfigPicker();
     window.addEventListener('pageshow', hideLoadingProgress);
     if(document.readyState !== 'loading') hideLoadingProgress();
     renderBatchStockResults();
+    seedStockFilterSelectionsFromInput();
+    updateStockFilterSummary();
     populateStockMetaControls();
     refreshStockMetaFilterOptions();
     applyNotesToTableAndCards();
