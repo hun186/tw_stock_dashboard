@@ -8,17 +8,25 @@ from plotly.subplots import make_subplots
 from api.constants import DOWN_COLOR, MA5_COLOR, MA20_COLOR, MA60_COLOR, UP_COLOR
 
 
-def make_chart_html(df: pd.DataFrame, title: str, show_volume: bool, show_ma: bool, intraday_ref_close: float | None = None) -> str:
+def make_chart_html(
+    df: pd.DataFrame,
+    title: str,
+    show_volume: bool,
+    show_ma: bool,
+    intraday_ref_close: float | None = None,
+    show_price: bool = True,
+) -> str:
     row_heights = [0.7, 0.3] if show_volume else [1.0]
     fig = make_subplots(rows=2 if show_volume else 1, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=row_heights)
-    price_open = df["Open"] if intraday_ref_close is None else np.full(len(df), intraday_ref_close)
-    fig.add_trace(go.Candlestick(
-        x=df["Date"], open=price_open, high=df["High"], low=df["Low"], close=df["Close"], name="價格K線",
-        increasing_line_color=UP_COLOR, decreasing_line_color=DOWN_COLOR,
-        increasing_fillcolor=UP_COLOR, decreasing_fillcolor=DOWN_COLOR,
-        increasing=dict(line=dict(color=UP_COLOR), fillcolor=UP_COLOR),
-        decreasing=dict(line=dict(color=DOWN_COLOR), fillcolor=DOWN_COLOR),
-    ), row=1, col=1)
+    if show_price:
+        price_open = df["Open"] if intraday_ref_close is None else np.full(len(df), intraday_ref_close)
+        fig.add_trace(go.Candlestick(
+            x=df["Date"], open=price_open, high=df["High"], low=df["Low"], close=df["Close"], name="價格K線",
+            increasing_line_color=UP_COLOR, decreasing_line_color=DOWN_COLOR,
+            increasing_fillcolor=UP_COLOR, decreasing_fillcolor=DOWN_COLOR,
+            increasing=dict(line=dict(color=UP_COLOR), fillcolor=UP_COLOR),
+            decreasing=dict(line=dict(color=DOWN_COLOR), fillcolor=DOWN_COLOR),
+        ), row=1, col=1)
     if show_ma:
         fig.add_trace(go.Scatter(x=df["Date"], y=df["MA5"], mode="lines", name="MA5", line=dict(color=MA5_COLOR)), row=1, col=1)
         fig.add_trace(go.Scatter(x=df["Date"], y=df["MA20"], mode="lines", name="MA20", line=dict(color=MA20_COLOR)), row=1, col=1)

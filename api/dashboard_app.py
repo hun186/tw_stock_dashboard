@@ -172,6 +172,7 @@ def app(environ, start_response):
     cards_per_row = _positive_int_param(params, "cards_per_row", 3, max_value=15)
     custom_watchlist_raw = params.get("custom_watchlist", [""])[0]
     show_volume = params.get("show_volume", ["1"])[0] == "1"
+    show_price = params.get("show_price", ["1"])[0] == "1"
     show_target_price = params.get("show_target_price", ["0"])[0] == "1"
     card_sort = params.get("card_sort", ["signal_score"])[0]
     compact_progress = params.get("compact_progress", ["1"])[0] == "1"
@@ -460,6 +461,10 @@ def app(environ, start_response):
         card_html = ""
         card_html_with_volume = ""
         card_html_without_volume = ""
+        card_html_with_volume_price = ""
+        card_html_with_volume_no_price = ""
+        card_html_without_volume_price = ""
+        card_html_without_volume_no_price = ""
         should_render_card = client_render_all_cards or row.symbol in initial_page_symbols
         if should_render_card and not df.empty:
             show_ma = period != "intraday"
@@ -497,15 +502,32 @@ def app(environ, start_response):
                 f"<span style='font-size:.82rem;color:{target_ratio_color};font-weight:700'>目標價/現價：{target_ratio_text}</span>"
                 "</h3>"
             )
-            card_html_with_volume = (
+            card_html_with_volume_price = (
                 card_header_html
-                + make_chart_html(df, row.name, True, show_ma, intraday_ref_close=intraday_ref_close)
+                + make_chart_html(df, row.name, True, show_ma, intraday_ref_close=intraday_ref_close, show_price=True)
             )
-            card_html_without_volume = (
+            card_html_with_volume_no_price = (
                 card_header_html
-                + make_chart_html(df, row.name, False, show_ma, intraday_ref_close=intraday_ref_close)
+                + make_chart_html(df, row.name, True, show_ma, intraday_ref_close=intraday_ref_close, show_price=False)
             )
-            card_html = card_html_with_volume if show_volume else card_html_without_volume
+            card_html_without_volume_price = (
+                card_header_html
+                + make_chart_html(df, row.name, False, show_ma, intraday_ref_close=intraday_ref_close, show_price=True)
+            )
+            card_html_without_volume_no_price = (
+                card_header_html
+                + make_chart_html(df, row.name, False, show_ma, intraday_ref_close=intraday_ref_close, show_price=False)
+            )
+            card_html_with_volume = card_html_with_volume_price
+            card_html_without_volume = card_html_without_volume_price
+            if show_volume and show_price:
+                card_html = card_html_with_volume_price
+            elif show_volume:
+                card_html = card_html_with_volume_no_price
+            elif show_price:
+                card_html = card_html_without_volume_price
+            else:
+                card_html = card_html_without_volume_no_price
         rendered_stock_items.append({
             "symbol": row.symbol,
             "bucket": stock_item["bucket"],
@@ -514,6 +536,10 @@ def app(environ, start_response):
             "card_html": card_html,
             "card_html_with_volume": card_html_with_volume,
             "card_html_without_volume": card_html_without_volume,
+            "card_html_with_volume_price": card_html_with_volume_price,
+            "card_html_with_volume_no_price": card_html_with_volume_no_price,
+            "card_html_without_volume_price": card_html_without_volume_price,
+            "card_html_without_volume_no_price": card_html_without_volume_no_price,
         })
 
     visible_rendered_items = [
@@ -569,6 +595,7 @@ def app(environ, start_response):
         "cards_per_row": cards_per_row,
         "custom_watchlist": ",".join(watchlist["symbol"].tolist()),
         "show_volume": "1" if show_volume else "0",
+        "show_price": "1" if show_price else "0",
         "show_target_price": "1" if show_target_price else "0",
         "card_sort": card_sort,
         "compact_progress": "1" if compact_progress else "0",
@@ -758,6 +785,7 @@ def app(environ, start_response):
             <label class='form-field'>每列檔數<select name='cards_per_row'>{''.join([f"<option value='{n}' {'selected' if cards_per_row==n else ''}>{n}</option>" for n in range(1, 16)])}</select></label>
             <label class='form-field'>圖塊排序<select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='signal_score' {'selected' if card_sort=='signal_score' else ''}>形勢分數</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option><option value='target_ratio' {'selected' if card_sort=='target_ratio' else ''}>目標價/現價</option></select></label>
             <label class='form-field'>顯示量K線<select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select></label>
+            <label class='form-field'>顯示價K線<select name='show_price'><option value='1' {'selected' if show_price else ''}>開啟</option><option value='0' {'selected' if not show_price else ''}>關閉</option></select></label>
           </div>
         </fieldset>
         <fieldset>
@@ -854,7 +882,7 @@ def app(environ, start_response):
     <script>
     const defaultConfig = {json.dumps(save_payload, ensure_ascii=False)};
     const serverConfigPresets = {json.dumps(server_config_presets, ensure_ascii=False)};
-    const autoRefreshMs = 15000;
+    const autoRefreshMs = 60000;
     const isIntradayMode = defaultConfig.period === 'intraday';
     const WATCHLIST_STORAGE_KEY = 'tw_dashboard_watchlist';
     const NOTE_STORAGE_KEY = 'tw_dashboard_stock_notes';
@@ -877,6 +905,7 @@ def app(environ, start_response):
     let dashboardCurrentPage = Number(defaultConfig.page || 1);
     let dashboardCardsPerRow = Number(defaultConfig.cards_per_row || 3);
     let dashboardShowVolume = String(defaultConfig.show_volume ?? '1') === '1';
+    let dashboardShowPrice = String(defaultConfig.show_price ?? '1') === '1';
     const STOCK_META_PRESET_LOOKUP = STOCK_META_GROUPS.reduce((lookup, group)=>{{
       group.options.forEach((option)=>{{ lookup[option] = group.id; }});
       return lookup;
@@ -982,6 +1011,10 @@ def app(environ, start_response):
         .replaceAll('>', '&gt;');
     }}
     function selectedCardHtml(item){{
+      if(dashboardShowVolume && dashboardShowPrice && item.card_html_with_volume_price) return item.card_html_with_volume_price;
+      if(dashboardShowVolume && !dashboardShowPrice && item.card_html_with_volume_no_price) return item.card_html_with_volume_no_price;
+      if(!dashboardShowVolume && dashboardShowPrice && item.card_html_without_volume_price) return item.card_html_without_volume_price;
+      if(!dashboardShowVolume && !dashboardShowPrice && item.card_html_without_volume_no_price) return item.card_html_without_volume_no_price;
       if(dashboardShowVolume && item.card_html_with_volume) return item.card_html_with_volume;
       if(!dashboardShowVolume && item.card_html_without_volume) return item.card_html_without_volume;
       return item.card_html || '';
@@ -992,9 +1025,11 @@ def app(environ, start_response):
       if(form?.elements?.page) form.elements.page.value = String(dashboardCurrentPage);
       if(form?.elements?.cards_per_row) form.elements.cards_per_row.value = String(dashboardCardsPerRow);
       if(form?.elements?.show_volume) form.elements.show_volume.value = dashboardShowVolume ? '1' : '0';
+      if(form?.elements?.show_price) form.elements.show_price.value = dashboardShowPrice ? '1' : '0';
       url.searchParams.set('page', String(dashboardCurrentPage));
       url.searchParams.set('cards_per_row', String(dashboardCardsPerRow));
       url.searchParams.set('show_volume', dashboardShowVolume ? '1' : '0');
+      url.searchParams.set('show_price', dashboardShowPrice ? '1' : '0');
       window.history.replaceState(null, '', url.toString());
     }}
     async function renderDashboardPage(page=dashboardCurrentPage){{
@@ -1534,6 +1569,12 @@ def app(environ, start_response):
         dashboardShowVolume = String(event.target.value) === '1';
         renderDashboardPage(dashboardCurrentPage);
         showWatchlistStatus(`已${{dashboardShowVolume ? '開啟' : '關閉'}}量K線，保留目前頁碼且未重新下載行情。`);
+        return;
+      }}
+      if(fieldName === 'show_price'){{
+        dashboardShowPrice = String(event.target.value) === '1';
+        renderDashboardPage(dashboardCurrentPage);
+        showWatchlistStatus(`已${{dashboardShowPrice ? '開啟' : '關閉'}}價K線，保留目前頁碼且未重新下載行情。`);
         return;
       }}
       if(AUTO_SUBMIT_FIELDS.has(event.target?.name)) autoSubmitConfig(event);
