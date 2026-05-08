@@ -12,8 +12,39 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from api import dashboard_app
+from api import dashboard_app, data_loader
 from api.dashboard_app import DEFAULT_LIVE_FETCH_THRESHOLD, _resolve_live_fetch_controls
+
+
+class DataLoaderThemeMetadataTests(unittest.TestCase):
+    def test_normalize_group_map_preserves_summary_and_reference_aliases(self) -> None:
+        df = pd.DataFrame([
+            {
+                "股票代號": "2330.TW",
+                "股票名稱": "台積電",
+                "題材": "AI晶片",
+                "次題材": "先進製程",
+                "題材摘要": "先進封裝與 AI 加速器需求受惠",
+                "資料來源": "https://example.com/tsmc",
+            }
+        ])
+
+        normalized = data_loader._normalize_group_map(df)
+
+        self.assertEqual(normalized.loc[0, "summary"], "先進封裝與 AI 加速器需求受惠")
+        self.assertEqual(normalized.loc[0, "reference_url"], "https://example.com/tsmc")
+
+    def test_normalize_group_map_backfills_missing_summary_columns(self) -> None:
+        df = pd.DataFrame([
+            {"symbol": "2317.TW", "name": "鴻海", "group": "AI伺服器", "subgroup": "組裝"}
+        ])
+
+        normalized = data_loader._normalize_group_map(df)
+
+        self.assertIn("summary", normalized.columns)
+        self.assertIn("reference_url", normalized.columns)
+        self.assertEqual(normalized.loc[0, "summary"], "")
+        self.assertEqual(normalized.loc[0, "reference_url"], "")
 
 
 class DashboardLiveFetchControlsTests(unittest.TestCase):
@@ -416,6 +447,60 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         self.assertNotIn("<option value='bear' ", response)
         self.assertIn('const stockMetaFilterOptions = {"action": ["波段"]', response)
         self.assertIn('const stockMetaFilterHasEmpty = {"action": true', response)
+
+
+class DashboardThemeMetadataTests(unittest.TestCase):
+    def test_gemini_summary_and_reference_render_and_search_metadata(self) -> None:
+        file_watchlist = pd.DataFrame([
+            {"symbol": "2330.TW", "name": "台積電", "group": "手動題材", "subgroup": "手動次題材"},
+        ])
+        gemini_watchlist = pd.DataFrame([
+            {
+                "symbol": "2330.TW",
+                "name": "台積電",
+                "group": "AI晶片",
+                "subgroup": "先進製程",
+                "summary": "CoWoS 先進封裝受惠 AI 加速器需求",
+                "reference_url": "https://example.com/tsmc-ai",
+            },
+        ])
+        llm_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+        industry_df = pd.DataFrame(columns=["industry", "industry_label", "symbol", "name", "group", "subgroup"])
+
+        with patch.object(dashboard_app, "load_watchlist", return_value=file_watchlist), \
+            patch.object(dashboard_app, "load_gemini_agent_group_map", return_value=gemini_watchlist), \
+            patch.object(dashboard_app, "load_llm_group_map", return_value=llm_watchlist), \
+            patch.object(dashboard_app, "load_twse_industry_map", return_value=industry_df), \
+            patch.object(dashboard_app, "prefetch_price_data", return_value={}):
+            response = b"".join(dashboard_app.app({"QUERY_STRING": "stock_meta_stock=CoWoS"}, lambda *_args: None)).decode("utf-8")
+
+        self.assertIn("題材摘要", response)
+        self.assertIn("來源", response)
+        self.assertIn("CoWoS 先進封裝受惠 AI 加速器需求", response)
+        self.assertIn("https://example.com/tsmc-ai", response)
+        self.assertIn("來源連結", response)
+        self.assertIn("data-summary='CoWoS 先進封裝受惠 AI 加速器需求'", response)
+        self.assertIn('"summary": "CoWoS 先進封裝受惠 AI 加速器需求"', response)
+        self.assertIn("stock.symbol, stock.name, stock.group, stock.subgroup, stock.summary", response)
+        self.assertIn("summary.includes(token)", response)
+        self.assertIn("符合股數</span><span class='summary-value'>1 檔", response)
+
+    def test_legacy_metadata_without_summary_renders_dash(self) -> None:
+        file_watchlist = pd.DataFrame([
+            {"symbol": "2317.TW", "name": "鴻海", "group": "AI伺服器", "subgroup": "組裝"},
+        ])
+        llm_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+        industry_df = pd.DataFrame(columns=["industry", "industry_label", "symbol", "name", "group", "subgroup"])
+
+        with patch.object(dashboard_app, "load_watchlist", return_value=file_watchlist), \
+            patch.object(dashboard_app, "load_gemini_agent_group_map", return_value=pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])), \
+            patch.object(dashboard_app, "load_llm_group_map", return_value=llm_watchlist), \
+            patch.object(dashboard_app, "load_twse_industry_map", return_value=industry_df), \
+            patch.object(dashboard_app, "prefetch_price_data", return_value={}):
+            response = b"".join(dashboard_app.app({"QUERY_STRING": ""}, lambda *_args: None)).decode("utf-8")
+
+        self.assertIn("<th>題材摘要</th><th>來源</th>", response)
+        self.assertIn("<td class='theme-summary-cell'>-</td><td class='source-cell'>-</td>", response)
 
 
 if __name__ == "__main__":
