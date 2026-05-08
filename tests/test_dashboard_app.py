@@ -126,9 +126,10 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
             response,
             r"<legend>股池與分類</legend>[\s\S]*class='primary-actions' data-title='主要操作'[\s\S]*<legend>K 線與顯示</legend>[\s\S]*<legend>篩選與分頁</legend>[\s\S]*<legend>個人標籤篩選</legend>",
         )
-        self.assertIn(".filter-grid{display:grid;grid-template-columns:repeat(3,minmax(220px,1fr))", response)
-        self.assertIn("@media (max-width: 900px){.filter-grid{grid-template-columns:repeat(2,minmax(180px,1fr))}}", response)
-        self.assertNotIn("@media (max-width: 1180px){.filter-grid{grid-template-columns:repeat(2", response)
+        self.assertIn(".filter-grid{display:grid;grid-template-columns:repeat(9,minmax(0,1fr))", response)
+        self.assertIn(".filter-grid > .primary-actions{grid-column:span 2}", response)
+        self.assertIn(".filter-grid > .kline-settings{grid-column:span 4}", response)
+        self.assertIn("@media (max-width: 1180px){.filter-grid{grid-template-columns:repeat(2", response)
         self.assertRegex(
             response,
             r"儲存目前設定[\s\S]*讀取本機設定[\s\S]*匯出完整備份檔[\s\S]*匯入備份檔[\s\S]*推薦設定檔[\s\S]*讀取推薦設定",
@@ -138,6 +139,9 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         self.assertIn(".watchlist-batch-item .batch-stock-check", response)
         self.assertIn('class="batch-stock-label"', response)
         self.assertIn("顯示價K線", response)
+        self.assertIn("摘要／來源顯示", response)
+        self.assertIn("toggleCardThemeMeta()", response)
+        self.assertIn("let dashboardShowThemeMeta = false;", response)
         self.assertIn("股名／代號篩選", response)
         self.assertIn("openStockFilterDialog()", response)
         self.assertIn("可勾選的來源僅限目前自選股清單", response)
@@ -365,7 +369,7 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
             response = b"".join(dashboard_app.app({"QUERY_STRING": query}, lambda *_args: None)).decode("utf-8")
 
         self.assertIn("<tr><th>移除</th><th>狀態</th>", response)
-        self.assertIn("<th>風險與觀察</th><th>備註</th></tr>", response)
+        self.assertIn("<th>風險與觀察</th><th>備註</th><th>題材摘要</th><th>來源</th></tr>", response)
         self.assertIn("class='row-action-cell'><button type='button' class='watchlist-action is-icon is-remove'", response)
         self.assertIn(">−</button>", response)
         self.assertNotIn("<th>互動</th>", response)
@@ -499,7 +503,7 @@ class DashboardThemeMetadataTests(unittest.TestCase):
             patch.object(dashboard_app, "prefetch_price_data", return_value={}):
             response = b"".join(dashboard_app.app({"QUERY_STRING": ""}, lambda *_args: None)).decode("utf-8")
 
-        self.assertIn("<th>題材摘要</th><th>來源</th>", response)
+        self.assertIn("<th>備註</th><th>題材摘要</th><th>來源</th>", response)
         self.assertIn("<td class='theme-summary-cell'>-</td><td class='source-cell'>-</td>", response)
 
 
