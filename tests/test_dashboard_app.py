@@ -107,6 +107,15 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         self.assertIn(".watchlist-batch-item .batch-stock-check", response)
         self.assertIn('class="batch-stock-label"', response)
         self.assertIn("顯示價K線", response)
+        self.assertIn("股名／代號篩選", response)
+        self.assertIn("openStockFilterDialog()", response)
+        self.assertIn("可勾選的來源僅限目前自選股清單", response)
+        self.assertIn("renderStockPickerResults", response)
+        self.assertIn("syncVisibleStockPickerSelections", response)
+        self.assertIn("id='stockMetaFilter-stock' name='stock_meta_stock'", response)
+        self.assertNotIn("stockFilterSummary", response)
+        self.assertNotIn("stock-filter-summary", response)
+        self.assertIn("const stockFilterStocks = [{\"symbol\": \"2330.TW\"", response)
         self.assertIn("const autoRefreshMs = 60000;", response)
         self.assertIn("intradayRefreshUrl", response)
         self.assertIn("_intraday_refresh", response)
@@ -269,9 +278,40 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         self.assertIn(">−</button>", response)
         self.assertNotIn("<th>互動</th>", response)
         self.assertIn("name='stock_meta_note' value='法說'", response)
-        self.assertIn("stockMetaNoteFilter?.addEventListener('input', applyStockMetaFilters)", response)
+        self.assertIn("document.getElementById('stockMetaFilter-note')", response)
+        self.assertIn("filter.addEventListener('input', applyStockMetaFilters)", response)
         self.assertIn("符合股數</span><span class='summary-value'>1 檔", response)
         self.assertEqual(captured_symbols, [["2330.TW"]])
+
+
+    def test_personal_stock_filter_matches_symbol_name_and_pasted_list(self) -> None:
+        file_watchlist = pd.DataFrame([
+            {"symbol": "2330.TW", "name": "台積電", "group": "AI晶片", "subgroup": "先進製程"},
+            {"symbol": "2382.TW", "name": "廣達", "group": "AI伺服器", "subgroup": "系統組裝"},
+            {"symbol": "4977.TW", "name": "眾達-KY", "group": "AI光通訊", "subgroup": "光通訊模組"},
+        ])
+        llm_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+        industry_df = pd.DataFrame(columns=["industry", "industry_label", "symbol", "name", "group", "subgroup"])
+        captured_symbols = []
+
+        def fake_prefetch(stocks, *_args, **_kwargs):
+            captured_symbols.append(stocks["symbol"].tolist())
+            return {}
+
+        query = urlencode({"stock_meta_stock": "2330, 廣達"})
+        with patch.object(dashboard_app, "load_watchlist", return_value=file_watchlist), \
+            patch.object(dashboard_app, "load_llm_group_map", return_value=llm_watchlist), \
+            patch.object(dashboard_app, "load_twse_industry_map", return_value=industry_df), \
+            patch.object(dashboard_app, "prefetch_price_data", side_effect=fake_prefetch):
+            response = b"".join(dashboard_app.app({"QUERY_STRING": query}, lambda *_args: None)).decode("utf-8")
+
+        self.assertIn("id='stockMetaFilter-stock' name='stock_meta_stock' value='2330, 廣達'", response)
+        self.assertIn("已選 2 筆條件", response)
+        self.assertIn("seedStockFilterSelectionsFromInput", response)
+        self.assertIn("data-name='台積電'", response)
+        self.assertIn("filters.stockTokens", response)
+        self.assertIn("符合股數</span><span class='summary-value'>2 檔", response)
+        self.assertEqual(captured_symbols, [["2330.TW", "2382.TW"]])
 
     def test_status_and_personal_filter_options_only_include_available_values(self) -> None:
         file_watchlist = pd.DataFrame([
