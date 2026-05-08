@@ -579,9 +579,9 @@ def app(environ, start_response):
             f"data-summary='{html.escape(summary_text, quote=True)}'>"
             f"<td class='row-action-cell'>{action_btn}</td><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td>"
             f"<td>{name_jump_button}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td>"
-            f"<td class='theme-summary-cell'>{html.escape(summary_text)}</td><td class='source-cell'>{reference_html}</td>"
             f"<td>{html.escape(status)}</td><td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td>"
-            f"{stock_meta_cells}<td class='note-cell'>{note_editor}</td></tr>"
+            f"{stock_meta_cells}<td class='note-cell'>{note_editor}</td>"
+            f"<td class='theme-summary-cell'>{html.escape(summary_text)}</td><td class='source-cell'>{reference_html}</td></tr>"
         )
         card_html = ""
         card_html_with_volume = ""
@@ -620,11 +620,20 @@ def app(environ, start_response):
                         target_ratio_color = "#0b8f3a"
                 except ValueError:
                     target_ratio_color = "#666"
+            card_theme_popover = (
+                "<span class='theme-title-popover' tabindex='0' aria-label='題材摘要與來源'>"
+                "<span class='theme-title-trigger'>題材</span>"
+                "<span class='theme-title-panel' role='tooltip'>"
+                f"<span><strong>題材摘要：</strong>{html.escape(summary_text)}</span>"
+                f"<span><strong>來源：</strong>{reference_html}</span>"
+                "</span>"
+                "</span>"
+            )
             card_header_html = (
-                "<h3 style='display:flex;justify-content:space-between;align-items:center;gap:8px'>"
-                f"<span>{html.escape(row.name)} ({html.escape(row.symbol)}) 收盤 "
-                f"<span style='color:{close_color};font-weight:700'>{close_text}{change_text}</span>{html.escape(signal_brief)}</span>"
-                f"<span style='font-size:.82rem;color:{target_ratio_color};font-weight:700'>目標價/現價：{target_ratio_text}</span>"
+                "<h3 class='card-title'>"
+                f"<span class='card-title-main'><span>{html.escape(row.name)} ({html.escape(row.symbol)})</span>{card_theme_popover}<span>收盤 "
+                f"<span style='color:{close_color};font-weight:700'>{close_text}{change_text}</span>{html.escape(signal_brief)}</span></span>"
+                f"<span class='card-target-ratio' style='color:{target_ratio_color}'>目標價/現價：{target_ratio_text}</span>"
                 "</h3>"
                 "<div class='theme-card-meta'>"
                 f"<p><strong>題材摘要：</strong>{html.escape(summary_text)}</p>"
@@ -760,15 +769,15 @@ def app(environ, start_response):
         f"<small>{html.escape(step['detail'])}</small></li>"
         for step in progress_steps
     ])
-    pipeline_progress_json = json.dumps(progress_steps, ensure_ascii=False).replace("</", "<\/")
+    pipeline_progress_json = json.dumps(progress_steps, ensure_ascii=False).replace("</", "<\\/")
 
     progress_panel_class = "pipeline-progress is-compact" if compact_progress else "pipeline-progress"
 
     action_column_label = "移除" if tab == "watchlist" else "自選"
-    table_header_html = f"<tr><th>{action_column_label}</th><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>題材摘要</th><th>來源</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th></tr>"
+    table_header_html = f"<tr><th>{action_column_label}</th><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th>題材摘要</th><th>來源</th></tr>"
     stock_filter_button_text = "選擇自選股" if not stock_meta_stock_filter else f"已選 {len([x for x in stock_meta_stock_filter.replace('，', ',').replace('、', ',').replace(';', ',').replace('；', ',').split(',') for x in x.split() if x.strip()])} 筆條件"
-    dashboard_render_items_json = json.dumps(rendered_stock_items, ensure_ascii=False).replace("</", "<\/")
-    table_header_html_json = json.dumps(table_header_html, ensure_ascii=False).replace("</", "<\/")
+    dashboard_render_items_json = json.dumps(rendered_stock_items, ensure_ascii=False).replace("</", "<\\/")
+    table_header_html_json = json.dumps(table_header_html, ensure_ascii=False).replace("</", "<\\/")
 
     body = f"""<!doctype html><html lang='zh-Hant'><head><meta charset='utf-8'><title>TW Dashboard</title>
     <style>
@@ -783,7 +792,10 @@ def app(environ, start_response):
       h2{{font-size:1.12rem;margin:0;color:#1e293b}}
       .section-card,.control-panel{{background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}}
       .control-panel{{padding:16px;margin-bottom:16px}}
-      .filter-grid{{display:grid;grid-template-columns:repeat(3,minmax(220px,1fr));gap:10px;align-items:stretch}}
+      .filter-grid{{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:10px;align-items:stretch}}
+      .filter-grid > fieldset{{grid-column:span 3}}
+      .filter-grid > .primary-actions{{grid-column:span 2}}
+      .filter-grid > .kline-settings{{grid-column:span 4}}
       fieldset{{border:1px solid var(--line);border-radius:14px;padding:12px;margin:0;background:#fbfdff;min-width:0}}
       legend{{padding:0 7px;color:#334155;font-size:.86rem;font-weight:700}}
       .field-stack{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}}
@@ -801,6 +813,7 @@ def app(environ, start_response):
       .primary-actions,.utility-actions{{position:relative;display:grid;gap:8px;align-content:start;border:1px solid #dbeafe;border-radius:16px;background:linear-gradient(180deg,#fff,#f8fbff);padding:34px 12px 12px;min-width:0}}
       .primary-actions::before,.utility-actions::before{{content:attr(data-title);position:absolute;top:10px;left:12px;color:#1e3a8a;font-size:.78rem;font-weight:900;letter-spacing:.06em}}
       .primary-actions{{grid-template-columns:1fr}}
+      .kline-settings .field-stack{{grid-template-columns:repeat(3,minmax(0,1fr))}}
       .utility-actions{{grid-template-columns:repeat(4,minmax(120px,1fr))}}
       .primary-actions button,.utility-actions button{{width:100%;min-height:40px;display:inline-flex;align-items:center;justify-content:center;text-align:center;line-height:1.2}}
       .watchlist-actions{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}
@@ -839,7 +852,7 @@ def app(environ, start_response):
       td:first-child,th:first-child{{border-left:1px solid #e2e8f0}}
       td:last-child,th:last-child{{border-right:1px solid #e2e8f0}}
       tr:hover td{{background:#f8fbff}}
-      table th:nth-child(10), table td:nth-child(10), table th:nth-child(11), table td:nth-child(11), table th:nth-child(12), table td:nth-child(12){{text-align:right}}
+      table th:nth-child(8), table td:nth-child(8), table th:nth-child(9), table td:nth-child(9), table th:nth-child(10), table td:nth-child(10){{text-align:right}}
       .row-action-cell{{text-align:center;width:42px;min-width:42px}}
       .theme-summary-cell{{white-space:normal;min-width:220px;max-width:360px;color:#334155;line-height:1.35}}
       .source-cell{{max-width:140px;overflow:hidden;text-overflow:ellipsis}}
@@ -858,7 +871,17 @@ def app(environ, start_response):
       .card{{margin:0;padding:12px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 8px 22px rgba(15,23,42,.06);transition:border-color .2s ease,box-shadow .2s ease,background .2s ease,transform .2s ease;overflow:hidden}}
       .card:hover{{transform:translateY(-2px);box-shadow:0 16px 32px rgba(15,23,42,.12)}}
       .card h3{{font-size:.96rem;margin:0 0 8px}}
-      .theme-card-meta{{border:1px solid #dbeafe;background:#f8fbff;border-radius:12px;padding:8px 10px;margin:0 0 8px;color:#334155;font-size:.84rem}}
+      .card-title{{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}}
+      .card-title-main{{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}}
+      .card-target-ratio{{font-size:.82rem;font-weight:700;white-space:nowrap}}
+      .theme-title-popover{{position:relative;display:inline-flex;align-items:center;outline:none}}
+      .theme-title-trigger{{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:22px;padding:0 7px;border:1px solid #bfdbfe;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-size:.72rem;font-weight:900;line-height:1}}
+      .theme-title-panel{{position:absolute;left:0;top:calc(100% + 6px);z-index:8;display:none;width:min(280px,70vw);padding:9px 10px;border:1px solid #bfdbfe;border-radius:12px;background:#fff;box-shadow:0 14px 30px rgba(15,23,42,.18);color:#334155;font-size:.8rem;line-height:1.4}}
+      .theme-title-panel span{{display:block;white-space:normal}}
+      .theme-title-panel span + span{{margin-top:5px}}
+      .theme-title-popover:hover .theme-title-panel,.theme-title-popover:focus-within .theme-title-panel{{display:block}}
+      .theme-card-meta{{display:none;border:1px solid #dbeafe;background:#f8fbff;border-radius:12px;padding:8px 10px;margin:0 0 8px;color:#334155;font-size:.84rem}}
+      .show-card-theme-meta .theme-card-meta{{display:block}}
       .theme-card-meta p{{margin:0 0 4px}}
       .theme-card-meta p:last-child{{margin-bottom:0}}
       .card.is-jump-target{{border-color:#1976d2;box-shadow:0 0 0 3px rgba(25,118,210,.16),var(--shadow);background:#f5fbff}}
@@ -897,10 +920,9 @@ def app(environ, start_response):
       .note-cell{{width:190px;min-width:190px;max-width:190px}}
       .note-editor .stock-meta-select{{width:120px;min-width:0;padding:4px 6px;text-align:left;text-align-last:left;min-height:30px}}
       .note-editor .stock-note-input{{width:170px;min-width:120px;padding:4px 6px;min-height:30px}}
-      table th:nth-child(17), table td:nth-child(17){{width:96px;min-width:96px;max-width:96px}}
-      @media (max-width: 1180px){{.form-actions{{grid-template-columns:1fr}}.utility-actions{{grid-template-columns:repeat(4,minmax(120px,1fr))}}.pipeline-progress-list{{grid-template-columns:repeat(2,minmax(160px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
-      @media (max-width: 900px){{.filter-grid{{grid-template-columns:repeat(2,minmax(180px,1fr))}}}}
-      @media (max-width: 760px){{body{{padding:10px}}.hero{{display:block;padding:18px}}.hero-badge{{display:inline-block;margin-top:12px}}.filter-grid,.field-stack,.summary-strip,.pipeline-progress-list{{grid-template-columns:1fr}}.form-actions{{gap:10px}}.primary-actions{{grid-template-columns:1fr;padding:32px 10px 10px;border-radius:14px}}.utility-actions{{grid-template-columns:repeat(2,minmax(0,1fr));padding:32px 10px 10px;border-radius:14px}}.preset-picker{{grid-column:1 / -1;grid-template-columns:1fr;border-radius:14px;gap:4px}}.cards-grid{{grid-template-columns:1fr}}input,select,button{{font-size:.84rem}}table{{font-size:.8rem}}}}
+      table th:nth-child(15), table td:nth-child(15){{width:96px;min-width:96px;max-width:96px}}
+      @media (max-width: 1180px){{.filter-grid{{grid-template-columns:repeat(2,minmax(180px,1fr))}}.filter-grid > fieldset,.filter-grid > .primary-actions,.filter-grid > .kline-settings{{grid-column:auto}}.form-actions{{grid-template-columns:1fr}}.utility-actions{{grid-template-columns:repeat(4,minmax(120px,1fr))}}.pipeline-progress-list{{grid-template-columns:repeat(2,minmax(160px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
+      @media (max-width: 760px){{body{{padding:10px}}.hero{{display:block;padding:18px}}.hero-badge{{display:inline-block;margin-top:12px}}.filter-grid,.field-stack,.kline-settings .field-stack,.summary-strip,.pipeline-progress-list{{grid-template-columns:1fr}}.form-actions{{gap:10px}}.primary-actions{{grid-template-columns:1fr;padding:32px 10px 10px;border-radius:14px}}.utility-actions{{grid-template-columns:repeat(2,minmax(0,1fr));padding:32px 10px 10px;border-radius:14px}}.preset-picker{{grid-column:1 / -1;grid-template-columns:1fr;border-radius:14px;gap:4px}}.cards-grid{{grid-template-columns:1fr}}input,select,button{{font-size:.84rem}}table{{font-size:.8rem}}}}
       @media (max-width: 390px){{.utility-actions{{grid-template-columns:1fr}}.preset-picker{{grid-column:1}}}}
     </style></head><body>
     <div class='page-shell'>
@@ -927,7 +949,7 @@ def app(environ, start_response):
           <button type='button' class='btn-soft' onclick='openBatchWatchlistDialog()'>批次加入自選</button>
           <span id='watchlistStatus' role='status' aria-live='polite'></span>
         </div>
-        <fieldset>
+        <fieldset class='kline-settings'>
           <legend>K 線與顯示</legend>
           <div class='field-stack'>
             <label class='form-field'>期間<select name='period'><option value='intraday' {'selected' if period=='intraday' else ''}>當日即時K</option><option value='1mo' {'selected' if period=='1mo' else ''}>1個月</option><option value='2mo' {'selected' if period=='2mo' else ''}>2個月</option><option value='3mo' {'selected' if period=='3mo' else ''}>3個月</option><option value='6mo' {'selected' if period=='6mo' else ''}>6個月</option><option value='1y' {'selected' if period=='1y' else ''}>1年</option><option value='5y' {'selected' if period=='5y' else ''}>5年</option></select></label>
@@ -936,6 +958,7 @@ def app(environ, start_response):
             <label class='form-field'>圖塊排序<select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='signal_score' {'selected' if card_sort=='signal_score' else ''}>形勢分數</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option><option value='target_ratio' {'selected' if card_sort=='target_ratio' else ''}>目標價/現價</option></select></label>
             <label class='form-field'>顯示量K線<select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select></label>
             <label class='form-field'>顯示價K線<select name='show_price'><option value='1' {'selected' if show_price else ''}>開啟</option><option value='0' {'selected' if not show_price else ''}>關閉</option></select></label>
+            <label class='form-field'>摘要／來源顯示<button type='button' id='cardThemeMetaToggle' class='btn-soft' aria-pressed='false' onclick='toggleCardThemeMeta()'>顯示摘要/來源：關</button></label>
           </div>
         </fieldset>
         <fieldset>
@@ -1087,6 +1110,7 @@ def app(environ, start_response):
     let dashboardCardsPerRow = Number(defaultConfig.cards_per_row || 3);
     let dashboardShowVolume = String(defaultConfig.show_volume ?? '1') === '1';
     let dashboardShowPrice = String(defaultConfig.show_price ?? '1') === '1';
+    let dashboardShowThemeMeta = false;
     const STOCK_META_PRESET_LOOKUP = STOCK_META_GROUPS.reduce((lookup, group)=>{{
       group.options.forEach((option)=>{{ lookup[option] = group.id; }});
       return lookup;
@@ -1200,6 +1224,19 @@ def app(environ, start_response):
       if(!dashboardShowVolume && item.card_html_without_volume) return item.card_html_without_volume;
       return item.card_html || '';
     }}
+    function applyCardThemeMetaVisibility(){{
+      document.documentElement.classList.toggle('show-card-theme-meta', dashboardShowThemeMeta);
+      const button = document.getElementById('cardThemeMetaToggle');
+      if(button){{
+        button.setAttribute('aria-pressed', dashboardShowThemeMeta ? 'true' : 'false');
+        button.textContent = `顯示摘要/來源：${{dashboardShowThemeMeta ? '開' : '關'}}`;
+      }}
+    }}
+    function toggleCardThemeMeta(){{
+      dashboardShowThemeMeta = !dashboardShowThemeMeta;
+      applyCardThemeMetaVisibility();
+      showWatchlistStatus(`已${{dashboardShowThemeMeta ? '顯示' : '隱藏'}}K線摘要/來源，未更新儀表板或變更個股排序。`);
+    }}
     function syncRenderOnlyUrlParams(){{
       const form = document.getElementById('cfgForm');
       const url = new URL(window.location.href);
@@ -1245,6 +1282,7 @@ def app(environ, start_response):
       populateStockMetaControls();
       applyNotesToTableAndCards();
       updateResponsiveGrid();
+      applyCardThemeMetaVisibility();
       syncRenderOnlyUrlParams();
       hideLoadingProgress();
     }}
@@ -1384,7 +1422,7 @@ def app(environ, start_response):
       }}
     }}
     function normalizeWatchlistSymbol(symbol){{
-      return String(symbol || '').trim().toUpperCase().replace(/\.(TW|TWO)$/i, '');
+      return String(symbol || '').trim().toUpperCase().replace(/\\.(TW|TWO)$/i, '');
     }}
     function markWatchlistButtonAdded(symbol){{
       const key = normalizeWatchlistSymbol(symbol);
@@ -1459,7 +1497,7 @@ def app(environ, start_response):
       return `${{stock.symbol}} - ${{stock.name || ''}} (${{stock.group || '未分類'}}${{stock.subgroup ? ' / ' + stock.subgroup : ''}})`;
     }}
     function splitStockTokens(value){{
-      return String(value || '').split(/[\s,，、;；]+/).map(x => x.trim()).filter(Boolean);
+      return String(value || '').split(/[\\s,，、;；]+/).map(x => x.trim()).filter(Boolean);
     }}
     function stockMatchesKeyword(stock, keyword=''){{
       const kw = keyword.trim().toLowerCase();
@@ -1767,7 +1805,7 @@ def app(environ, start_response):
       ]));
       filters.note = (document.getElementById('stockMetaFilter-note')?.value || '').trim().toLowerCase();
       filters.stockTokens = (document.getElementById('stockMetaFilter-stock')?.value || '')
-        .split(/[\s,，、;；]+/)
+        .split(/[\\s,，、;；]+/)
         .map((token)=>token.trim().toLowerCase())
         .filter(Boolean);
       return filters;
@@ -1976,6 +2014,7 @@ def app(environ, start_response):
         populateStockMetaControls();
         applyNotesToTableAndCards();
         updateResponsiveGrid();
+        applyCardThemeMetaVisibility();
         window.scrollTo(scrollX, scrollY);
         requestAnimationFrame(()=>window.scrollTo(scrollX, scrollY));
         refreshIntradayInPlace.lastSuccessAt = Date.now();
