@@ -124,6 +124,38 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         self.assertIn("window.addEventListener('focus'", response)
         self.assertEqual(captured_counts, [2])
 
+    def test_gemini_agent_metadata_priority_sits_between_watchlist_and_llm(self) -> None:
+        file_watchlist = pd.DataFrame([
+            {"symbol": "2330.TW", "name": "台積電", "group": "手動題材", "subgroup": "手動次題材"},
+        ])
+        gemini_watchlist = pd.DataFrame([
+            {"symbol": "2330.TW", "name": "台積電", "group": "Gemini題材", "subgroup": "Gemini次題材"},
+            {"symbol": "4772.TWO", "name": "台特化", "group": "半導體材料", "subgroup": "電子特氣 / 矽烷前驅物"},
+        ])
+        llm_watchlist = pd.DataFrame([
+            {"symbol": "2330.TW", "name": "台積電", "group": "LLM題材", "subgroup": "LLM次題材"},
+            {"symbol": "4772.TWO", "name": "台特化", "group": "傳產", "subgroup": "化學工業"},
+        ])
+        industry_df = pd.DataFrame([
+            {"industry": "21", "industry_label": "21 - 化學工業", "symbol": "4772.TWO", "name": "台特化", "group": "上櫃-21", "subgroup": ""},
+        ])
+
+        query = "custom_watchlist=2330.TW,4772.TWO"
+        with patch.object(dashboard_app, "load_watchlist", return_value=file_watchlist), \
+            patch.object(dashboard_app, "load_gemini_agent_group_map", return_value=gemini_watchlist), \
+            patch.object(dashboard_app, "load_llm_group_map", return_value=llm_watchlist), \
+            patch.object(dashboard_app, "load_twse_industry_map", return_value=industry_df), \
+            patch.object(dashboard_app, "prefetch_price_data", return_value={}):
+            response = b"".join(dashboard_app.app({"QUERY_STRING": query}, lambda *_args: None)).decode("utf-8")
+
+        self.assertIn("手動題材", response)
+        self.assertIn("手動次題材", response)
+        self.assertIn("半導體材料", response)
+        self.assertIn("電子特氣 / 矽烷前驅物", response)
+        self.assertNotIn("Gemini題材", response)
+        self.assertNotIn("LLM題材", response)
+        self.assertNotIn(">傳產</td>", response)
+
     def test_dashboard_renders_loading_progress_for_slow_category_requests(self) -> None:
         file_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
         llm_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])

@@ -4,6 +4,12 @@ APP_DIR = Path(__file__).resolve().parent.parent
 WATCHLIST_FILE = APP_DIR / "watchlist.csv"
 LLM_GROUP_FILE = APP_DIR / "data" / "tw_stock_llm_source_with_group.xlsx"
 LLM_GROUP_SHEET = "LLM_result_stock_group_json_fla"
+GEMINI_AGENT_GROUP_FILE = (
+    APP_DIR
+    / "data"
+    / "tw_stock_llm_datasource_excel"
+    / "tw_stock_analysis_result_Gemini_agent.xlsx"
+)
 TWSE_LISTED_INFO_API = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
 TPEX_LISTED_INFO_API = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O"
 STATIC_CACHE_DIR = APP_DIR / "prebuilt_cache"
