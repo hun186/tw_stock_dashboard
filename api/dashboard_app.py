@@ -20,6 +20,7 @@ from api.constants import (
     WATCHLIST_FILE,
 )
 from api.data_loader import (
+    STOCK_GROUP_COLUMNS,
     load_gemini_agent_group_map,
     load_llm_group_map,
     load_twse_industry_map,
@@ -35,6 +36,57 @@ from api.market_data import (
 )
 from api.server_configs import load_server_config_presets
 from api.stock_analysis import add_indicators, analyze_stock_signal
+
+
+def _ensure_stock_group_columns(df: pd.DataFrame) -> pd.DataFrame:
+    normalized = df.copy()
+    for col in STOCK_GROUP_COLUMNS:
+        if col not in normalized.columns:
+            normalized[col] = ""
+        normalized[col] = normalized[col].fillna("").astype(str).str.strip()
+    return normalized
+
+
+def _stock_group_frame(df: pd.DataFrame) -> pd.DataFrame:
+    return _ensure_stock_group_columns(df)[STOCK_GROUP_COLUMNS].copy()
+
+
+def _merge_stock_group_sources(*sources: pd.DataFrame) -> pd.DataFrame:
+    frames = [_stock_group_frame(source) for source in sources if source is not None]
+    if not frames:
+        return pd.DataFrame(columns=STOCK_GROUP_COLUMNS)
+    combined = pd.concat(frames, ignore_index=True)
+    combined = combined[combined["symbol"] != ""].copy()
+    if combined.empty:
+        return pd.DataFrame(columns=STOCK_GROUP_COLUMNS)
+
+    # Sources are passed from lowest to highest priority.  For every column, keep
+    # the highest-priority non-empty value so a legacy watchlist without
+    # summary/reference_url does not erase Gemini metadata for the same symbol.
+    merged_rows = []
+    for symbol, group in combined.groupby("symbol", sort=False):
+        row = {"symbol": symbol}
+        for col in [c for c in STOCK_GROUP_COLUMNS if c != "symbol"]:
+            values = group[col].tolist()
+            row[col] = next((value for value in reversed(values) if value), "")
+        merged_rows.append(row)
+    return pd.DataFrame(merged_rows, columns=STOCK_GROUP_COLUMNS)
+
+
+def _theme_summary_text(value: object) -> str:
+    text = str(value or "").strip()
+    return text if text else "-"
+
+
+def _theme_reference_html(value: object) -> str:
+    url = str(value or "").strip()
+    if not url:
+        return "-"
+    escaped = html.escape(url, quote=True)
+    label = "來源連結" if url.lower().startswith(("http://", "https://")) else url
+    if url.lower().startswith(("http://", "https://")):
+        return f"<a class='source-link' href='{escaped}' target='_blank' rel='noopener noreferrer'>{html.escape(label)}</a>"
+    return html.escape(label)
 
 
 STOCK_ANALYSIS_CACHE: dict[tuple[str, str, str, str, str, bool], tuple[float, dict]] = {}
@@ -238,44 +290,37 @@ def app(environ, start_response):
 
     fetch_period, fetch_interval, display_period = resolve_price_params(period, interval)
 
-    file_watchlist = load_watchlist(WATCHLIST_FILE)
-    gemini_agent_watchlist = load_gemini_agent_group_map(GEMINI_AGENT_GROUP_FILE)
-    llm_watchlist = load_llm_group_map(LLM_GROUP_FILE, LLM_GROUP_SHEET)
-    stock_metadata = (
-        pd.concat([llm_watchlist, gemini_agent_watchlist, file_watchlist], ignore_index=True)
-        .drop_duplicates(subset=["symbol"], keep="last")
-        .reset_index(drop=True)
-    )
+    file_watchlist = _stock_group_frame(load_watchlist(WATCHLIST_FILE))
+    gemini_agent_watchlist = _stock_group_frame(load_gemini_agent_group_map(GEMINI_AGENT_GROUP_FILE))
+    llm_watchlist = _stock_group_frame(load_llm_group_map(LLM_GROUP_FILE, LLM_GROUP_SHEET))
+    stock_metadata = _merge_stock_group_sources(llm_watchlist, gemini_agent_watchlist, file_watchlist).reset_index(drop=True)
     base_watchlist = file_watchlist.reset_index(drop=True)
     industry_df = load_twse_industry_map()
+    industry_df = _ensure_stock_group_columns(industry_df)
     industries = industry_df[["industry", "industry_label"]].drop_duplicates().sort_values("industry")
     valid_industries = set(industries["industry"].astype(str)) if not industries.empty else set()
     industry = params.get("industry", ["all"])[0]
     if industry != "all" and industry not in valid_industries:
         industry = "all"
     watchlist_overrides = (
-        stock_metadata[["symbol", "name", "group", "subgroup"]]
+        stock_metadata[STOCK_GROUP_COLUMNS]
         .assign(symbol_key=lambda d: d["symbol"].map(_symbol_key))
         .drop_duplicates(subset=["symbol"], keep="last")
-        .rename(columns={
-            "name": "watch_name",
-            "group": "watch_group",
-            "subgroup": "watch_subgroup",
-        })
+        .rename(columns={col: f"watch_{col}" for col in STOCK_GROUP_COLUMNS if col != "symbol"})
     )
 
-    all_stocks = pd.concat([
-        stock_metadata[["symbol", "name", "group", "subgroup"]],
-        industry_df[["symbol", "name", "group", "subgroup"]]
-    ], ignore_index=True).drop_duplicates(subset=["symbol"])
+    all_stocks = _merge_stock_group_sources(
+        industry_df[STOCK_GROUP_COLUMNS],
+        stock_metadata[STOCK_GROUP_COLUMNS],
+    )
 
     custom_symbols = [x.strip() for x in custom_watchlist_raw.split(",") if x.strip()]
-    custom_df = all_stocks[all_stocks["symbol"].isin(custom_symbols)][["symbol", "name", "group", "subgroup"]]
+    custom_df = all_stocks[all_stocks["symbol"].isin(custom_symbols)][STOCK_GROUP_COLUMNS]
     missing_symbols = [x for x in custom_symbols if x not in set(custom_df["symbol"]) ]
     if missing_symbols:
         custom_df = pd.concat([
             custom_df,
-            pd.DataFrame([{"symbol": s, "name": s, "group": "自訂", "subgroup": ""} for s in missing_symbols])
+            pd.DataFrame([{"symbol": s, "name": s, "group": "自訂", "subgroup": "", "summary": "", "reference_url": ""} for s in missing_symbols])
         ], ignore_index=True)
     watchlist = custom_df if not custom_df.empty else base_watchlist
 
@@ -283,9 +328,9 @@ def app(environ, start_response):
         source_stocks = industry_df.copy()
         if industry != "all":
             source_stocks = source_stocks[source_stocks["industry"] == industry]
-        source_stocks = source_stocks[["symbol", "name", "group", "subgroup"]]
+        source_stocks = source_stocks[STOCK_GROUP_COLUMNS]
     else:
-        source_stocks = watchlist[["symbol", "name", "group", "subgroup"]].copy()
+        source_stocks = watchlist[STOCK_GROUP_COLUMNS].copy()
         if industry != "all":
             industry_symbol_keys = set(
                 industry_df.loc[industry_df["industry"] == industry, "symbol"].map(_symbol_key)
@@ -294,23 +339,22 @@ def app(environ, start_response):
 
     source_stocks["symbol_key"] = source_stocks["symbol"].map(_symbol_key)
     source_stocks = source_stocks.merge(
-        watchlist_overrides[["symbol_key", "watch_name", "watch_group", "watch_subgroup"]],
+        watchlist_overrides[["symbol_key", "watch_name", "watch_group", "watch_subgroup", "watch_summary", "watch_reference_url"]],
         on="symbol_key",
         how="left",
     )
-    source_stocks["name"] = source_stocks["watch_name"].fillna(source_stocks["name"])
-    source_stocks["group"] = source_stocks["watch_group"].fillna(source_stocks["group"])
-    source_stocks["subgroup"] = source_stocks["watch_subgroup"].fillna(source_stocks["subgroup"])
-    source_stocks = source_stocks[["symbol", "name", "group", "subgroup"]]
+    for col in ["name", "group", "subgroup", "summary", "reference_url"]:
+        source_stocks[col] = source_stocks[f"watch_{col}"].where(
+            source_stocks[f"watch_{col}"].fillna("").astype(str).str.strip().ne(""),
+            source_stocks[col],
+        )
+    source_stocks = source_stocks[STOCK_GROUP_COLUMNS]
 
     picker_stocks = _sort_stocks_by_symbol(
-        pd.concat(
-            [all_stocks, watchlist[["symbol", "name", "group", "subgroup"]], source_stocks],
-            ignore_index=True,
-        ).drop_duplicates(subset=["symbol"], keep="first")
+        _merge_stock_group_sources(all_stocks, watchlist[STOCK_GROUP_COLUMNS], source_stocks)
     )
     stock_filter_stocks = _sort_stocks_by_symbol(
-        watchlist[["symbol", "name", "group", "subgroup"]].drop_duplicates(subset=["symbol"])
+        _merge_stock_group_sources(watchlist[STOCK_GROUP_COLUMNS])
     )
 
     valid_groups = sorted([g for g in source_stocks["group"].dropna().astype(str).str.strip().unique() if g])
@@ -353,6 +397,7 @@ def app(environ, start_response):
         def stock_matches_meta_filters(row):
             symbol = str(row["symbol"])
             name = str(row["name"] or "")
+            summary = str(row.get("summary", "") or "")
             meta = normalize_stock_meta_entry(stock_meta_payload.get(symbol, {}))
             tags_match = all(
                 selected == "all"
@@ -364,8 +409,9 @@ def app(environ, start_response):
             symbol_lower = symbol.lower()
             symbol_key_lower = _symbol_key(symbol).lower()
             name_lower = name.lower()
+            summary_lower = summary.lower()
             stock_matches = not stock_filter_tokens or any(
-                token in symbol_lower or token in symbol_key_lower or token in name_lower
+                token in symbol_lower or token in symbol_key_lower or token in name_lower or token in summary_lower
                 for token in stock_filter_tokens
             )
             return tags_match and note_matches and stock_matches
@@ -502,6 +548,8 @@ def app(environ, start_response):
                 f"onclick='addWatchlistStock({symbol_js}, {{ stayOnPage: true }})'>＋</button>"
             )
         subgroup_text = row.subgroup if isinstance(row.subgroup, str) and row.subgroup else "-"
+        summary_text = _theme_summary_text(getattr(row, "summary", ""))
+        reference_html = _theme_reference_html(getattr(row, "reference_url", ""))
         stock_meta_cells = "".join([
             f"<td class='stock-meta-cell'><div class='note-editor' data-symbol='{html.escape(row.symbol)}'>"
             f"<select class='stock-meta-select' data-field='{field}' title='{html.escape(label)}' onchange=\"saveInlineStockMeta(this)\"></select>"
@@ -526,7 +574,15 @@ def app(environ, start_response):
             f"{html.escape(row.name)}"
             "</button>"
         )
-        row_html = f"<tr data-symbol='{html.escape(row.symbol)}' data-name='{html.escape(row.name, quote=True)}'><td class='row-action-cell'>{action_btn}</td><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td><td>{name_jump_button}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td><td>{html.escape(status)}</td><td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td>{stock_meta_cells}<td class='note-cell'>{note_editor}</td></tr>"
+        row_html = (
+            f"<tr data-symbol='{html.escape(row.symbol)}' data-name='{html.escape(row.name, quote=True)}' "
+            f"data-summary='{html.escape(summary_text, quote=True)}'>"
+            f"<td class='row-action-cell'>{action_btn}</td><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td>"
+            f"<td>{name_jump_button}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td>"
+            f"<td class='theme-summary-cell'>{html.escape(summary_text)}</td><td class='source-cell'>{reference_html}</td>"
+            f"<td>{html.escape(status)}</td><td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td>"
+            f"{stock_meta_cells}<td class='note-cell'>{note_editor}</td></tr>"
+        )
         card_html = ""
         card_html_with_volume = ""
         card_html_without_volume = ""
@@ -570,6 +626,10 @@ def app(environ, start_response):
                 f"<span style='color:{close_color};font-weight:700'>{close_text}{change_text}</span>{html.escape(signal_brief)}</span>"
                 f"<span style='font-size:.82rem;color:{target_ratio_color};font-weight:700'>目標價/現價：{target_ratio_text}</span>"
                 "</h3>"
+                "<div class='theme-card-meta'>"
+                f"<p><strong>題材摘要：</strong>{html.escape(summary_text)}</p>"
+                f"<p><strong>來源：</strong>{reference_html}</p>"
+                "</div>"
             )
             card_html_with_volume_price = (
                 card_header_html
@@ -705,7 +765,7 @@ def app(environ, start_response):
     progress_panel_class = "pipeline-progress is-compact" if compact_progress else "pipeline-progress"
 
     action_column_label = "移除" if tab == "watchlist" else "自選"
-    table_header_html = f"<tr><th>{action_column_label}</th><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th></tr>"
+    table_header_html = f"<tr><th>{action_column_label}</th><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>題材摘要</th><th>來源</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th></tr>"
     stock_filter_button_text = "選擇自選股" if not stock_meta_stock_filter else f"已選 {len([x for x in stock_meta_stock_filter.replace('，', ',').replace('、', ',').replace(';', ',').replace('；', ',').split(',') for x in x.split() if x.strip()])} 筆條件"
     dashboard_render_items_json = json.dumps(rendered_stock_items, ensure_ascii=False).replace("</", "<\/")
     table_header_html_json = json.dumps(table_header_html, ensure_ascii=False).replace("</", "<\/")
@@ -779,8 +839,12 @@ def app(environ, start_response):
       td:first-child,th:first-child{{border-left:1px solid #e2e8f0}}
       td:last-child,th:last-child{{border-right:1px solid #e2e8f0}}
       tr:hover td{{background:#f8fbff}}
-      table th:nth-child(8), table td:nth-child(8), table th:nth-child(9), table td:nth-child(9), table th:nth-child(10), table td:nth-child(10){{text-align:right}}
+      table th:nth-child(10), table td:nth-child(10), table th:nth-child(11), table td:nth-child(11), table th:nth-child(12), table td:nth-child(12){{text-align:right}}
       .row-action-cell{{text-align:center;width:42px;min-width:42px}}
+      .theme-summary-cell{{white-space:normal;min-width:220px;max-width:360px;color:#334155;line-height:1.35}}
+      .source-cell{{max-width:140px;overflow:hidden;text-overflow:ellipsis}}
+      .source-link{{color:#1565c0;font-weight:700;text-decoration:none}}
+      .source-link:hover,.source-link:focus{{text-decoration:underline}}
       .table-wrap{{overflow:auto;border-radius:14px;border:1px solid #e2e8f0;background:#fff}}
       .section-card{{padding:16px;margin:16px 0}}
       .section-header{{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:12px}}
@@ -794,6 +858,9 @@ def app(environ, start_response):
       .card{{margin:0;padding:12px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 8px 22px rgba(15,23,42,.06);transition:border-color .2s ease,box-shadow .2s ease,background .2s ease,transform .2s ease;overflow:hidden}}
       .card:hover{{transform:translateY(-2px);box-shadow:0 16px 32px rgba(15,23,42,.12)}}
       .card h3{{font-size:.96rem;margin:0 0 8px}}
+      .theme-card-meta{{border:1px solid #dbeafe;background:#f8fbff;border-radius:12px;padding:8px 10px;margin:0 0 8px;color:#334155;font-size:.84rem}}
+      .theme-card-meta p{{margin:0 0 4px}}
+      .theme-card-meta p:last-child{{margin-bottom:0}}
       .card.is-jump-target{{border-color:#1976d2;box-shadow:0 0 0 3px rgba(25,118,210,.16),var(--shadow);background:#f5fbff}}
       .stock-jump{{border:0;background:none;color:#1565c0;text-decoration:underline;cursor:pointer;padding:0;font:inherit;border-radius:4px}}
       .stock-jump:hover,.stock-jump:focus{{color:#0d47a1;text-decoration-thickness:2px;outline:none;box-shadow:none;transform:none}}
@@ -830,7 +897,7 @@ def app(environ, start_response):
       .note-cell{{width:190px;min-width:190px;max-width:190px}}
       .note-editor .stock-meta-select{{width:120px;min-width:0;padding:4px 6px;text-align:left;text-align-last:left;min-height:30px}}
       .note-editor .stock-note-input{{width:170px;min-width:120px;padding:4px 6px;min-height:30px}}
-      table th:nth-child(15), table td:nth-child(15){{width:96px;min-width:96px;max-width:96px}}
+      table th:nth-child(17), table td:nth-child(17){{width:96px;min-width:96px;max-width:96px}}
       @media (max-width: 1180px){{.form-actions{{grid-template-columns:1fr}}.utility-actions{{grid-template-columns:repeat(4,minmax(120px,1fr))}}.pipeline-progress-list{{grid-template-columns:repeat(2,minmax(160px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
       @media (max-width: 900px){{.filter-grid{{grid-template-columns:repeat(2,minmax(180px,1fr))}}}}
       @media (max-width: 760px){{body{{padding:10px}}.hero{{display:block;padding:18px}}.hero-badge{{display:inline-block;margin-top:12px}}.filter-grid,.field-stack,.summary-strip,.pipeline-progress-list{{grid-template-columns:1fr}}.form-actions{{gap:10px}}.primary-actions{{grid-template-columns:1fr;padding:32px 10px 10px;border-radius:14px}}.utility-actions{{grid-template-columns:repeat(2,minmax(0,1fr));padding:32px 10px 10px;border-radius:14px}}.preset-picker{{grid-column:1 / -1;grid-template-columns:1fr;border-radius:14px;gap:4px}}.cards-grid{{grid-template-columns:1fr}}input,select,button{{font-size:.84rem}}table{{font-size:.8rem}}}}
@@ -932,7 +999,7 @@ def app(environ, start_response):
           <div class='watchlist-batch-help'>先搜尋並勾選多檔股票，或在下方貼上多個代號（可用逗號、空白或換行分隔）；未按「批次加入」前，暫時關閉視窗也會保留已勾選內容。</div>
           <label for='watchKeyword'>關鍵字搜尋</label>
           <div class='watchlist-batch-row'>
-            <input id='watchKeyword' placeholder='輸入名稱、代號、主題或次題材' style='flex:1;min-width:220px'>
+            <input id='watchKeyword' placeholder='輸入名稱、代號、主題、次題材或摘要' style='flex:1;min-width:220px'>
             <button type='button' onclick='selectVisibleBatchStocks(true)'>全選搜尋結果</button>
             <button type='button' onclick='selectVisibleBatchStocks(false)'>清除搜尋勾選</button>
           </div>
@@ -958,7 +1025,7 @@ def app(environ, start_response):
           <div class='watchlist-batch-help'>用和「批次加入自選」相同的搜尋勾選方式建立股名篩選；可勾選的來源僅限目前自選股清單。</div>
           <label for='stockFilterKeyword'>關鍵字搜尋</label>
           <div class='watchlist-batch-row'>
-            <input id='stockFilterKeyword' placeholder='輸入名稱、代號、主題或次題材' style='flex:1;min-width:220px'>
+            <input id='stockFilterKeyword' placeholder='輸入名稱、代號、主題、次題材或摘要' style='flex:1;min-width:220px'>
             <button type='button' onclick='selectVisibleStockFilterStocks(true)'>全選搜尋結果</button>
             <button type='button' onclick='selectVisibleStockFilterStocks(false)'>清除搜尋勾選</button>
           </div>
@@ -987,7 +1054,7 @@ def app(environ, start_response):
         <div class='summary-item'><span class='summary-label'>頁面進度</span><span class='summary-value'>{page} / {total_pages}</span></div>
         <div class='summary-item'><span class='summary-label'>每頁顯示</span><span class='summary-value'>{limit} 檔</span></div>
       </div>
-      <div id='tableWrap' class='table-wrap'><table>{table_header_html}{''.join(rows) if rows else '<tr><td colspan="15">無符合條件資料</td></tr>'}</table></div>
+      <div id='tableWrap' class='table-wrap'><table>{table_header_html}{''.join(rows) if rows else '<tr><td colspan="17">無符合條件資料</td></tr>'}</table></div>
     </section>
     <section class='section-card' aria-labelledby='chartsTitle'>
       <div class='section-header'><h2 id='chartsTitle'>多股趨勢圖</h2></div>
@@ -1155,7 +1222,7 @@ def app(environ, start_response):
       const pageItems = items.slice(start, start + dashboardPageSize);
       const table = document.querySelector('#tableWrap table');
       if(table){{
-        table.innerHTML = dashboardTableHeaderHtml + (pageItems.length ? pageItems.map((item)=>item.row_html).join('') : '<tr><td colspan="15">無符合條件資料</td></tr>');
+        table.innerHTML = dashboardTableHeaderHtml + (pageItems.length ? pageItems.map((item)=>item.row_html).join('') : '<tr><td colspan="17">無符合條件資料</td></tr>');
       }}
       const grid = document.getElementById('cardsGrid');
       if(grid){{
@@ -1275,8 +1342,8 @@ def app(environ, start_response):
       evt.target.value = '';
     }}
 
-    const allStocks = {json.dumps(picker_stocks[['symbol', 'name', 'group', 'subgroup']].to_dict(orient='records'), ensure_ascii=False)};
-    const stockFilterStocks = {json.dumps(stock_filter_stocks[['symbol', 'name', 'group', 'subgroup']].to_dict(orient='records'), ensure_ascii=False)};
+    const allStocks = {json.dumps(picker_stocks[STOCK_GROUP_COLUMNS].to_dict(orient='records'), ensure_ascii=False)};
+    const stockFilterStocks = {json.dumps(stock_filter_stocks[STOCK_GROUP_COLUMNS].to_dict(orient='records'), ensure_ascii=False)};
     function getWatchlistSymbols(){{
       const raw = document.getElementById('customWatchlist').value.trim();
       return raw ? raw.split(',').map(x=>x.trim()).filter(Boolean) : [];
@@ -1396,7 +1463,7 @@ def app(environ, start_response):
     }}
     function stockMatchesKeyword(stock, keyword=''){{
       const kw = keyword.trim().toLowerCase();
-      return !kw || [stock.symbol, stock.name, stock.group, stock.subgroup]
+      return !kw || [stock.symbol, stock.name, stock.group, stock.subgroup, stock.summary]
         .filter(Boolean)
         .some(v => String(v).toLowerCase().includes(kw));
     }}
@@ -1526,7 +1593,8 @@ def app(environ, start_response):
         const key = normalizeWatchlistSymbol(stock.symbol);
         const symbol = String(stock.symbol || '').toLowerCase();
         const name = String(stock.name || '').toLowerCase();
-        if(tokenSet.has(key) || lowerTokens.some((token)=>symbol.includes(token) || name.includes(token))){{
+        const summary = String(stock.summary || '').toLowerCase();
+        if(tokenSet.has(key) || lowerTokens.some((token)=>symbol.includes(token) || name.includes(token) || summary.includes(token))){{
           stockFilterSelectedSymbols.set(key, stock.symbol);
         }}
       }});
@@ -1719,7 +1787,8 @@ def app(environ, start_response):
           const symbol = String(tr.dataset.symbol || '').toLowerCase();
           const symbolKey = symbol.split('.')[0];
           const name = String(tr.dataset.name || '').toLowerCase();
-          return symbol.includes(token) || symbolKey.includes(token) || name.includes(token);
+          const summary = String(tr.dataset.summary || '').toLowerCase();
+          return symbol.includes(token) || symbolKey.includes(token) || name.includes(token) || summary.includes(token);
         }});
         const visible = !removed && tagMatched && noteMatched && stockMatched;
         tr.style.display = visible ? '' : 'none';
