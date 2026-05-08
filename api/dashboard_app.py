@@ -621,17 +621,14 @@ def app(environ, start_response):
                 except ValueError:
                     target_ratio_color = "#666"
             card_theme_popover = (
-                "<span class='theme-title-popover' tabindex='0' aria-label='題材摘要與來源'>"
-                "<span class='theme-title-trigger'>題材</span>"
                 "<span class='theme-title-panel' role='tooltip'>"
                 f"<span><strong>題材摘要：</strong>{html.escape(summary_text)}</span>"
                 f"<span><strong>來源：</strong>{reference_html}</span>"
                 "</span>"
-                "</span>"
             )
             card_header_html = (
                 "<h3 class='card-title'>"
-                f"<span class='card-title-main'><span>{html.escape(row.name)} ({html.escape(row.symbol)})</span>{card_theme_popover}<span>收盤 "
+                f"<span class='card-title-main'><span class='theme-title-popover' tabindex='0' aria-label='題材摘要與來源'>{html.escape(row.name)} ({html.escape(row.symbol)}){card_theme_popover}</span><span>收盤 "
                 f"<span style='color:{close_color};font-weight:700'>{close_text}{change_text}</span>{html.escape(signal_brief)}</span></span>"
                 f"<span class='card-target-ratio' style='color:{target_ratio_color}'>目標價/現價：{target_ratio_text}</span>"
                 "</h3>"
@@ -774,7 +771,7 @@ def app(environ, start_response):
     progress_panel_class = "pipeline-progress is-compact" if compact_progress else "pipeline-progress"
 
     action_column_label = "移除" if tab == "watchlist" else "自選"
-    table_header_html = f"<tr><th>{action_column_label}</th><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th>題材摘要</th><th>來源</th></tr>"
+    table_header_html = f"<tr><th>{action_column_label}</th><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th class='theme-summary-cell'>題材摘要</th><th class='source-cell'>來源</th></tr>"
     stock_filter_button_text = "選擇自選股" if not stock_meta_stock_filter else f"已選 {len([x for x in stock_meta_stock_filter.replace('，', ',').replace('、', ',').replace(';', ',').replace('；', ',').split(',') for x in x.split() if x.strip()])} 筆條件"
     dashboard_render_items_json = json.dumps(rendered_stock_items, ensure_ascii=False).replace("</", "<\\/")
     table_header_html_json = json.dumps(table_header_html, ensure_ascii=False).replace("</", "<\\/")
@@ -794,6 +791,7 @@ def app(environ, start_response):
       .control-panel{{padding:16px;margin-bottom:16px}}
       .filter-grid{{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:10px;align-items:stretch}}
       .filter-grid > fieldset{{grid-column:span 3}}
+      .filter-grid > .pool-settings{{grid-column:span 3}}
       .filter-grid > .primary-actions{{grid-column:span 2}}
       .filter-grid > .kline-settings{{grid-column:span 4}}
       fieldset{{border:1px solid var(--line);border-radius:14px;padding:12px;margin:0;background:#fbfdff;min-width:0}}
@@ -854,8 +852,9 @@ def app(environ, start_response):
       tr:hover td{{background:#f8fbff}}
       table th:nth-child(8), table td:nth-child(8), table th:nth-child(9), table td:nth-child(9), table th:nth-child(10), table td:nth-child(10){{text-align:right}}
       .row-action-cell{{text-align:center;width:42px;min-width:42px}}
-      .theme-summary-cell{{white-space:normal;min-width:220px;max-width:360px;color:#334155;line-height:1.35}}
-      .source-cell{{max-width:140px;overflow:hidden;text-overflow:ellipsis}}
+      .theme-summary-cell{{display:none;white-space:normal;min-width:240px;max-width:360px;color:#334155;line-height:1.35;padding-left:14px;overflow-wrap:anywhere}}
+      .source-cell{{display:none;max-width:140px;overflow:hidden;text-overflow:ellipsis}}
+      .show-card-theme-meta .theme-summary-cell,.show-card-theme-meta .source-cell{{display:table-cell}}
       .source-link{{color:#1565c0;font-weight:700;text-decoration:none}}
       .source-link:hover,.source-link:focus{{text-decoration:underline}}
       .table-wrap{{overflow:auto;border-radius:14px;border:1px solid #e2e8f0;background:#fff}}
@@ -868,15 +867,15 @@ def app(environ, start_response):
       .summary-value{{display:block;font-size:1.12rem;font-weight:800;margin-top:2px}}
       .page-nav{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}
       .cards-grid{{display:grid;grid-template-columns:repeat({cards_per_row}, minmax(0,1fr));gap:14px}}
-      .card{{margin:0;padding:12px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 8px 22px rgba(15,23,42,.06);transition:border-color .2s ease,box-shadow .2s ease,background .2s ease,transform .2s ease;overflow:hidden}}
+      .card{{margin:0;padding:12px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 8px 22px rgba(15,23,42,.06);transition:border-color .2s ease,box-shadow .2s ease,background .2s ease,transform .2s ease;overflow:visible}}
       .card:hover{{transform:translateY(-2px);box-shadow:0 16px 32px rgba(15,23,42,.12)}}
       .card h3{{font-size:.96rem;margin:0 0 8px}}
       .card-title{{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}}
       .card-title-main{{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}}
       .card-target-ratio{{font-size:.82rem;font-weight:700;white-space:nowrap}}
-      .theme-title-popover{{position:relative;display:inline-flex;align-items:center;outline:none}}
-      .theme-title-trigger{{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:22px;padding:0 7px;border:1px solid #bfdbfe;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-size:.72rem;font-weight:900;line-height:1}}
-      .theme-title-panel{{position:absolute;left:0;top:calc(100% + 6px);z-index:8;display:none;width:min(280px,70vw);padding:9px 10px;border:1px solid #bfdbfe;border-radius:12px;background:#fff;box-shadow:0 14px 30px rgba(15,23,42,.18);color:#334155;font-size:.8rem;line-height:1.4}}
+      .theme-title-popover{{position:relative;display:inline-flex;align-items:center;outline:none;border-radius:4px}}
+      .theme-title-popover:hover,.theme-title-popover:focus{{color:#0d47a1;text-decoration:underline;text-decoration-thickness:2px}}
+      .theme-title-panel{{position:absolute;left:0;top:calc(100% + 6px);z-index:8;display:none;width:min(300px,70vw);padding:9px 10px;border:1px solid #bfdbfe;border-radius:12px;background:#fff;box-shadow:0 14px 30px rgba(15,23,42,.18);color:#334155;font-size:.8rem;line-height:1.4;font-weight:400;text-decoration:none}}
       .theme-title-panel span{{display:block;white-space:normal}}
       .theme-title-panel span + span{{margin-top:5px}}
       .theme-title-popover:hover .theme-title-panel,.theme-title-popover:focus-within .theme-title-panel{{display:block}}
@@ -921,7 +920,7 @@ def app(environ, start_response):
       .note-editor .stock-meta-select{{width:120px;min-width:0;padding:4px 6px;text-align:left;text-align-last:left;min-height:30px}}
       .note-editor .stock-note-input{{width:170px;min-width:120px;padding:4px 6px;min-height:30px}}
       table th:nth-child(15), table td:nth-child(15){{width:96px;min-width:96px;max-width:96px}}
-      @media (max-width: 1180px){{.filter-grid{{grid-template-columns:repeat(2,minmax(180px,1fr))}}.filter-grid > fieldset,.filter-grid > .primary-actions,.filter-grid > .kline-settings{{grid-column:auto}}.form-actions{{grid-template-columns:1fr}}.utility-actions{{grid-template-columns:repeat(4,minmax(120px,1fr))}}.pipeline-progress-list{{grid-template-columns:repeat(2,minmax(160px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
+      @media (max-width: 920px){{.filter-grid{{grid-template-columns:repeat(2,minmax(180px,1fr))}}.filter-grid > fieldset,.filter-grid > .pool-settings,.filter-grid > .primary-actions,.filter-grid > .kline-settings{{grid-column:auto}}.form-actions{{grid-template-columns:1fr}}.utility-actions{{grid-template-columns:repeat(4,minmax(120px,1fr))}}.pipeline-progress-list{{grid-template-columns:repeat(2,minmax(160px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
       @media (max-width: 760px){{body{{padding:10px}}.hero{{display:block;padding:18px}}.hero-badge{{display:inline-block;margin-top:12px}}.filter-grid,.field-stack,.kline-settings .field-stack,.summary-strip,.pipeline-progress-list{{grid-template-columns:1fr}}.form-actions{{gap:10px}}.primary-actions{{grid-template-columns:1fr;padding:32px 10px 10px;border-radius:14px}}.utility-actions{{grid-template-columns:repeat(2,minmax(0,1fr));padding:32px 10px 10px;border-radius:14px}}.preset-picker{{grid-column:1 / -1;grid-template-columns:1fr;border-radius:14px;gap:4px}}.cards-grid{{grid-template-columns:1fr}}input,select,button{{font-size:.84rem}}table{{font-size:.8rem}}}}
       @media (max-width: 390px){{.utility-actions{{grid-template-columns:1fr}}.preset-picker{{grid-column:1}}}}
     </style></head><body>
@@ -935,7 +934,7 @@ def app(environ, start_response):
     </header>
     <form id='cfgForm' class='control-panel'>
       <div class='filter-grid'>
-        <fieldset>
+        <fieldset class='pool-settings'>
           <legend>股池與分類</legend>
           <div class='field-stack'>
             <label class='form-field'>頁籤<select name='tab'><option value='watchlist' {'selected' if tab=='watchlist' else ''}>自選股監控</option><option value='category' {'selected' if tab=='category' else ''}>分類股池</option></select></label>
@@ -1077,7 +1076,7 @@ def app(environ, start_response):
         <div class='summary-item'><span class='summary-label'>頁面進度</span><span class='summary-value'>{page} / {total_pages}</span></div>
         <div class='summary-item'><span class='summary-label'>每頁顯示</span><span class='summary-value'>{limit} 檔</span></div>
       </div>
-      <div id='tableWrap' class='table-wrap'><table>{table_header_html}{''.join(rows) if rows else '<tr><td colspan="17">無符合條件資料</td></tr>'}</table></div>
+      <div id='tableWrap' class='table-wrap'><table>{table_header_html}{''.join(rows) if rows else '<tr><td colspan="15">無符合條件資料</td></tr>'}</table></div>
     </section>
     <section class='section-card' aria-labelledby='chartsTitle'>
       <div class='section-header'><h2 id='chartsTitle'>多股趨勢圖</h2></div>
@@ -1235,7 +1234,7 @@ def app(environ, start_response):
     function toggleCardThemeMeta(){{
       dashboardShowThemeMeta = !dashboardShowThemeMeta;
       applyCardThemeMetaVisibility();
-      showWatchlistStatus(`已${{dashboardShowThemeMeta ? '顯示' : '隱藏'}}K線摘要/來源，未更新儀表板或變更個股排序。`);
+      showWatchlistStatus(`已${{dashboardShowThemeMeta ? '顯示' : '隱藏'}}總表欄位與K線摘要/來源，未更新儀表板或變更個股排序。`);
     }}
     function syncRenderOnlyUrlParams(){{
       const form = document.getElementById('cfgForm');
@@ -1259,7 +1258,8 @@ def app(environ, start_response):
       const pageItems = items.slice(start, start + dashboardPageSize);
       const table = document.querySelector('#tableWrap table');
       if(table){{
-        table.innerHTML = dashboardTableHeaderHtml + (pageItems.length ? pageItems.map((item)=>item.row_html).join('') : '<tr><td colspan="17">無符合條件資料</td></tr>');
+        const emptyColspan = dashboardShowThemeMeta ? 17 : 15;
+        table.innerHTML = dashboardTableHeaderHtml + (pageItems.length ? pageItems.map((item)=>item.row_html).join('') : `<tr><td colspan="${{emptyColspan}}">無符合條件資料</td></tr>`);
       }}
       const grid = document.getElementById('cardsGrid');
       if(grid){{
