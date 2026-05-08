@@ -58,6 +58,26 @@ def _analysis_cache_ttl_seconds(fetch_interval: str) -> int:
     return max(get_price_cache_ttl_seconds(fetch_interval), 300)
 
 
+def _stock_code_sort_value(symbol: object) -> tuple[str, str]:
+    normalized = str(symbol or "").strip().upper()
+    code = normalized.split(".", 1)[0]
+    return code, normalized
+
+
+def _sort_stocks_by_symbol(stocks: pd.DataFrame) -> pd.DataFrame:
+    if stocks.empty or "symbol" not in stocks.columns:
+        return stocks.copy()
+    sorted_stocks = stocks.copy()
+    sort_values = sorted_stocks["symbol"].map(_stock_code_sort_value)
+    sorted_stocks["_stock_code_sort"] = sort_values.map(lambda value: value[0])
+    sorted_stocks["_stock_symbol_sort"] = sort_values.map(lambda value: value[1])
+    return (
+        sorted_stocks.sort_values(["_stock_code_sort", "_stock_symbol_sort"], kind="stable")
+        .drop(columns=["_stock_code_sort", "_stock_symbol_sort"])
+        .reset_index(drop=True)
+    )
+
+
 def _resolve_live_fetch_controls(
     *,
     is_serverless_runtime: bool,
@@ -283,10 +303,15 @@ def app(environ, start_response):
     source_stocks["subgroup"] = source_stocks["watch_subgroup"].fillna(source_stocks["subgroup"])
     source_stocks = source_stocks[["symbol", "name", "group", "subgroup"]]
 
-    picker_stocks = pd.concat(
-        [all_stocks, watchlist[["symbol", "name", "group", "subgroup"]], source_stocks],
-        ignore_index=True,
-    ).drop_duplicates(subset=["symbol"], keep="first")
+    picker_stocks = _sort_stocks_by_symbol(
+        pd.concat(
+            [all_stocks, watchlist[["symbol", "name", "group", "subgroup"]], source_stocks],
+            ignore_index=True,
+        ).drop_duplicates(subset=["symbol"], keep="first")
+    )
+    stock_filter_stocks = _sort_stocks_by_symbol(
+        watchlist[["symbol", "name", "group", "subgroup"]].drop_duplicates(subset=["symbol"])
+    )
 
     valid_groups = sorted([g for g in source_stocks["group"].dropna().astype(str).str.strip().unique() if g])
     if group_filter != "all" and group_filter not in valid_groups:
@@ -1251,7 +1276,7 @@ def app(environ, start_response):
     }}
 
     const allStocks = {json.dumps(picker_stocks[['symbol', 'name', 'group', 'subgroup']].to_dict(orient='records'), ensure_ascii=False)};
-    const stockFilterStocks = {json.dumps(watchlist[['symbol', 'name', 'group', 'subgroup']].drop_duplicates(subset=['symbol']).to_dict(orient='records'), ensure_ascii=False)};
+    const stockFilterStocks = {json.dumps(stock_filter_stocks[['symbol', 'name', 'group', 'subgroup']].to_dict(orient='records'), ensure_ascii=False)};
     function getWatchlistSymbols(){{
       const raw = document.getElementById('customWatchlist').value.trim();
       return raw ? raw.split(',').map(x=>x.trim()).filter(Boolean) : [];

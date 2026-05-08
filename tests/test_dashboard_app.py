@@ -124,6 +124,35 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         self.assertIn("window.addEventListener('focus'", response)
         self.assertEqual(captured_counts, [2])
 
+    def test_stock_picker_menus_are_sorted_by_symbol_code(self) -> None:
+        file_watchlist = pd.DataFrame([
+            {"symbol": "2330.TW", "name": "台積電", "group": "AI晶片", "subgroup": "先進製程"},
+            {"symbol": "0050.TW", "name": "元大台灣50", "group": "ETF", "subgroup": "台股ETF"},
+            {"symbol": "1101.TW", "name": "台泥", "group": "水泥", "subgroup": "水泥工業"},
+        ])
+        gemini_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+        llm_watchlist = pd.DataFrame([
+            {"symbol": "4977.TW", "name": "眾達-KY", "group": "AI光通訊", "subgroup": "光通訊模組"},
+        ])
+        industry_df = pd.DataFrame([
+            {"industry": "24", "industry_label": "24 - 半導體業", "symbol": "2382.TW", "name": "廣達", "group": "TWSE-24", "subgroup": ""},
+        ])
+
+        with patch.object(dashboard_app, "load_watchlist", return_value=file_watchlist), \
+            patch.object(dashboard_app, "load_gemini_agent_group_map", return_value=gemini_watchlist), \
+            patch.object(dashboard_app, "load_llm_group_map", return_value=llm_watchlist), \
+            patch.object(dashboard_app, "load_twse_industry_map", return_value=industry_df), \
+            patch.object(dashboard_app, "prefetch_price_data", return_value={}):
+            response = b"".join(dashboard_app.app({"QUERY_STRING": ""}, lambda *_args: None)).decode("utf-8")
+
+        all_stocks_json = re.search(r"const allStocks = (.*?);", response).group(1)
+        stock_filter_json = re.search(r"const stockFilterStocks = (.*?);", response).group(1)
+        all_stock_symbols = [stock["symbol"] for stock in json.loads(all_stocks_json)]
+        stock_filter_symbols = [stock["symbol"] for stock in json.loads(stock_filter_json)]
+
+        self.assertEqual(all_stock_symbols, ["0050.TW", "1101.TW", "2330.TW", "2382.TW", "4977.TW"])
+        self.assertEqual(stock_filter_symbols, ["0050.TW", "1101.TW", "2330.TW"])
+
     def test_gemini_agent_metadata_priority_sits_between_watchlist_and_llm(self) -> None:
         file_watchlist = pd.DataFrame([
             {"symbol": "2330.TW", "name": "台積電", "group": "手動題材", "subgroup": "手動次題材"},
