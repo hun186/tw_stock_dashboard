@@ -11,6 +11,7 @@ import pandas as pd
 
 from api.charts import make_chart_html
 from api.constants import (
+    GEMINI_AGENT_GROUP_FILE,
     LLM_GROUP_FILE,
     LLM_GROUP_SHEET,
     STATUS_FILTERS,
@@ -18,7 +19,12 @@ from api.constants import (
     DOWN_COLOR,
     WATCHLIST_FILE,
 )
-from api.data_loader import load_llm_group_map, load_twse_industry_map, load_watchlist
+from api.data_loader import (
+    load_gemini_agent_group_map,
+    load_llm_group_map,
+    load_twse_industry_map,
+    load_watchlist,
+)
 from api.market_data import (
     _symbol_key,
     fetch_target_price,
@@ -213,9 +219,10 @@ def app(environ, start_response):
     fetch_period, fetch_interval, display_period = resolve_price_params(period, interval)
 
     file_watchlist = load_watchlist(WATCHLIST_FILE)
+    gemini_agent_watchlist = load_gemini_agent_group_map(GEMINI_AGENT_GROUP_FILE)
     llm_watchlist = load_llm_group_map(LLM_GROUP_FILE, LLM_GROUP_SHEET)
     stock_metadata = (
-        pd.concat([llm_watchlist, file_watchlist], ignore_index=True)
+        pd.concat([llm_watchlist, gemini_agent_watchlist, file_watchlist], ignore_index=True)
         .drop_duplicates(subset=["symbol"], keep="last")
         .reset_index(drop=True)
     )

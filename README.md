@@ -94,9 +94,23 @@ symbol,name,group
 
 上市股票通常用 `.TW`，上櫃股票通常用 `.TWO`。
 
-## LLM 主題分類匯入（可選）
+## 主題分類匯入（可選）
 
-若有外部批次分析輸出，可將檔案放在 `data/tw_stock_llm_source_with_group.xlsx`，
+程式會依序載入多層分類資料，讓人工維護的 `watchlist.csv` 仍可覆寫自動化結果。
+
+### Gemini agent 分析結果
+
+若有 Gemini agent 爬資料後產生的結果，可將檔案放在
+`data/tw_stock_llm_datasource_excel/tw_stock_analysis_result_Gemini_agent.xlsx`。程式會讀取第一個工作表，支援欄位：
+
+- `symbol`
+- `name`
+- `group` 或 `theme` / `題材`
+- `subgroup` 或 `subtheme` / `次題材`（可選）
+
+### 舊版 LLM 分類結果
+
+舊版批次分析輸出可放在 `data/tw_stock_llm_source_with_group.xlsx`，
 並使用工作表 `LLM_result_stock_group_json_fla`。程式會讀取欄位：
 
 - `symbol`
@@ -104,11 +118,14 @@ symbol,name,group
 - `group`
 - `subgroup`（可選）
 
-合併規則：
+合併優先序由低到高為：
 
-- 先載入 LLM 分類
-- 再疊上 `watchlist.csv`
-- 若同一 `symbol` 重複，以 `watchlist.csv` 為優先（可手動覆寫 LLM 分類）
+1. 交易所 / 櫃買官方產業別 fallback
+2. 舊版 LLM 分類 `data/tw_stock_llm_source_with_group.xlsx`
+3. Gemini agent 分析結果 `data/tw_stock_llm_datasource_excel/tw_stock_analysis_result_Gemini_agent.xlsx`
+4. `watchlist.csv` 手動自選股分類
+
+若同一 `symbol` 重複，較高優先序的資料會覆寫較低優先序分類。
 
 
 ## 效能瓶頸與加速策略
