@@ -94,6 +94,10 @@ symbol,name,group
 
 上市股票通常用 `.TW`，上櫃股票通常用 `.TWO`。
 
+## Codex 多階段精進指引
+
+後續若要把 Gemini agent 題材 / 次題材 Excel、個股摘要與來源連結，逐步擴充成題材輪動雷達、題材型選股器、個股研究卡與每日快報，可參考：[`docs/codex_llm_theme_enhancement_guide.md`](docs/codex_llm_theme_enhancement_guide.md)。
+
 ## 主題分類匯入（可選）
 
 程式會依序載入多層分類資料，讓人工維護的 `watchlist.csv` 仍可覆寫自動化結果。
