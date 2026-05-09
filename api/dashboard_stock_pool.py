@@ -144,10 +144,10 @@ def build_stock_pool(
     watchlist = custom_df if not custom_df.empty else base_watchlist
 
     if tab == "category":
-        source_stocks = industry_df.copy()
-        if industry != "all":
-            source_stocks = source_stocks[source_stocks["industry"] == industry]
-        source_stocks = source_stocks[STOCK_GROUP_COLUMNS]
+        if industry == "all":
+            source_stocks = all_stocks[STOCK_GROUP_COLUMNS].copy()
+        else:
+            source_stocks = industry_df[industry_df["industry"] == industry][STOCK_GROUP_COLUMNS].copy()
     else:
         source_stocks = watchlist[STOCK_GROUP_COLUMNS].copy()
         if industry != "all":

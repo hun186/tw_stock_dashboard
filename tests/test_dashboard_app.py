@@ -315,6 +315,7 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
             return {}
 
         with patch.object(dashboard_app, "load_watchlist", return_value=file_watchlist), \
+            patch.object(dashboard_app, "load_gemini_agent_group_map", return_value=pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])), \
             patch.object(dashboard_app, "load_llm_group_map", return_value=llm_watchlist), \
             patch.object(dashboard_app, "load_twse_industry_map", return_value=industry_df), \
             patch.object(dashboard_app, "prefetch_price_data", side_effect=fake_prefetch):
@@ -324,6 +325,69 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         self.assertIn("<option value='24' >24 - 半導體業</option>", response)
         self.assertIn("符合股數</span><span class='summary-value'>2 檔", response)
         self.assertEqual(captured_counts, [2])
+
+    def test_category_tab_all_industries_includes_llm_classification_pool(self) -> None:
+        file_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+        llm_watchlist = pd.DataFrame([
+            {"symbol": "2330.TW", "name": "台積電", "group": "AI晶片", "subgroup": "先進製程"},
+            {"symbol": "4977.TWO", "name": "眾達-KY", "group": "AI光通訊", "subgroup": "光通訊模組"},
+        ])
+        industry_df = pd.DataFrame([
+            {"industry": "24", "industry_label": "24 - 半導體業", "symbol": "2330.TW", "name": "台積電", "group": "TWSE-24", "subgroup": ""},
+        ])
+        captured_symbols = []
+
+        def fake_prefetch(stocks, *_args, **_kwargs):
+            captured_symbols.append(stocks["symbol"].tolist())
+            return {}
+
+        with patch.object(dashboard_app, "load_watchlist", return_value=file_watchlist), \
+            patch.object(dashboard_app, "load_gemini_agent_group_map", return_value=pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])), \
+            patch.object(dashboard_app, "load_llm_group_map", return_value=llm_watchlist), \
+            patch.object(dashboard_app, "load_twse_industry_map", return_value=industry_df), \
+            patch.object(dashboard_app, "prefetch_price_data", side_effect=fake_prefetch):
+            response = b"".join(dashboard_app.app({"QUERY_STRING": "tab=category&industry=all"}, lambda *_args: None)).decode("utf-8")
+
+        self.assertIn("符合股數</span><span class='summary-value'>2 檔", response)
+        self.assertIn("<option value='AI光通訊' >AI光通訊</option>", response)
+        self.assertEqual(captured_symbols, [["2330.TW", "4977.TWO"]])
+
+    def test_category_tab_all_industries_explains_non_official_symbols(self) -> None:
+        file_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+        llm_watchlist = pd.DataFrame([
+            {"symbol": "2330.TW", "name": "台積電", "group": "AI晶片", "subgroup": "先進製程"},
+            {"symbol": "9999.TW", "name": "測試股", "group": "測試題材", "subgroup": "非官方產業表"},
+        ])
+        industry_df = pd.DataFrame([
+            {"industry": "24", "industry_label": "24 - 半導體業", "symbol": "2330.TW", "name": "台積電", "group": "TWSE-24", "subgroup": ""},
+        ])
+
+        with patch.object(dashboard_app, "load_watchlist", return_value=file_watchlist), \
+            patch.object(dashboard_app, "load_gemini_agent_group_map", return_value=pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])), \
+            patch.object(dashboard_app, "load_llm_group_map", return_value=llm_watchlist), \
+            patch.object(dashboard_app, "load_twse_industry_map", return_value=industry_df), \
+            patch.object(dashboard_app, "prefetch_price_data", return_value={}):
+            response = b"".join(dashboard_app.app({"QUERY_STRING": "tab=category&industry=all"}, lambda *_args: None)).decode("utf-8")
+
+        self.assertIn("其中 1 檔目前不在本次載入的交易所／櫃買官方產業表", response)
+        self.assertIn("這不等於停業", response)
+
+    def test_category_tab_all_industries_explains_missing_official_table(self) -> None:
+        file_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+        llm_watchlist = pd.DataFrame([
+            {"symbol": "2330.TW", "name": "台積電", "group": "AI晶片", "subgroup": "先進製程"},
+        ])
+        industry_df = pd.DataFrame(columns=["industry", "industry_label", "symbol", "name", "group", "subgroup"])
+
+        with patch.object(dashboard_app, "load_watchlist", return_value=file_watchlist), \
+            patch.object(dashboard_app, "load_gemini_agent_group_map", return_value=pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])), \
+            patch.object(dashboard_app, "load_llm_group_map", return_value=llm_watchlist), \
+            patch.object(dashboard_app, "load_twse_industry_map", return_value=industry_df), \
+            patch.object(dashboard_app, "prefetch_price_data", return_value={}):
+            response = b"".join(dashboard_app.app({"QUERY_STRING": "tab=category&industry=all"}, lambda *_args: None)).decode("utf-8")
+
+        self.assertIn("本次未載入交易所／櫃買官方產業表", response)
+        self.assertIn("這不等於標的停業", response)
 
     def test_category_tab_all_industries_can_be_narrowed_by_personal_filter(self) -> None:
         file_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
@@ -346,6 +410,7 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
             "stock_meta_payload": json.dumps(payload, ensure_ascii=False),
         })
         with patch.object(dashboard_app, "load_watchlist", return_value=file_watchlist), \
+            patch.object(dashboard_app, "load_gemini_agent_group_map", return_value=pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])), \
             patch.object(dashboard_app, "load_llm_group_map", return_value=llm_watchlist), \
             patch.object(dashboard_app, "load_twse_industry_map", return_value=industry_df), \
             patch.object(dashboard_app, "prefetch_price_data", side_effect=fake_prefetch):
