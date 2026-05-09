@@ -340,6 +340,27 @@ def app(environ, start_response):
         if is_limited_analysis
         else ""
     )
+    official_symbol_keys = set(industry_df["symbol"].map(_symbol_key)) if "symbol" in industry_df.columns else set()
+    category_all_extra_count = 0
+    category_all_coverage_notice = ""
+    if tab == "category" and industry == "all":
+        if official_symbol_keys:
+            source_symbol_keys = source_stocks["symbol"].map(_symbol_key)
+            category_all_extra_count = int((~source_symbol_keys.isin(official_symbol_keys)).sum())
+            if category_all_extra_count:
+                category_all_coverage_notice = (
+                    "<div class='notice'>分類股池／不限產業已合併官方產業表與 LLM/Gemini 題材資料；"
+                    f"其中 {category_all_extra_count} 檔目前不在本次載入的交易所／櫃買官方產業表。"
+                    "這不等於停業，常見原因是 Excel 靜態資料、興櫃/ETF/代碼異動、"
+                    "下市櫃或官方 API 暫時取不到；請以 K 線是否可下載、公開資訊觀測站"
+                    "與交易所公告確認交易／營運狀態。</div>"
+                )
+        else:
+            category_all_coverage_notice = (
+                "<div class='notice'>本次未載入交易所／櫃買官方產業表，分類股池目前主要來自 "
+                "LLM/Gemini 題材資料與自選清單；這不等於標的停業，請以 K 線是否可下載、"
+                "公開資訊觀測站與交易所公告確認交易／營運狀態。</div>"
+            )
     def progress_percent(done: int, total: int) -> int:
         if total <= 0:
             return 100
@@ -522,6 +543,7 @@ def app(environ, start_response):
         </div>
       </div>
       {limited_notice}
+      {category_all_coverage_notice}
       <div id='summaryInfo' class='summary-strip'>
         <div class='summary-item'><span class='summary-label'>符合股數</span><span class='summary-value'>{total_stocks} 檔</span></div>
         <div class='summary-item'><span class='summary-label'>頁面進度</span><span class='summary-value'>{page} / {total_pages}</span></div>
