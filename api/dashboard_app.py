@@ -3,26 +3,16 @@ from __future__ import annotations
 import html
 import json
 import math
-import os
 import time
-from urllib.parse import parse_qs
 
 import pandas as pd
 
-from api.charts import make_chart_html
 from api.dashboard_assets import DASHBOARD_CSS, DASHBOARD_JS
-from api.dashboard_theme import (
-    theme_compact_html as _theme_compact_html,
-    theme_reference_html as _theme_reference_html,
-    theme_summary_text as _theme_summary_text,
-)
 from api.constants import (
     GEMINI_AGENT_GROUP_FILE,
     LLM_GROUP_FILE,
     LLM_GROUP_SHEET,
     STATUS_FILTERS,
-    UP_COLOR,
-    DOWN_COLOR,
     WATCHLIST_FILE,
 )
 from api.data_loader import (
@@ -40,110 +30,45 @@ from api.market_data import (
     resolve_price_params,
     trim_display_df,
 )
+from api.dashboard_pipeline import (
+    DEFAULT_LIVE_FETCH_THRESHOLD,
+    resolve_live_fetch_controls as _resolve_live_fetch_controls,
+    run_dashboard_analysis,
+)
+from api.dashboard_renderers import render_dashboard_stock_items
+from api.dashboard_request import parse_dashboard_request, positive_int_param as _positive_int_param
+from api.dashboard_stock_pool import (
+    apply_stock_meta_filters,
+    build_stock_pool,
+    ensure_stock_group_columns as _ensure_stock_group_columns,
+    merge_stock_group_sources as _merge_stock_group_sources,
+    sort_stocks_by_symbol as _sort_stocks_by_symbol,
+    stock_code_sort_value as _stock_code_sort_value,
+    stock_group_frame as _stock_group_frame,
+    stock_meta_filter_values as collect_stock_meta_filter_values,
+)
 from api.server_configs import load_server_config_presets
 from api.stock_analysis import add_indicators, analyze_stock_signal
 
 
-def _ensure_stock_group_columns(df: pd.DataFrame) -> pd.DataFrame:
-    normalized = df.copy()
-    for col in STOCK_GROUP_COLUMNS:
-        if col not in normalized.columns:
-            normalized[col] = ""
-        normalized[col] = normalized[col].fillna("").astype(str).str.strip()
-    return normalized
-
-
-def _stock_group_frame(df: pd.DataFrame) -> pd.DataFrame:
-    return _ensure_stock_group_columns(df)[STOCK_GROUP_COLUMNS].copy()
-
-
-def _merge_stock_group_sources(*sources: pd.DataFrame) -> pd.DataFrame:
-    frames = [_stock_group_frame(source) for source in sources if source is not None]
-    if not frames:
-        return pd.DataFrame(columns=STOCK_GROUP_COLUMNS)
-    combined = pd.concat(frames, ignore_index=True)
-    combined = combined[combined["symbol"] != ""].copy()
-    if combined.empty:
-        return pd.DataFrame(columns=STOCK_GROUP_COLUMNS)
-
-    # Sources are passed from lowest to highest priority.  For every column, keep
-    # the highest-priority non-empty value so a legacy watchlist without
-    # summary/reference_url does not erase Gemini metadata for the same symbol.
-    merged_rows = []
-    for symbol, group in combined.groupby("symbol", sort=False):
-        row = {"symbol": symbol}
-        for col in [c for c in STOCK_GROUP_COLUMNS if c != "symbol"]:
-            values = group[col].tolist()
-            row[col] = next((value for value in reversed(values) if value), "")
-        merged_rows.append(row)
-    return pd.DataFrame(merged_rows, columns=STOCK_GROUP_COLUMNS)
-
+__all__ = [
+    "DEFAULT_LIVE_FETCH_THRESHOLD",
+    "_ensure_stock_group_columns",
+    "_merge_stock_group_sources",
+    "_positive_int_param",
+    "_resolve_live_fetch_controls",
+    "_sort_stocks_by_symbol",
+    "_stock_code_sort_value",
+    "_stock_group_frame",
+    "app",
+]
 
 
 STOCK_ANALYSIS_CACHE: dict[tuple[str, str, str, str, str, bool], tuple[float, dict]] = {}
-DEFAULT_LIVE_FETCH_THRESHOLD = 80
-SINGLE_CATEGORY_LIVE_FETCH_BUFFER = 20
-
-
-def _positive_int_param(params, name: str, default: int, *, max_value: int | None = None) -> int:
-    try:
-        value = int(params.get(name, [str(default)])[0])
-    except (TypeError, ValueError):
-        value = default
-    if value <= 0:
-        value = default
-    if max_value is not None:
-        value = min(value, max_value)
-    return value
 
 
 def _analysis_cache_ttl_seconds(fetch_interval: str) -> int:
     return max(get_price_cache_ttl_seconds(fetch_interval), 300)
-
-
-def _stock_code_sort_value(symbol: object) -> tuple[str, str]:
-    normalized = str(symbol or "").strip().upper()
-    code = normalized.split(".", 1)[0]
-    return code, normalized
-
-
-def _sort_stocks_by_symbol(stocks: pd.DataFrame) -> pd.DataFrame:
-    if stocks.empty or "symbol" not in stocks.columns:
-        return stocks.copy()
-    sorted_stocks = stocks.copy()
-    sort_values = sorted_stocks["symbol"].map(_stock_code_sort_value)
-    sorted_stocks["_stock_code_sort"] = sort_values.map(lambda value: value[0])
-    sorted_stocks["_stock_symbol_sort"] = sort_values.map(lambda value: value[1])
-    return (
-        sorted_stocks.sort_values(["_stock_code_sort", "_stock_symbol_sort"], kind="stable")
-        .drop(columns=["_stock_code_sort", "_stock_symbol_sort"])
-        .reset_index(drop=True)
-    )
-
-
-def _resolve_live_fetch_controls(
-    *,
-    is_serverless_runtime: bool,
-    stock_count: int,
-    is_custom_watchlist: bool,
-    tab: str,
-    industry: str,
-) -> tuple[bool, int]:
-    is_single_industry_category = tab == "category" and industry != "all"
-    if is_single_industry_category:
-        max_live_symbols = max(DEFAULT_LIVE_FETCH_THRESHOLD, stock_count + SINGLE_CATEGORY_LIVE_FETCH_BUFFER)
-    elif is_custom_watchlist or not is_serverless_runtime:
-        max_live_symbols = max(DEFAULT_LIVE_FETCH_THRESHOLD, stock_count)
-    else:
-        max_live_symbols = DEFAULT_LIVE_FETCH_THRESHOLD
-
-    allow_live_fetch = (
-        (not is_serverless_runtime)
-        or stock_count <= DEFAULT_LIVE_FETCH_THRESHOLD
-        or is_custom_watchlist
-        or is_single_industry_category
-    )
-    return allow_live_fetch, max_live_symbols
 
 
 def _build_stock_analysis(
@@ -224,137 +149,55 @@ def _build_stock_analysis(
 
 
 def app(environ, start_response):
-    params = parse_qs(environ.get("QUERY_STRING", ""))
-    tab = params.get("tab", ["watchlist"])[0]
-    period = params.get("period", ["3mo"])[0]
-    interval = params.get("interval", ["1d"])[0]
-    limit = _positive_int_param(params, "limit", 30, max_value=120)
-    page = _positive_int_param(params, "page", 1)
-    status_filter = params.get("status_filter", ["all"])[0]
-    group_filter = params.get("group_filter", ["all"])[0]
-    subgroup_filter = params.get("subgroup_filter", ["all"])[0]
-    stock_meta_filters = {
-        field: params.get(f"stock_meta_{field}", ["all"])[0]
-        for field in ("action", "trait", "stage", "risk")
-    }
-    stock_meta_note_filter = params.get("stock_meta_note", [""])[0].strip()
-    stock_meta_stock_filter = params.get("stock_meta_stock", [""])[0].strip()
-    stock_meta_payload_raw = params.get("stock_meta_payload", [""])[0]
-    cards_per_row = _positive_int_param(params, "cards_per_row", 3, max_value=15)
-    custom_watchlist_raw = params.get("custom_watchlist", [""])[0]
-    show_volume = params.get("show_volume", ["1"])[0] == "1"
-    show_price = params.get("show_price", ["1"])[0] == "1"
-    show_target_price = params.get("show_target_price", ["0"])[0] == "1"
-    card_sort = params.get("card_sort", ["signal_score"])[0]
-    compact_progress = params.get("compact_progress", ["1"])[0] == "1"
-    sort_options = {"symbol", "close", "volume", "change_pct", "target_ratio", "signal_score"}
-    if card_sort not in sort_options:
-        card_sort = "signal_score"
-
-    def normalize_stock_meta_entry(entry):
-        meta = {field: "" for field in ("action", "trait", "stage", "risk")}
-        meta["note"] = ""
-        if isinstance(entry, str):
-            meta["note"] = entry.strip()
-        elif isinstance(entry, dict):
-            for field in meta:
-                meta[field] = str(entry.get(field) or "").strip()
-            if not meta["note"]:
-                meta["note"] = str(entry.get("memo") or "").strip()
-        return meta
-
-    try:
-        stock_meta_payload = json.loads(stock_meta_payload_raw) if stock_meta_payload_raw else {}
-        if not isinstance(stock_meta_payload, dict):
-            stock_meta_payload = {}
-    except json.JSONDecodeError:
-        stock_meta_payload = {}
-    stock_meta_filters = {
-        field: value if value and value != "all" else "all"
-        for field, value in stock_meta_filters.items()
-    }
-    has_stock_meta_filter = (
-        any(value != "all" for value in stock_meta_filters.values())
-        or bool(stock_meta_note_filter)
-        or bool(stock_meta_stock_filter)
-    )
+    request = parse_dashboard_request(environ)
+    tab = request.tab
+    period = request.period
+    interval = request.interval
+    limit = request.limit
+    page = request.page
+    status_filter = request.status_filter
+    group_filter = request.group_filter
+    subgroup_filter = request.subgroup_filter
+    stock_meta_filters = request.stock_meta_filters.copy()
+    stock_meta_note_filter = request.stock_meta_note_filter
+    stock_meta_stock_filter = request.stock_meta_stock_filter
+    stock_meta_payload_raw = request.stock_meta_payload_raw
+    stock_meta_payload = request.stock_meta_payload
+    cards_per_row = request.cards_per_row
+    custom_watchlist_raw = request.custom_watchlist_raw
+    show_volume = request.show_volume
+    show_price = request.show_price
+    show_target_price = request.show_target_price
+    card_sort = request.card_sort
+    compact_progress = request.compact_progress
 
     fetch_period, fetch_interval, display_period = resolve_price_params(period, interval)
 
-    file_watchlist = _stock_group_frame(load_watchlist(WATCHLIST_FILE))
-    gemini_agent_watchlist = _stock_group_frame(load_gemini_agent_group_map(GEMINI_AGENT_GROUP_FILE))
-    llm_watchlist = _stock_group_frame(load_llm_group_map(LLM_GROUP_FILE, LLM_GROUP_SHEET))
-    stock_metadata = _merge_stock_group_sources(llm_watchlist, gemini_agent_watchlist, file_watchlist).reset_index(drop=True)
-    base_watchlist = file_watchlist.reset_index(drop=True)
-    industry_df = load_twse_industry_map()
-    industry_df = _ensure_stock_group_columns(industry_df)
-    industries = industry_df[["industry", "industry_label"]].drop_duplicates().sort_values("industry")
-    valid_industries = set(industries["industry"].astype(str)) if not industries.empty else set()
-    industry = params.get("industry", ["all"])[0]
-    if industry != "all" and industry not in valid_industries:
-        industry = "all"
-    watchlist_overrides = (
-        stock_metadata[STOCK_GROUP_COLUMNS]
-        .assign(symbol_key=lambda d: d["symbol"].map(_symbol_key))
-        .drop_duplicates(subset=["symbol"], keep="last")
-        .rename(columns={col: f"watch_{col}" for col in STOCK_GROUP_COLUMNS if col != "symbol"})
+    stock_pool = build_stock_pool(
+        file_watchlist=load_watchlist(WATCHLIST_FILE),
+        gemini_agent_watchlist=load_gemini_agent_group_map(GEMINI_AGENT_GROUP_FILE),
+        llm_watchlist=load_llm_group_map(LLM_GROUP_FILE, LLM_GROUP_SHEET),
+        industry_df=load_twse_industry_map(),
+        custom_watchlist_raw=custom_watchlist_raw,
+        tab=tab,
+        industry=request.industry,
+        group_filter=group_filter,
+        subgroup_filter=subgroup_filter,
     )
-
-    all_stocks = _merge_stock_group_sources(
-        industry_df[STOCK_GROUP_COLUMNS],
-        stock_metadata[STOCK_GROUP_COLUMNS],
-    )
-
-    custom_symbols = [x.strip() for x in custom_watchlist_raw.split(",") if x.strip()]
-    custom_df = all_stocks[all_stocks["symbol"].isin(custom_symbols)][STOCK_GROUP_COLUMNS]
-    missing_symbols = [x for x in custom_symbols if x not in set(custom_df["symbol"]) ]
-    if missing_symbols:
-        custom_df = pd.concat([
-            custom_df,
-            pd.DataFrame([{"symbol": s, "name": s, "group": "自訂", "subgroup": "", "summary": "", "reference_url": ""} for s in missing_symbols])
-        ], ignore_index=True)
-    watchlist = custom_df if not custom_df.empty else base_watchlist
-
-    if tab == "category":
-        source_stocks = industry_df.copy()
-        if industry != "all":
-            source_stocks = source_stocks[source_stocks["industry"] == industry]
-        source_stocks = source_stocks[STOCK_GROUP_COLUMNS]
-    else:
-        source_stocks = watchlist[STOCK_GROUP_COLUMNS].copy()
-        if industry != "all":
-            industry_symbol_keys = set(
-                industry_df.loc[industry_df["industry"] == industry, "symbol"].map(_symbol_key)
-            )
-            source_stocks = source_stocks[source_stocks["symbol"].map(_symbol_key).isin(industry_symbol_keys)]
-
-    source_stocks["symbol_key"] = source_stocks["symbol"].map(_symbol_key)
-    source_stocks = source_stocks.merge(
-        watchlist_overrides[["symbol_key", "watch_name", "watch_group", "watch_subgroup", "watch_summary", "watch_reference_url"]],
-        on="symbol_key",
-        how="left",
-    )
-    for col in ["name", "group", "subgroup", "summary", "reference_url"]:
-        source_stocks[col] = source_stocks[f"watch_{col}"].where(
-            source_stocks[f"watch_{col}"].fillna("").astype(str).str.strip().ne(""),
-            source_stocks[col],
-        )
-    source_stocks = source_stocks[STOCK_GROUP_COLUMNS]
-
-    picker_stocks = _sort_stocks_by_symbol(
-        _merge_stock_group_sources(all_stocks, watchlist[STOCK_GROUP_COLUMNS], source_stocks)
-    )
-    stock_filter_stocks = _sort_stocks_by_symbol(
-        _merge_stock_group_sources(watchlist[STOCK_GROUP_COLUMNS])
-    )
-
-    valid_groups = sorted([g for g in source_stocks["group"].dropna().astype(str).str.strip().unique() if g])
-    if group_filter != "all" and group_filter not in valid_groups:
-        group_filter = "all"
-    subgroup_source = source_stocks if group_filter == "all" else source_stocks[source_stocks["group"] == group_filter]
-    valid_subgroups = sorted([g for g in subgroup_source["subgroup"].dropna().astype(str).str.strip().unique() if g])
-    if subgroup_filter != "all" and subgroup_filter not in valid_subgroups:
-        subgroup_filter = "all"
+    stock_metadata = stock_pool.stock_metadata
+    base_watchlist = stock_pool.base_watchlist
+    industry_df = stock_pool.industry_df
+    industries = stock_pool.industries
+    industry = stock_pool.industry
+    watchlist = stock_pool.watchlist
+    all_stocks = stock_pool.all_stocks
+    source_stocks = stock_pool.source_stocks
+    picker_stocks = stock_pool.picker_stocks
+    stock_filter_stocks = stock_pool.stock_filter_stocks
+    valid_groups = stock_pool.valid_groups
+    valid_subgroups = stock_pool.valid_subgroups
+    group_filter = stock_pool.group_filter
+    subgroup_filter = stock_pool.subgroup_filter
 
     stocks = source_stocks.copy()
     if group_filter != "all":
@@ -362,11 +205,7 @@ def app(environ, start_response):
     if subgroup_filter != "all":
         stocks = stocks[stocks["subgroup"] == subgroup_filter]
 
-    stock_meta_filter_values = {field: set() for field in ("action", "trait", "stage", "risk")}
-    for symbol in stocks["symbol"].astype(str):
-        meta = normalize_stock_meta_entry(stock_meta_payload.get(symbol, {}))
-        for field in stock_meta_filter_values:
-            stock_meta_filter_values[field].add(meta[field] or "none")
+    stock_meta_filter_values = collect_stock_meta_filter_values(stocks, stock_meta_payload)
     for field, selected in stock_meta_filters.items():
         if selected != "all" and selected not in stock_meta_filter_values[field]:
             stock_meta_filters[field] = "all"
@@ -377,124 +216,43 @@ def app(environ, start_response):
     )
 
     if has_stock_meta_filter:
-        note_filter_lower = stock_meta_note_filter.lower()
-        stock_filter_tokens = [
-            token.strip().lower()
-            for token in stock_meta_stock_filter.replace("，", ",").replace("、", ",").replace(";", ",").replace("；", ",").split(",")
-            for token in token.split()
-            if token.strip()
-        ]
+        stocks = apply_stock_meta_filters(
+            stocks,
+            stock_meta_payload=stock_meta_payload,
+            stock_meta_filters=stock_meta_filters,
+            stock_meta_note_filter=stock_meta_note_filter,
+            stock_meta_stock_filter=stock_meta_stock_filter,
+        )
 
-        def stock_matches_meta_filters(row):
-            symbol = str(row["symbol"])
-            name = str(row["name"] or "")
-            summary = str(row.get("summary", "") or "")
-            meta = normalize_stock_meta_entry(stock_meta_payload.get(symbol, {}))
-            tags_match = all(
-                selected == "all"
-                or (selected == "none" and not meta[field])
-                or meta[field] == selected
-                for field, selected in stock_meta_filters.items()
-            )
-            note_matches = not note_filter_lower or note_filter_lower in meta["note"].lower()
-            symbol_lower = symbol.lower()
-            symbol_key_lower = _symbol_key(symbol).lower()
-            name_lower = name.lower()
-            summary_lower = summary.lower()
-            stock_matches = not stock_filter_tokens or any(
-                token in symbol_lower or token in symbol_key_lower or token in name_lower or token in summary_lower
-                for token in stock_filter_tokens
-            )
-            return tags_match and note_matches and stock_matches
-
-        stocks = stocks[stocks.apply(stock_matches_meta_filters, axis=1)]
-
-    is_serverless_runtime = os.environ.get("VERCEL") == "1" or bool(os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
-    max_serverless_analysis_stocks = 240
-    candidate_count = len(stocks)
-    is_limited_analysis = is_serverless_runtime and candidate_count > max_serverless_analysis_stocks
-    if is_limited_analysis:
-        # Keep broad dashboard requests inside Vercel's serverless execution window.
-        # Users can narrow the set with industry/group/custom-watchlist filters when
-        # they need exhaustive scoring across more symbols.
-        stocks = stocks.head(max_serverless_analysis_stocks).copy()
-
-    watchlist_symbol_keys = set(watchlist["symbol"].map(_symbol_key))
-    # Vercel serverless functions time out quickly when a broad watchlist triggers
-    # thousands of live Yahoo Finance requests. Prefer committed prebuilt cache
-    # files for broad pages, but allow focused requests (custom lists and a single
-    # industry category) to refresh every selected symbol.
-    is_custom_watchlist = bool(custom_watchlist_raw.strip())
-    allow_live_fetch, max_live_symbols = _resolve_live_fetch_controls(
-        is_serverless_runtime=is_serverless_runtime,
-        stock_count=len(stocks),
-        is_custom_watchlist=is_custom_watchlist,
+    analysis_result = run_dashboard_analysis(
+        stocks=stocks,
+        period=period,
+        fetch_period=fetch_period,
+        fetch_interval=fetch_interval,
+        display_period=display_period,
+        show_target_price=show_target_price,
+        card_sort=card_sort,
+        status_filter=status_filter,
         tab=tab,
         industry=industry,
+        custom_watchlist_raw=custom_watchlist_raw,
+        prefetch_price_data=prefetch_price_data,
+        build_stock_analysis=_build_stock_analysis,
     )
-    progress_total_stocks = len(stocks)
-    price_data_map = prefetch_price_data(
-        stocks,
-        fetch_period,
-        fetch_interval,
-        allow_live_fetch=allow_live_fetch,
-        allow_stale_disk=True,
-        max_live_symbols=max_live_symbols,
-    )
-    price_ready_count = sum(1 for df in price_data_map.values() if not df.empty)
-    signal_data_map = (
-        prefetch_price_data(
-            stocks,
-            "6mo",
-            "1d",
-            allow_live_fetch=allow_live_fetch,
-            allow_stale_disk=True,
-            max_live_symbols=max_live_symbols,
-        )
-        if period == "intraday"
-        else {}
-    )
-    signal_ready_count = sum(1 for df in signal_data_map.values() if not df.empty) if period == "intraday" else progress_total_stocks
+    stocks = analysis_result.stocks
+    analyzed_stocks = analysis_result.analyzed_stocks
+    sorted_stocks = analysis_result.sorted_stocks
+    filtered_stocks = analysis_result.filtered_stocks
+    status_filter = analysis_result.status_filter
+    status_filter_values = analysis_result.status_filter_values
+    candidate_count = analysis_result.candidate_count
+    is_limited_analysis = analysis_result.is_limited_analysis
+    max_serverless_analysis_stocks = analysis_result.max_serverless_analysis_stocks
+    progress_total_stocks = analysis_result.progress_total_stocks
+    price_ready_count = analysis_result.price_ready_count
+    signal_ready_count = analysis_result.signal_ready_count
 
-    analyzed_stocks = []
-    needs_target_price = show_target_price or card_sort == "target_ratio"
-    for row in stocks.itertuples(index=False):
-        stock_analysis = _build_stock_analysis(
-            row.symbol,
-            period,
-            fetch_period,
-            fetch_interval,
-            display_period,
-            price_data_map.get(row.symbol, pd.DataFrame()),
-            signal_data_map.get(row.symbol, pd.DataFrame()),
-            needs_target_price,
-        )
-        analyzed_stocks.append({
-            "row": row,
-            "df": stock_analysis["df"],
-            "signal": stock_analysis["signal"],
-            "status": stock_analysis["status"],
-            "bucket": stock_analysis["bucket"],
-            "close_text": stock_analysis["close_text"],
-            "sort_metrics": stock_analysis["sort_metrics"],
-            "target_price_text": stock_analysis["target_price_text"] if show_target_price else "-",
-            "target_ratio_text": stock_analysis["target_ratio_text"] if show_target_price else "-",
-        })
-
-    status_filter_values = {item["bucket"] for item in analyzed_stocks}
-    if status_filter != "all" and status_filter not in status_filter_values:
-        status_filter = "all"
-
-    sorted_stocks = analyzed_stocks.copy()
-    if card_sort == "symbol":
-        sorted_stocks.sort(key=lambda item: item["sort_metrics"]["symbol"])
-    else:
-        sorted_stocks.sort(key=lambda item: item["sort_metrics"][card_sort], reverse=True)
-
-    filtered_stocks = [
-        item for item in sorted_stocks
-        if status_filter == "all" or item["bucket"] == status_filter
-    ]
+    watchlist_symbol_keys = set(watchlist["symbol"].map(_symbol_key))
 
     total_stocks = len(filtered_stocks)
     total_pages = max(1, math.ceil(total_stocks / limit)) if total_stocks else 1
@@ -504,170 +262,16 @@ def app(environ, start_response):
 
     client_render_all_cards = len(sorted_stocks) <= 120
     initial_page_symbols = {item["row"].symbol for item in filtered_stocks[start_idx:end_idx]}
-    rendered_stock_items = []
-    for stock_item in sorted_stocks:
-        row = stock_item["row"]
-        df = stock_item["df"]
-        signal = stock_item["signal"]
-        status = stock_item["status"]
-        close_text = stock_item["close_text"]
-        target_price_text = stock_item["target_price_text"]
-        target_ratio_text = stock_item["target_ratio_text"]
-
-        symbol_key = _symbol_key(row.symbol)
-        symbol_js = json.dumps(row.symbol, ensure_ascii=False)
-        if tab == "watchlist":
-            action_btn = (
-                "<button type='button' class='watchlist-action is-icon is-remove' "
-                f"data-symbol='{html.escape(row.symbol, quote=True)}' "
-                f"aria-label='移除 {html.escape(row.name, quote=True)} 自選股' "
-                f"title='移除 {html.escape(row.name, quote=True)} 自選股' "
-                f"onclick='removeWatchlistStock({symbol_js}, {{ stayOnPage: true }})'>−</button>"
-            )
-        elif symbol_key in watchlist_symbol_keys:
-            action_btn = (
-                "<button type='button' class='watchlist-action is-icon is-added' "
-                f"aria-label='{html.escape(row.name, quote=True)} 已在自選' "
-                f"title='{html.escape(row.name, quote=True)} 已在自選' disabled>✓</button>"
-            )
-        else:
-            action_btn = (
-                "<button type='button' class='watchlist-action is-icon is-add' "
-                f"data-symbol='{html.escape(row.symbol, quote=True)}' "
-                f"aria-label='加入 {html.escape(row.name, quote=True)} 到自選股' "
-                f"title='加入 {html.escape(row.name, quote=True)} 到自選股' "
-                f"onclick='addWatchlistStock({symbol_js}, {{ stayOnPage: true }})'>＋</button>"
-            )
-        subgroup_text = row.subgroup if isinstance(row.subgroup, str) and row.subgroup else "-"
-        theme_compact_html = _theme_compact_html(row.group, row.subgroup)
-        summary_text = _theme_summary_text(getattr(row, "summary", ""))
-        reference_html = _theme_reference_html(getattr(row, "reference_url", ""))
-        stock_meta_cells = "".join([
-            f"<td class='stock-meta-cell'><div class='note-editor' data-symbol='{html.escape(row.symbol)}'>"
-            f"<select class='stock-meta-select' data-field='{field}' title='{html.escape(label)}' onchange=\"saveInlineStockMeta(this)\"></select>"
-            "</div></td>"
-            for field, label in [
-                ("action", "操作方法"),
-                ("trait", "個股特性"),
-                ("stage", "行情階段"),
-                ("risk", "風險與觀察"),
-            ]
-        ])
-        note_editor = (
-            f"<div class='note-editor' data-symbol='{html.escape(row.symbol)}'>"
-            "<input class='stock-note-input' type='text' maxlength='80' placeholder='輸入備註' "
-            "oninput=\"queueInlineStockNoteSave(this)\" onchange=\"saveInlineStockNote(this)\">"
-            "</div>"
-        )
-        name_jump_button = (
-            "<button type='button' class='stock-jump' "
-            f"onclick='scrollToStockCard({symbol_js})' "
-            f"title='跳到 {html.escape(row.name, quote=True)} 的曲線圖'>"
-            f"{html.escape(row.name)}"
-            "</button>"
-        )
-        row_html = (
-            f"<tr data-symbol='{html.escape(row.symbol)}' data-name='{html.escape(row.name, quote=True)}' "
-            f"data-summary='{html.escape(summary_text, quote=True)}'>"
-            f"<td class='row-action-cell'>{action_btn}</td><td class='status-icon-cell'>{html.escape(status.split()[0])}</td><td class='symbol-cell'>{html.escape(row.symbol)}</td>"
-            f"<td class='name-cell'>{name_jump_button}</td><td class='signal-cell'>{html.escape(status)}</td>"
-            f"<td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td><td class='theme-cell'>{theme_compact_html}</td>"
-            f"{stock_meta_cells}<td class='note-cell'>{note_editor}</td>"
-            f"<td class='theme-summary-cell'>{html.escape(summary_text)}</td><td class='source-cell'>{reference_html}</td></tr>"
-        )
-        card_html = ""
-        card_html_with_volume = ""
-        card_html_without_volume = ""
-        card_html_with_volume_price = ""
-        card_html_with_volume_no_price = ""
-        card_html_without_volume_price = ""
-        card_html_without_volume_no_price = ""
-        should_render_card = client_render_all_cards or row.symbol in initial_page_symbols
-        if should_render_card and not df.empty:
-            show_ma = period != "intraday"
-            intraday_ref_close = float(df.iloc[-1]["RefClose"]) if show_ma is False and "RefClose" in df.columns else None
-            prev_close = float(df.iloc[-2]["Close"]) if len(df) >= 2 else float(df.iloc[-1]["Close"])
-            now_close = float(df.iloc[-1]["Close"])
-            reference_close = intraday_ref_close if period == "intraday" and intraday_ref_close else prev_close
-            close_color = UP_COLOR if now_close >= reference_close else DOWN_COLOR
-            if reference_close != 0:
-                change_pct = ((now_close - reference_close) / reference_close) * 100
-                change_text = f" ({change_pct:+.2f}%)"
-            else:
-                change_text = ""
-            signal_label = str(signal.get("label") or "").strip()
-            signal_brief_text = signal_label[:8] + "…" if len(signal_label) > 8 else signal_label
-            signal_brief = f"・{signal_brief_text}" if signal_brief_text else ""
-            target_ratio_color = "#666"
-            if target_ratio_text.endswith("%"):
-                try:
-                    target_ratio_value = float(target_ratio_text[:-1])
-                    if target_ratio_value >= 110:
-                        target_ratio_color = "#c62828"
-                    elif target_ratio_value >= 100:
-                        target_ratio_color = "#d84315"
-                    elif target_ratio_value >= 90:
-                        target_ratio_color = "#2e7d32"
-                    else:
-                        target_ratio_color = "#0b8f3a"
-                except ValueError:
-                    target_ratio_color = "#666"
-            card_theme_popover = (
-                "<span class='theme-title-panel' role='tooltip'>"
-                f"<span><strong>題材摘要：</strong>{html.escape(summary_text)}</span>"
-                f"<span><strong>來源：</strong>{reference_html}</span>"
-                "</span>"
-            )
-            card_header_html = (
-                "<h3 class='card-title'>"
-                f"<span class='card-title-main'><span class='theme-title-popover' tabindex='0' aria-label='題材摘要與來源'>{html.escape(row.name)} ({html.escape(row.symbol)}){card_theme_popover}</span><span>收盤 "
-                f"<span style='color:{close_color};font-weight:700'>{close_text}{change_text}</span>{html.escape(signal_brief)}</span></span>"
-                f"<span class='card-target-ratio' style='color:{target_ratio_color}'>目標價/現價：{target_ratio_text}</span>"
-                "</h3>"
-                "<div class='theme-card-meta'>"
-                f"<p><strong>題材摘要：</strong>{html.escape(summary_text)}</p>"
-                f"<p><strong>來源：</strong>{reference_html}</p>"
-                "</div>"
-            )
-            card_html_with_volume_price = (
-                card_header_html
-                + make_chart_html(df, row.name, True, show_ma, intraday_ref_close=intraday_ref_close, show_price=True)
-            )
-            card_html_with_volume_no_price = (
-                card_header_html
-                + make_chart_html(df, row.name, True, show_ma, intraday_ref_close=intraday_ref_close, show_price=False)
-            )
-            card_html_without_volume_price = (
-                card_header_html
-                + make_chart_html(df, row.name, False, show_ma, intraday_ref_close=intraday_ref_close, show_price=True)
-            )
-            card_html_without_volume_no_price = (
-                card_header_html
-                + make_chart_html(df, row.name, False, show_ma, intraday_ref_close=intraday_ref_close, show_price=False)
-            )
-            card_html_with_volume = card_html_with_volume_price
-            card_html_without_volume = card_html_without_volume_price
-            if show_volume and show_price:
-                card_html = card_html_with_volume_price
-            elif show_volume:
-                card_html = card_html_with_volume_no_price
-            elif show_price:
-                card_html = card_html_without_volume_price
-            else:
-                card_html = card_html_without_volume_no_price
-        rendered_stock_items.append({
-            "symbol": row.symbol,
-            "bucket": stock_item["bucket"],
-            "has_chart_data": not df.empty,
-            "row_html": row_html,
-            "card_html": card_html,
-            "card_html_with_volume": card_html_with_volume,
-            "card_html_without_volume": card_html_without_volume,
-            "card_html_with_volume_price": card_html_with_volume_price,
-            "card_html_with_volume_no_price": card_html_with_volume_no_price,
-            "card_html_without_volume_price": card_html_without_volume_price,
-            "card_html_without_volume_no_price": card_html_without_volume_no_price,
-        })
+    rendered_stock_items = render_dashboard_stock_items(
+        sorted_stocks=sorted_stocks,
+        initial_page_symbols=initial_page_symbols,
+        client_render_all_cards=client_render_all_cards,
+        tab=tab,
+        watchlist_symbol_keys=watchlist_symbol_keys,
+        period=period,
+        show_volume=show_volume,
+        show_price=show_price,
+    )
 
     visible_rendered_items = [
         item for item in rendered_stock_items
