@@ -803,8 +803,8 @@ def app(environ, start_response):
             <label class='form-field'>圖塊排序<select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='signal_score' {'selected' if card_sort=='signal_score' else ''}>形勢分數</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option><option value='target_ratio' {'selected' if card_sort=='target_ratio' else ''}>目標價/現價</option></select></label>
             <label class='form-field'>顯示量K線<select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select></label>
             <label class='form-field'>顯示價K線<select name='show_price'><option value='1' {'selected' if show_price else ''}>開啟</option><option value='0' {'selected' if not show_price else ''}>關閉</option></select></label>
-            <label class='form-field'>總表摘要／來源<button type='button' id='tableThemeMetaToggle' class='btn-soft' aria-pressed='false' onclick='toggleTableThemeMeta()'>總表摘要/來源：關</button></label>
-            <label class='form-field'>K線摘要／來源<button type='button' id='cardThemeMetaToggle' class='btn-soft' aria-pressed='false' onclick='toggleCardThemeMeta()'>K線摘要/來源：關</button></label>
+            <label class='form-field'>總表摘要／來源<select id='tableThemeMetaToggle' name='table_theme_meta' aria-label='總表摘要與來源顯示開關'><option value='0' selected>關閉</option><option value='1'>開啟</option></select></label>
+            <label class='form-field'>K線摘要／來源<select id='cardThemeMetaToggle' name='card_theme_meta' aria-label='K線摘要與來源顯示開關'><option value='0' selected>關閉</option><option value='1'>開啟</option></select></label>
           </div>
         </fieldset>
         <fieldset>

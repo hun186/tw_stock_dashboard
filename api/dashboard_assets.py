@@ -282,19 +282,13 @@ function selectedCardHtml(item){
 }
 function applyTableThemeMetaVisibility(){
   document.documentElement.classList.toggle('show-table-theme-meta', dashboardShowTableThemeMeta);
-  const button = document.getElementById('tableThemeMetaToggle');
-  if(button){
-    button.setAttribute('aria-pressed', dashboardShowTableThemeMeta ? 'true' : 'false');
-    button.textContent = `總表摘要/來源：${dashboardShowTableThemeMeta ? '開' : '關'}`;
-  }
+  const control = document.getElementById('tableThemeMetaToggle');
+  if(control) control.value = dashboardShowTableThemeMeta ? '1' : '0';
 }
 function applyCardThemeMetaVisibility(){
   document.documentElement.classList.toggle('show-card-theme-meta', dashboardShowCardThemeMeta);
-  const button = document.getElementById('cardThemeMetaToggle');
-  if(button){
-    button.setAttribute('aria-pressed', dashboardShowCardThemeMeta ? 'true' : 'false');
-    button.textContent = `K線摘要/來源：${dashboardShowCardThemeMeta ? '開' : '關'}`;
-  }
+  const control = document.getElementById('cardThemeMetaToggle');
+  if(control) control.value = dashboardShowCardThemeMeta ? '1' : '0';
 }
 function applyThemeMetaVisibility(){
   applyTableThemeMetaVisibility();
@@ -308,6 +302,17 @@ function toggleTableThemeMeta(){
 }
 function toggleCardThemeMeta(){
   dashboardShowCardThemeMeta = !dashboardShowCardThemeMeta;
+  applyCardThemeMetaVisibility();
+  showWatchlistStatus(`已${dashboardShowCardThemeMeta ? '顯示' : '隱藏'}K線摘要/來源，未更新儀表板或變更個股排序。`);
+}
+function setTableThemeMetaVisibility(value){
+  dashboardShowTableThemeMeta = String(value) === '1';
+  applyTableThemeMetaVisibility();
+  renderDashboardPage(dashboardCurrentPage);
+  showWatchlistStatus(`已${dashboardShowTableThemeMeta ? '顯示' : '隱藏'}總表摘要/來源，未更新儀表板或變更個股排序。`);
+}
+function setCardThemeMetaVisibility(value){
+  dashboardShowCardThemeMeta = String(value) === '1';
   applyCardThemeMetaVisibility();
   showWatchlistStatus(`已${dashboardShowCardThemeMeta ? '顯示' : '隱藏'}K線摘要/來源，未更新儀表板或變更個股排序。`);
 }
@@ -1031,6 +1036,14 @@ document.getElementById('cfgForm')?.addEventListener('change', (event)=>{
     dashboardShowPrice = String(event.target.value) === '1';
     renderDashboardPage(dashboardCurrentPage);
     showWatchlistStatus(`已${dashboardShowPrice ? '開啟' : '關閉'}價K線，保留目前頁碼且未重新下載行情。`);
+    return;
+  }
+  if(fieldName === 'table_theme_meta'){
+    setTableThemeMetaVisibility(event.target.value);
+    return;
+  }
+  if(fieldName === 'card_theme_meta'){
+    setCardThemeMetaVisibility(event.target.value);
     return;
   }
   if(AUTO_SUBMIT_FIELDS.has(event.target?.name)) autoSubmitConfig(event);
