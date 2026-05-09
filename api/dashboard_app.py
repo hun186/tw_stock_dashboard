@@ -852,9 +852,9 @@ def app(environ, start_response):
       tr:hover td{{background:#f8fbff}}
       table th:nth-child(8), table td:nth-child(8), table th:nth-child(9), table td:nth-child(9), table th:nth-child(10), table td:nth-child(10){{text-align:right}}
       .row-action-cell{{text-align:center;width:42px;min-width:42px}}
-      .theme-summary-cell{{display:none;white-space:normal;min-width:240px;max-width:360px;color:#334155;line-height:1.35;padding-left:14px;overflow-wrap:anywhere}}
+      .theme-summary-cell{{display:none;white-space:normal;min-width:260px;max-width:380px;color:#334155;line-height:1.35;padding-left:22px;border-left:1px solid #e2e8f0;overflow-wrap:anywhere}}
       .source-cell{{display:none;max-width:140px;overflow:hidden;text-overflow:ellipsis}}
-      .show-card-theme-meta .theme-summary-cell,.show-card-theme-meta .source-cell{{display:table-cell}}
+      .show-table-theme-meta .theme-summary-cell,.show-table-theme-meta .source-cell{{display:table-cell}}
       .source-link{{color:#1565c0;font-weight:700;text-decoration:none}}
       .source-link:hover,.source-link:focus{{text-decoration:underline}}
       .table-wrap{{overflow:auto;border-radius:14px;border:1px solid #e2e8f0;background:#fff}}
@@ -957,7 +957,8 @@ def app(environ, start_response):
             <label class='form-field'>圖塊排序<select name='card_sort'><option value='symbol' {'selected' if card_sort=='symbol' else ''}>個股代號</option><option value='signal_score' {'selected' if card_sort=='signal_score' else ''}>形勢分數</option><option value='close' {'selected' if card_sort=='close' else ''}>成交價</option><option value='volume' {'selected' if card_sort=='volume' else ''}>成交量</option><option value='change_pct' {'selected' if card_sort=='change_pct' else ''}>漲跌幅度</option><option value='target_ratio' {'selected' if card_sort=='target_ratio' else ''}>目標價/現價</option></select></label>
             <label class='form-field'>顯示量K線<select name='show_volume'><option value='1' {'selected' if show_volume else ''}>開啟</option><option value='0' {'selected' if not show_volume else ''}>關閉</option></select></label>
             <label class='form-field'>顯示價K線<select name='show_price'><option value='1' {'selected' if show_price else ''}>開啟</option><option value='0' {'selected' if not show_price else ''}>關閉</option></select></label>
-            <label class='form-field'>摘要／來源顯示<button type='button' id='cardThemeMetaToggle' class='btn-soft' aria-pressed='false' onclick='toggleCardThemeMeta()'>顯示摘要/來源：關</button></label>
+            <label class='form-field'>總表摘要／來源<button type='button' id='tableThemeMetaToggle' class='btn-soft' aria-pressed='false' onclick='toggleTableThemeMeta()'>總表摘要/來源：關</button></label>
+            <label class='form-field'>K線摘要／來源<button type='button' id='cardThemeMetaToggle' class='btn-soft' aria-pressed='false' onclick='toggleCardThemeMeta()'>K線摘要/來源：關</button></label>
           </div>
         </fieldset>
         <fieldset>
@@ -1109,7 +1110,8 @@ def app(environ, start_response):
     let dashboardCardsPerRow = Number(defaultConfig.cards_per_row || 3);
     let dashboardShowVolume = String(defaultConfig.show_volume ?? '1') === '1';
     let dashboardShowPrice = String(defaultConfig.show_price ?? '1') === '1';
-    let dashboardShowThemeMeta = false;
+    let dashboardShowTableThemeMeta = false;
+    let dashboardShowCardThemeMeta = false;
     const STOCK_META_PRESET_LOOKUP = STOCK_META_GROUPS.reduce((lookup, group)=>{{
       group.options.forEach((option)=>{{ lookup[option] = group.id; }});
       return lookup;
@@ -1223,18 +1225,36 @@ def app(environ, start_response):
       if(!dashboardShowVolume && item.card_html_without_volume) return item.card_html_without_volume;
       return item.card_html || '';
     }}
-    function applyCardThemeMetaVisibility(){{
-      document.documentElement.classList.toggle('show-card-theme-meta', dashboardShowThemeMeta);
-      const button = document.getElementById('cardThemeMetaToggle');
+    function applyTableThemeMetaVisibility(){{
+      document.documentElement.classList.toggle('show-table-theme-meta', dashboardShowTableThemeMeta);
+      const button = document.getElementById('tableThemeMetaToggle');
       if(button){{
-        button.setAttribute('aria-pressed', dashboardShowThemeMeta ? 'true' : 'false');
-        button.textContent = `顯示摘要/來源：${{dashboardShowThemeMeta ? '開' : '關'}}`;
+        button.setAttribute('aria-pressed', dashboardShowTableThemeMeta ? 'true' : 'false');
+        button.textContent = `總表摘要/來源：${{dashboardShowTableThemeMeta ? '開' : '關'}}`;
       }}
     }}
-    function toggleCardThemeMeta(){{
-      dashboardShowThemeMeta = !dashboardShowThemeMeta;
+    function applyCardThemeMetaVisibility(){{
+      document.documentElement.classList.toggle('show-card-theme-meta', dashboardShowCardThemeMeta);
+      const button = document.getElementById('cardThemeMetaToggle');
+      if(button){{
+        button.setAttribute('aria-pressed', dashboardShowCardThemeMeta ? 'true' : 'false');
+        button.textContent = `K線摘要/來源：${{dashboardShowCardThemeMeta ? '開' : '關'}}`;
+      }}
+    }}
+    function applyThemeMetaVisibility(){{
+      applyTableThemeMetaVisibility();
       applyCardThemeMetaVisibility();
-      showWatchlistStatus(`已${{dashboardShowThemeMeta ? '顯示' : '隱藏'}}總表欄位與K線摘要/來源，未更新儀表板或變更個股排序。`);
+    }}
+    function toggleTableThemeMeta(){{
+      dashboardShowTableThemeMeta = !dashboardShowTableThemeMeta;
+      applyTableThemeMetaVisibility();
+      renderDashboardPage(dashboardCurrentPage);
+      showWatchlistStatus(`已${{dashboardShowTableThemeMeta ? '顯示' : '隱藏'}}總表摘要/來源，未更新儀表板或變更個股排序。`);
+    }}
+    function toggleCardThemeMeta(){{
+      dashboardShowCardThemeMeta = !dashboardShowCardThemeMeta;
+      applyCardThemeMetaVisibility();
+      showWatchlistStatus(`已${{dashboardShowCardThemeMeta ? '顯示' : '隱藏'}}K線摘要/來源，未更新儀表板或變更個股排序。`);
     }}
     function syncRenderOnlyUrlParams(){{
       const form = document.getElementById('cfgForm');
@@ -1258,7 +1278,7 @@ def app(environ, start_response):
       const pageItems = items.slice(start, start + dashboardPageSize);
       const table = document.querySelector('#tableWrap table');
       if(table){{
-        const emptyColspan = dashboardShowThemeMeta ? 17 : 15;
+        const emptyColspan = dashboardShowTableThemeMeta ? 17 : 15;
         table.innerHTML = dashboardTableHeaderHtml + (pageItems.length ? pageItems.map((item)=>item.row_html).join('') : `<tr><td colspan="${{emptyColspan}}">無符合條件資料</td></tr>`);
       }}
       const grid = document.getElementById('cardsGrid');
@@ -1282,7 +1302,7 @@ def app(environ, start_response):
       populateStockMetaControls();
       applyNotesToTableAndCards();
       updateResponsiveGrid();
-      applyCardThemeMetaVisibility();
+      applyThemeMetaVisibility();
       syncRenderOnlyUrlParams();
       hideLoadingProgress();
     }}
@@ -2014,7 +2034,7 @@ def app(environ, start_response):
         populateStockMetaControls();
         applyNotesToTableAndCards();
         updateResponsiveGrid();
-        applyCardThemeMetaVisibility();
+        applyThemeMetaVisibility();
         window.scrollTo(scrollX, scrollY);
         requestAnimationFrame(()=>window.scrollTo(scrollX, scrollY));
         refreshIntradayInPlace.lastSuccessAt = Date.now();
