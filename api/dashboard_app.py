@@ -89,6 +89,25 @@ def _theme_reference_html(value: object) -> str:
     return html.escape(label)
 
 
+def _theme_compact_html(group_value: object, subgroup_value: object) -> str:
+    group = str(group_value or "").strip()
+    subgroup = str(subgroup_value or "").strip()
+    group_label = group or "-"
+    subgroup_label = subgroup or "-"
+    title_parts = []
+    if group:
+        title_parts.append(f"主題分類：{group}")
+    if subgroup:
+        title_parts.append(f"次題材：{subgroup}")
+    title = "；".join(title_parts) or "尚無題材分類"
+    return (
+        f"<div class='theme-compact' title='{html.escape(title, quote=True)}'>"
+        f"<span class='theme-chip theme-chip-main'>{html.escape(group_label)}</span>"
+        f"<span class='theme-chip theme-chip-sub'>{html.escape(subgroup_label)}</span>"
+        "</div>"
+    )
+
+
 STOCK_ANALYSIS_CACHE: dict[tuple[str, str, str, str, str, bool], tuple[float, dict]] = {}
 DEFAULT_LIVE_FETCH_THRESHOLD = 80
 SINGLE_CATEGORY_LIVE_FETCH_BUFFER = 20
@@ -548,6 +567,7 @@ def app(environ, start_response):
                 f"onclick='addWatchlistStock({symbol_js}, {{ stayOnPage: true }})'>＋</button>"
             )
         subgroup_text = row.subgroup if isinstance(row.subgroup, str) and row.subgroup else "-"
+        theme_compact_html = _theme_compact_html(row.group, row.subgroup)
         summary_text = _theme_summary_text(getattr(row, "summary", ""))
         reference_html = _theme_reference_html(getattr(row, "reference_url", ""))
         stock_meta_cells = "".join([
@@ -577,9 +597,9 @@ def app(environ, start_response):
         row_html = (
             f"<tr data-symbol='{html.escape(row.symbol)}' data-name='{html.escape(row.name, quote=True)}' "
             f"data-summary='{html.escape(summary_text, quote=True)}'>"
-            f"<td class='row-action-cell'>{action_btn}</td><td>{html.escape(status.split()[0])}</td><td>{html.escape(row.symbol)}</td>"
-            f"<td>{name_jump_button}</td><td>{html.escape(row.group)}</td><td>{html.escape(subgroup_text)}</td>"
-            f"<td>{html.escape(status)}</td><td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td>"
+            f"<td class='row-action-cell'>{action_btn}</td><td class='status-icon-cell'>{html.escape(status.split()[0])}</td><td class='symbol-cell'>{html.escape(row.symbol)}</td>"
+            f"<td class='name-cell'>{name_jump_button}</td><td class='signal-cell'>{html.escape(status)}</td>"
+            f"<td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td><td class='theme-cell'>{theme_compact_html}</td>"
             f"{stock_meta_cells}<td class='note-cell'>{note_editor}</td>"
             f"<td class='theme-summary-cell'>{html.escape(summary_text)}</td><td class='source-cell'>{reference_html}</td></tr>"
         )
@@ -771,7 +791,7 @@ def app(environ, start_response):
     progress_panel_class = "pipeline-progress is-compact" if compact_progress else "pipeline-progress"
 
     action_column_label = "移除" if tab == "watchlist" else "自選"
-    table_header_html = f"<tr><th>{action_column_label}</th><th>狀態</th><th>代號</th><th>名稱</th><th>主題分類</th><th>次題材</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th class='theme-summary-cell'>題材摘要</th><th class='source-cell'>來源</th></tr>"
+    table_header_html = f"<tr><th>{action_column_label}</th><th>狀態</th><th>代號</th><th>名稱</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>題材</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th class='theme-summary-cell'>題材摘要</th><th class='source-cell'>來源</th></tr>"
     stock_filter_button_text = "選擇自選股" if not stock_meta_stock_filter else f"已選 {len([x for x in stock_meta_stock_filter.replace('，', ',').replace('、', ',').replace(';', ',').replace('；', ',').split(',') for x in x.split() if x.strip()])} 筆條件"
     dashboard_render_items_json = json.dumps(rendered_stock_items, ensure_ascii=False).replace("</", "<\\/")
     table_header_html_json = json.dumps(table_header_html, ensure_ascii=False).replace("</", "<\\/")
@@ -845,13 +865,34 @@ def app(environ, start_response):
       .pipeline-progress.is-compact .progress-stage-ratio{{margin-top:0}}
       .pipeline-progress.is-compact .progress-bar,.pipeline-progress.is-compact small{{display:none}}
       table{{border-collapse:separate;border-spacing:0;width:100%;font-size:.88rem}}
-      th{{position:sticky;top:0;z-index:1;background:#f1f5f9;color:#334155;font-weight:800}}
+      th{{position:sticky;top:0;z-index:2;background:#f1f5f9;color:#334155;font-weight:800}}
       td,th{{border-bottom:1px solid #e2e8f0;padding:8px 9px;white-space:nowrap}}
       td:first-child,th:first-child{{border-left:1px solid #e2e8f0}}
       td:last-child,th:last-child{{border-right:1px solid #e2e8f0}}
       tr:hover td{{background:#f8fbff}}
-      table th:nth-child(8), table td:nth-child(8), table th:nth-child(9), table td:nth-child(9), table th:nth-child(10), table td:nth-child(10){{text-align:right}}
+      table th:nth-child(6), table td:nth-child(6), table th:nth-child(7), table td:nth-child(7), table th:nth-child(8), table td:nth-child(8){{text-align:right}}
       .row-action-cell{{text-align:center;width:42px;min-width:42px}}
+      .table-wrap th:nth-child(1),.table-wrap td:nth-child(1){{width:42px;min-width:42px}}
+      .status-icon-cell{{text-align:center;width:54px;min-width:54px}}
+      .table-wrap th:nth-child(2),.table-wrap td:nth-child(2){{width:54px;min-width:54px;text-align:center}}
+      .symbol-cell{{width:88px;min-width:88px}}
+      .table-wrap th:nth-child(3),.table-wrap td:nth-child(3){{width:88px;min-width:88px}}
+      .name-cell{{width:128px;min-width:128px;max-width:150px}}
+      .name-cell .stock-jump{{display:block;max-width:128px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+      .signal-cell{{min-width:180px;max-width:220px;white-space:normal;line-height:1.35;font-weight:800;color:#334155}}
+      .theme-cell{{min-width:150px;max-width:190px}}
+      .theme-compact{{display:flex;flex-direction:column;gap:3px;max-width:176px}}
+      .theme-chip{{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:999px;padding:2px 8px;font-size:.78rem;font-weight:800;line-height:1.35}}
+      .theme-chip-main{{color:#1e3a8a;background:#dbeafe}}
+      .theme-chip-sub{{color:#475569;background:#f1f5f9}}
+      .table-wrap th:nth-child(-n+5),.table-wrap td:nth-child(-n+5){{position:sticky;background:#fff;z-index:3;box-shadow:1px 0 0 #e2e8f0}}
+      .table-wrap th:nth-child(-n+5){{z-index:4;background:#f1f5f9}}
+      .table-wrap th:nth-child(1),.table-wrap td:nth-child(1){{left:0}}
+      .table-wrap th:nth-child(2),.table-wrap td:nth-child(2){{left:42px}}
+      .table-wrap th:nth-child(3),.table-wrap td:nth-child(3){{left:96px}}
+      .table-wrap th:nth-child(4),.table-wrap td:nth-child(4){{left:184px}}
+      .table-wrap th:nth-child(5),.table-wrap td:nth-child(5){{left:312px}}
+      tr:hover td:nth-child(-n+5){{background:#f8fbff}}
       .theme-summary-cell{{display:none;white-space:normal;min-width:260px;max-width:380px;color:#334155;line-height:1.35;padding-left:22px;border-left:1px solid #e2e8f0;overflow-wrap:anywhere}}
       .source-cell{{display:none;max-width:140px;overflow:hidden;text-overflow:ellipsis}}
       .show-table-theme-meta .theme-summary-cell,.show-table-theme-meta .source-cell{{display:table-cell}}
@@ -919,9 +960,9 @@ def app(environ, start_response):
       .note-cell{{width:calc(190px + 3em);min-width:calc(190px + 3em);max-width:calc(190px + 3em)}}
       .note-editor .stock-meta-select{{width:120px;min-width:0;padding:4px 6px;text-align:left;text-align-last:left;min-height:30px}}
       .note-editor .stock-note-input{{width:calc(170px + 3em);min-width:calc(120px + 3em);padding:4px 6px;min-height:30px}}
-      table th:nth-child(15), table td:nth-child(15){{width:calc(190px + 3em);min-width:calc(190px + 3em);max-width:calc(190px + 3em)}}
+      table th:nth-child(14), table td:nth-child(14){{width:calc(190px + 3em);min-width:calc(190px + 3em);max-width:calc(190px + 3em)}}
       @media (max-width: 920px){{.filter-grid{{grid-template-columns:repeat(2,minmax(180px,1fr))}}.filter-grid > fieldset,.filter-grid > .pool-settings,.filter-grid > .primary-actions,.filter-grid > .kline-settings{{grid-column:auto}}.form-actions{{grid-template-columns:1fr}}.utility-actions{{grid-template-columns:repeat(4,minmax(120px,1fr))}}.pipeline-progress-list{{grid-template-columns:repeat(2,minmax(160px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
-      @media (max-width: 760px){{body{{padding:10px}}.hero{{display:block;padding:18px}}.hero-badge{{display:inline-block;margin-top:12px}}.filter-grid,.field-stack,.kline-settings .field-stack,.summary-strip,.pipeline-progress-list{{grid-template-columns:1fr}}.form-actions{{gap:10px}}.primary-actions{{grid-template-columns:1fr;padding:32px 10px 10px;border-radius:14px}}.utility-actions{{grid-template-columns:repeat(2,minmax(0,1fr));padding:32px 10px 10px;border-radius:14px}}.preset-picker{{grid-column:1 / -1;grid-template-columns:1fr;border-radius:14px;gap:4px}}.cards-grid{{grid-template-columns:1fr}}input,select,button{{font-size:.84rem}}table{{font-size:.8rem}}}}
+      @media (max-width: 760px){{body{{padding:10px}}.hero{{display:block;padding:18px}}.hero-badge{{display:inline-block;margin-top:12px}}.filter-grid,.field-stack,.kline-settings .field-stack,.summary-strip,.pipeline-progress-list{{grid-template-columns:1fr}}.form-actions{{gap:10px}}.primary-actions{{grid-template-columns:1fr;padding:32px 10px 10px;border-radius:14px}}.utility-actions{{grid-template-columns:repeat(2,minmax(0,1fr));padding:32px 10px 10px;border-radius:14px}}.preset-picker{{grid-column:1 / -1;grid-template-columns:1fr;border-radius:14px;gap:4px}}.cards-grid{{grid-template-columns:1fr}}input,select,button{{font-size:.84rem}}table{{font-size:.8rem}}.table-wrap th:nth-child(5),.table-wrap td:nth-child(5){{position:static;box-shadow:none}}.signal-cell{{min-width:150px;max-width:170px}}}}
       @media (max-width: 390px){{.utility-actions{{grid-template-columns:1fr}}.preset-picker{{grid-column:1}}}}
     </style></head><body>
     <div class='page-shell'>
@@ -1077,7 +1118,7 @@ def app(environ, start_response):
         <div class='summary-item'><span class='summary-label'>頁面進度</span><span class='summary-value'>{page} / {total_pages}</span></div>
         <div class='summary-item'><span class='summary-label'>每頁顯示</span><span class='summary-value'>{limit} 檔</span></div>
       </div>
-      <div id='tableWrap' class='table-wrap'><table>{table_header_html}{''.join(rows) if rows else '<tr><td colspan="15">無符合條件資料</td></tr>'}</table></div>
+      <div id='tableWrap' class='table-wrap'><table>{table_header_html}{''.join(rows) if rows else '<tr><td colspan="14">無符合條件資料</td></tr>'}</table></div>
     </section>
     <section class='section-card' aria-labelledby='chartsTitle'>
       <div class='section-header'><h2 id='chartsTitle'>多股趨勢圖</h2></div>
@@ -1278,7 +1319,7 @@ def app(environ, start_response):
       const pageItems = items.slice(start, start + dashboardPageSize);
       const table = document.querySelector('#tableWrap table');
       if(table){{
-        const emptyColspan = dashboardShowTableThemeMeta ? 17 : 15;
+        const emptyColspan = dashboardShowTableThemeMeta ? 16 : 14;
         table.innerHTML = dashboardTableHeaderHtml + (pageItems.length ? pageItems.map((item)=>item.row_html).join('') : `<tr><td colspan="${{emptyColspan}}">無符合條件資料</td></tr>`);
       }}
       const grid = document.getElementById('cardsGrid');
