@@ -916,10 +916,10 @@ def app(environ, start_response):
       .stock-filter-picker input[type='hidden']{{display:none}}
       .stock-filter-picker button{{width:100%;min-height:38px}}
       .stock-meta-cell{{width:132px;min-width:132px;max-width:132px}}
-      .note-cell{{width:190px;min-width:190px;max-width:190px}}
+      .note-cell{{width:calc(190px + 3em);min-width:calc(190px + 3em);max-width:calc(190px + 3em)}}
       .note-editor .stock-meta-select{{width:120px;min-width:0;padding:4px 6px;text-align:left;text-align-last:left;min-height:30px}}
-      .note-editor .stock-note-input{{width:170px;min-width:120px;padding:4px 6px;min-height:30px}}
-      table th:nth-child(15), table td:nth-child(15){{width:96px;min-width:96px;max-width:96px}}
+      .note-editor .stock-note-input{{width:calc(170px + 3em);min-width:calc(120px + 3em);padding:4px 6px;min-height:30px}}
+      table th:nth-child(15), table td:nth-child(15){{width:calc(190px + 3em);min-width:calc(190px + 3em);max-width:calc(190px + 3em)}}
       @media (max-width: 920px){{.filter-grid{{grid-template-columns:repeat(2,minmax(180px,1fr))}}.filter-grid > fieldset,.filter-grid > .pool-settings,.filter-grid > .primary-actions,.filter-grid > .kline-settings{{grid-column:auto}}.form-actions{{grid-template-columns:1fr}}.utility-actions{{grid-template-columns:repeat(4,minmax(120px,1fr))}}.pipeline-progress-list{{grid-template-columns:repeat(2,minmax(160px,1fr))}}.cards-grid{{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}}}}
       @media (max-width: 760px){{body{{padding:10px}}.hero{{display:block;padding:18px}}.hero-badge{{display:inline-block;margin-top:12px}}.filter-grid,.field-stack,.kline-settings .field-stack,.summary-strip,.pipeline-progress-list{{grid-template-columns:1fr}}.form-actions{{gap:10px}}.primary-actions{{grid-template-columns:1fr;padding:32px 10px 10px;border-radius:14px}}.utility-actions{{grid-template-columns:repeat(2,minmax(0,1fr));padding:32px 10px 10px;border-radius:14px}}.preset-picker{{grid-column:1 / -1;grid-template-columns:1fr;border-radius:14px;gap:4px}}.cards-grid{{grid-template-columns:1fr}}input,select,button{{font-size:.84rem}}table{{font-size:.8rem}}}}
       @media (max-width: 390px){{.utility-actions{{grid-template-columns:1fr}}.preset-picker{{grid-column:1}}}}
