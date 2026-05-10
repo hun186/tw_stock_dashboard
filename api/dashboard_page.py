@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import html
-import json
 
 from api.dashboard_assets import DASHBOARD_CSS, DASHBOARD_JS
-from api.constants import STATUS_FILTERS
 from api.data_loader import STOCK_GROUP_COLUMNS
 from api.dashboard_notices import render_category_all_coverage_notice, render_limited_notice
-from api.dashboard_progress import build_progress_steps, progress_steps_json, render_progress_steps_html
+from api.dashboard_page_context import (
+    build_progress_context,
+    build_save_payload,
+    build_stock_meta_filter_context,
+    render_industry_options,
+    render_status_options,
+    render_table_header_html,
+    render_topic_options,
+    safe_json_script,
+    stock_filter_button_text,
+)
 from api.server_configs import load_server_config_presets
 
 
@@ -57,55 +65,39 @@ def render_dashboard_page(
     valid_subgroups,
     watchlist,
 ) -> str:
-    industry_options = (
-        "<option value='all' {}>不限產業</option>".format("selected" if industry == "all" else "")
-        + "".join([
-            f"<option value='{html.escape(r.industry)}' {'selected' if r.industry == industry else ''}>{html.escape(r.industry_label)}</option>"
-            for r in industries.itertuples(index=False)
-        ])
+    industry_options = render_industry_options(industries=industries, selected_industry=industry)
+    status_options = render_status_options(
+        selected_status=status_filter,
+        status_filter_values=status_filter_values,
     )
-    status_options = "".join([
-        f"<option value='{k}' {'selected' if k == status_filter else ''}>{v}</option>"
-        for k, v in STATUS_FILTERS.items()
-        if k == "all" or k in status_filter_values
-    ])
-    stock_meta_filter_options = {
-        field: sorted(value for value in values if value != "none")
-        for field, values in stock_meta_filter_values.items()
-    }
-    stock_meta_filter_has_empty = {
-        field: "none" in values
-        for field, values in stock_meta_filter_values.items()
-    }
-    group_options = "<option value='all'>全部主題</option>" + "".join([
-        f"<option value='{html.escape(v)}' {'selected' if v == group_filter else ''}>{html.escape(v)}</option>" for v in valid_groups
-    ])
-    subgroup_options = "<option value='all'>全部次題材</option>" + "".join([
-        f"<option value='{html.escape(v)}' {'selected' if v == subgroup_filter else ''}>{html.escape(v)}</option>" for v in valid_subgroups
-    ])
+    stock_meta_filter_context = build_stock_meta_filter_context(stock_meta_filter_values)
+    stock_meta_filter_options = stock_meta_filter_context["options"]
+    stock_meta_filter_has_empty = stock_meta_filter_context["has_empty"]
+    group_options = render_topic_options(values=valid_groups, selected_value=group_filter, all_label="全部主題")
+    subgroup_options = render_topic_options(values=valid_subgroups, selected_value=subgroup_filter, all_label="全部次題材")
 
-    save_payload = {
-        "tab": tab,
-        "industry": industry,
-        "period": period,
-        "interval": interval,
-        "limit": limit,
-        "status_filter": status_filter,
-        "group_filter": group_filter,
-        "subgroup_filter": subgroup_filter,
-        **{f"stock_meta_{field}": value for field, value in stock_meta_filters.items()},
-        "stock_meta_note": stock_meta_note_filter,
-        "stock_meta_stock": stock_meta_stock_filter,
-        "stock_meta_payload": stock_meta_payload_raw,
-        "cards_per_row": cards_per_row,
-        "custom_watchlist": ",".join(watchlist["symbol"].tolist()),
-        "show_volume": "1" if show_volume else "0",
-        "show_price": "1" if show_price else "0",
-        "show_target_price": "1" if show_target_price else "0",
-        "card_sort": card_sort,
-        "compact_progress": "1" if compact_progress else "0",
-        "page": page,
-    }
+    save_payload = build_save_payload(
+        tab=tab,
+        industry=industry,
+        period=period,
+        interval=interval,
+        limit=limit,
+        status_filter=status_filter,
+        group_filter=group_filter,
+        subgroup_filter=subgroup_filter,
+        stock_meta_filters=stock_meta_filters,
+        stock_meta_note_filter=stock_meta_note_filter,
+        stock_meta_stock_filter=stock_meta_stock_filter,
+        stock_meta_payload_raw=stock_meta_payload_raw,
+        cards_per_row=cards_per_row,
+        watchlist=watchlist,
+        show_volume=show_volume,
+        show_price=show_price,
+        show_target_price=show_target_price,
+        card_sort=card_sort,
+        compact_progress=compact_progress,
+        page=page,
+    )
     server_config_presets = load_server_config_presets()
     limited_notice = render_limited_notice(
         candidate_count=candidate_count,
@@ -118,28 +110,27 @@ def render_dashboard_page(
         industry_df=industry_df,
         source_stocks=source_stocks,
     )
-    progress_steps = build_progress_steps(
-        analyzed_count=len(analyzed_stocks),
+    progress_context = build_progress_context(
+        analyzed_stocks=analyzed_stocks,
         candidate_count=candidate_count,
         is_limited_analysis=is_limited_analysis,
         price_ready_count=price_ready_count,
         progress_total_stocks=progress_total_stocks,
-        rendered_count=len(rendered_stock_items),
+        rendered_stock_items=rendered_stock_items,
         signal_ready_count=signal_ready_count,
-        sorted_count=len(sorted_stocks),
-        visible_stock_count=len(stocks),
+        sorted_stocks=sorted_stocks,
+        stocks=stocks,
+        compact_progress=compact_progress,
     )
-    current_progress_stage = next((step for step in progress_steps if step["percent"] < 100), progress_steps[-1])
-    progress_steps_html = render_progress_steps_html(progress_steps)
-    pipeline_progress_json = progress_steps_json(progress_steps)
+    current_progress_stage = progress_context["current_stage"]
+    progress_steps_html = progress_context["steps_html"]
+    pipeline_progress_json = progress_context["steps_json"]
+    progress_panel_class = progress_context["panel_class"]
 
-    progress_panel_class = "pipeline-progress is-compact" if compact_progress else "pipeline-progress"
-
-    action_column_label = "移除" if tab == "watchlist" else "自選"
-    table_header_html = f"<tr><th>{action_column_label}</th><th>狀態</th><th>代號</th><th>名稱</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>題材</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th class='theme-summary-cell'>題材摘要</th><th class='source-cell'>來源</th></tr>"
-    stock_filter_button_text = "選擇自選股" if not stock_meta_stock_filter else f"已選 {len([x for x in stock_meta_stock_filter.replace('，', ',').replace('、', ',').replace(';', ',').replace('；', ',').split(',') for x in x.split() if x.strip()])} 筆條件"
-    dashboard_render_items_json = json.dumps(rendered_stock_items, ensure_ascii=False).replace("</", "<\\/")
-    table_header_html_json = json.dumps(table_header_html, ensure_ascii=False).replace("</", "<\\/")
+    table_header_html = render_table_header_html(tab=tab)
+    stock_filter_button_label = stock_filter_button_text(stock_meta_stock_filter)
+    dashboard_render_items_json = safe_json_script(rendered_stock_items)
+    table_header_html_json = safe_json_script(table_header_html)
 
     body = f"""<!doctype html><html lang='zh-Hant'><head><meta charset='utf-8'><title>TW Dashboard</title>
     <style>{DASHBOARD_CSS}</style></head><body>
@@ -201,7 +192,7 @@ def render_dashboard_page(
             <label class='form-field'>股名／代號篩選
               <span class='stock-filter-picker'>
                 <input type='hidden' id='stockMetaFilter-stock' name='stock_meta_stock' value='{html.escape(stock_meta_stock_filter, quote=True)}'>
-                <button type='button' id='stockFilterButton' class='btn-soft' onclick='openStockFilterDialog()'>{html.escape(stock_filter_button_text)}</button>
+                <button type='button' id='stockFilterButton' class='btn-soft' onclick='openStockFilterDialog()'>{html.escape(stock_filter_button_label)}</button>
               </span>
             </label>
           </div>
@@ -304,8 +295,8 @@ def render_dashboard_page(
       <div id='cardsGrid' class='cards-grid' style='grid-template-columns:repeat({cards_per_row}, minmax(0,1fr))'>{''.join([f"<div class='card' data-symbol='{html.escape(cd['symbol'])}'>{cd['card_html']}</div>" for cd in cards_data])}</div>
     </section>
     <script>
-    const defaultConfig = {json.dumps(save_payload, ensure_ascii=False)};
-    const serverConfigPresets = {json.dumps(server_config_presets, ensure_ascii=False)};
+    const defaultConfig = {safe_json_script(save_payload)};
+    const serverConfigPresets = {safe_json_script(server_config_presets)};
     const autoRefreshMs = 60000;
     const isIntradayMode = defaultConfig.period === 'intraday';
     const WATCHLIST_STORAGE_KEY = 'tw_dashboard_watchlist';
@@ -317,10 +308,10 @@ def render_dashboard_page(
       {{ id: 'risk', label: '風險與觀察', allLabel: '全部風險觀察', noneLabel: '未設定風險觀察', options: ['量縮觀察', '爆量觀察', '籌碼鬆動', '技術轉弱', '財報觀察', '法說觀察', '除權息觀察', '利多出盡疑慮', '追高風險', '流動性不足'] }},
     ];
     const STOCK_META_FIELDS = STOCK_META_GROUPS.map((group)=>group.id);
-    const stockMetaFilterOptions = {json.dumps(stock_meta_filter_options, ensure_ascii=False)};
-    const stockMetaFilterHasEmpty = {json.dumps(stock_meta_filter_has_empty, ensure_ascii=False)};
-    const allStocks = {json.dumps(picker_stocks[STOCK_GROUP_COLUMNS].to_dict(orient='records'), ensure_ascii=False)};
-    const stockFilterStocks = {json.dumps(stock_filter_stocks[STOCK_GROUP_COLUMNS].to_dict(orient='records'), ensure_ascii=False)};
+    const stockMetaFilterOptions = {safe_json_script(stock_meta_filter_options)};
+    const stockMetaFilterHasEmpty = {safe_json_script(stock_meta_filter_has_empty)};
+    const allStocks = {safe_json_script(picker_stocks[STOCK_GROUP_COLUMNS].to_dict(orient='records'))};
+    const stockFilterStocks = {safe_json_script(stock_filter_stocks[STOCK_GROUP_COLUMNS].to_dict(orient='records'))};
     const pipelineProgressSteps = {pipeline_progress_json};
     // Immutable source of the full server-analyzed pool; status filtering always derives
     // a fresh visible list from this array so switching back to "全部" never needs
@@ -328,7 +319,7 @@ def render_dashboard_page(
     const dashboardRenderItems = Object.freeze({dashboard_render_items_json});
     const dashboardTableHeaderHtml = {table_header_html_json};
     const dashboardPageSize = Number(defaultConfig.limit || 30);
-    const dashboardHasAllClientCards = {json.dumps(client_render_all_cards)};
+    const dashboardHasAllClientCards = {safe_json_script(client_render_all_cards)};
     let dashboardCurrentPage = Number(defaultConfig.page || 1);
     let dashboardCardsPerRow = Number(defaultConfig.cards_per_row || 3);
     let dashboardShowVolume = String(defaultConfig.show_volume ?? '1') === '1';
