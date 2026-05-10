@@ -65,7 +65,7 @@ def build_stock_pool(
     watchlist_overrides = (
         stock_metadata[STOCK_GROUP_COLUMNS]
         .assign(symbol_key=lambda d: d["symbol"].map(_symbol_key))
-        .drop_duplicates(subset=["symbol"], keep="last")
+        .drop_duplicates(subset=["symbol_key"], keep="last")
         .rename(columns={col: f"watch_{col}" for col in STOCK_GROUP_COLUMNS if col != "symbol"})
     )
 
