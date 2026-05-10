@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from api.data_loader import STOCK_GROUP_COLUMNS
+from api.market_utils import _symbol_key
 
 
 def ensure_stock_group_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -27,12 +28,24 @@ def merge_stock_group_sources(*sources: pd.DataFrame) -> pd.DataFrame:
     if combined.empty:
         return pd.DataFrame(columns=STOCK_GROUP_COLUMNS)
 
-    # Sources are passed from lowest to highest priority. For every column, keep
-    # the highest-priority non-empty value so a legacy watchlist without
-    # summary/reference_url does not erase Gemini metadata for the same symbol.
+    # Treat .TW and .TWO variants of the same code as the same stock. Some
+    # upstream LLM-generated metadata can contain the wrong Taiwan suffix (for
+    # example 8069.TW instead of the official 8069.TWO); merging by symbol key
+    # prevents duplicate rows while still allowing the higher-priority source to
+    # enrich non-symbol metadata. Suffix-only symbols such as ".TWO" normalize to
+    # an empty key and are discarded because they cannot be fetched or matched.
+    combined["_symbol_key"] = combined["symbol"].map(_symbol_key)
+    combined = combined[combined["_symbol_key"] != ""].copy()
+    if combined.empty:
+        return pd.DataFrame(columns=STOCK_GROUP_COLUMNS)
+
+    # Sources are passed from lowest to highest priority. Keep the first valid
+    # symbol for a key so official exchange symbols from lower-priority sources
+    # stay canonical, but for every descriptive column keep the highest-priority
+    # non-empty value so legacy watchlists do not erase richer metadata.
     merged_rows = []
-    for symbol, group in combined.groupby("symbol", sort=False):
-        row = {"symbol": symbol}
+    for _, group in combined.groupby("_symbol_key", sort=False):
+        row = {"symbol": group["symbol"].iloc[0]}
         for col in [c for c in STOCK_GROUP_COLUMNS if c != "symbol"]:
             values = group[col].tolist()
             row[col] = next((value for value in reversed(values) if value), "")

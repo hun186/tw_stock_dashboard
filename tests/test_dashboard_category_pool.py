@@ -62,6 +62,74 @@ class DashboardCategoryPoolTests(unittest.TestCase):
         self.assertIn("<option value='AI光通訊' >AI光通訊</option>", response)
         self.assertEqual(captured_symbols, [["2330.TW", "4977.TWO"]])
 
+    def test_category_tab_merges_same_stock_with_wrong_tw_suffix_metadata(self) -> None:
+        file_watchlist = pd.DataFrame([
+            {"symbol": "8069.TWO", "name": "元太", "group": "電子消費", "subgroup": "電子紙面板"},
+        ])
+        gemini_watchlist = pd.DataFrame([
+            {
+                "symbol": "8069.TW",
+                "name": "元太",
+                "group": "電子科技與半導體",
+                "subgroup": "電子紙 (ePaper)",
+                "summary": "電子紙龍頭",
+                "reference_url": "https://www.eink.com/investor-relations",
+            },
+        ])
+        industry_df = pd.DataFrame([
+            {
+                "industry": "26",
+                "industry_label": "26 - 光電業",
+                "symbol": "8069.TWO",
+                "name": "元太",
+                "group": "上櫃-26",
+                "subgroup": "",
+            },
+        ])
+        captured_symbols = []
+
+        def fake_prefetch(stocks, *_args, **_kwargs):
+            captured_symbols.append(stocks["symbol"].tolist())
+            return {}
+
+        with patch.object(dashboard_app, "load_watchlist", return_value=file_watchlist), \
+            patch.object(dashboard_app, "load_gemini_agent_group_map", return_value=gemini_watchlist), \
+            patch.object(dashboard_app, "load_llm_group_map", return_value=pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])), \
+            patch.object(dashboard_app, "load_twse_industry_map", return_value=industry_df), \
+            patch.object(dashboard_app, "prefetch_price_data", side_effect=fake_prefetch):
+            response = b"".join(dashboard_app.app({"QUERY_STRING": "tab=category&industry=all"}, lambda *_args: None)).decode("utf-8")
+
+        self.assertIn("符合股數</span><span class='summary-value'>1 檔", response)
+        self.assertIn("<td class='symbol-cell'>8069.TWO</td>", response)
+        self.assertNotIn("<td class='symbol-cell'>8069.TW</td>", response)
+        self.assertIn("電子紙龍頭", response)
+        self.assertEqual(captured_symbols, [["8069.TWO"]])
+
+    def test_category_tab_discards_suffix_only_symbols(self) -> None:
+        file_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+        llm_watchlist = pd.DataFrame([
+            {"symbol": ".TWO", "name": "元太", "group": "電子消費", "subgroup": "電子紙面板"},
+        ])
+        industry_df = pd.DataFrame([
+            {"industry": "26", "industry_label": "26 - 光電業", "symbol": "8069.TWO", "name": "元太", "group": "上櫃-26", "subgroup": ""},
+        ])
+        captured_symbols = []
+
+        def fake_prefetch(stocks, *_args, **_kwargs):
+            captured_symbols.append(stocks["symbol"].tolist())
+            return {}
+
+        with patch.object(dashboard_app, "load_watchlist", return_value=file_watchlist), \
+            patch.object(dashboard_app, "load_gemini_agent_group_map", return_value=pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])), \
+            patch.object(dashboard_app, "load_llm_group_map", return_value=llm_watchlist), \
+            patch.object(dashboard_app, "load_twse_industry_map", return_value=industry_df), \
+            patch.object(dashboard_app, "prefetch_price_data", side_effect=fake_prefetch):
+            response = b"".join(dashboard_app.app({"QUERY_STRING": "tab=category&industry=all"}, lambda *_args: None)).decode("utf-8")
+
+        self.assertIn("符合股數</span><span class='summary-value'>1 檔", response)
+        self.assertNotIn("<td class='symbol-cell'>.TWO</td>", response)
+        self.assertEqual(captured_symbols, [["8069.TWO"]])
+
     def test_category_tab_all_industries_explains_non_official_symbols(self) -> None:
         file_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
         llm_watchlist = pd.DataFrame([
