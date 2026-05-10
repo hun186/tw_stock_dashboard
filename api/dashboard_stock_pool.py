@@ -4,77 +4,21 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from api.dashboard_stock_groups import (
+    ensure_stock_group_columns,
+    merge_stock_group_sources,
+    sort_stocks_by_symbol,
+    stock_code_sort_value,
+    stock_group_frame,
+)
+from api.dashboard_stock_meta import (
+    apply_stock_meta_filters,
+    normalize_stock_meta_entry,
+    stock_filter_tokens,
+    stock_meta_filter_values,
+)
 from api.data_loader import STOCK_GROUP_COLUMNS
 from api.market_data import _symbol_key
-from api.dashboard_request import STOCK_META_FIELDS
-
-
-def ensure_stock_group_columns(df: pd.DataFrame) -> pd.DataFrame:
-    normalized = df.copy()
-    for col in STOCK_GROUP_COLUMNS:
-        if col not in normalized.columns:
-            normalized[col] = ""
-        normalized[col] = normalized[col].fillna("").astype(str).str.strip()
-    return normalized
-
-
-def stock_group_frame(df: pd.DataFrame) -> pd.DataFrame:
-    return ensure_stock_group_columns(df)[STOCK_GROUP_COLUMNS].copy()
-
-
-def merge_stock_group_sources(*sources: pd.DataFrame) -> pd.DataFrame:
-    frames = [stock_group_frame(source) for source in sources if source is not None]
-    if not frames:
-        return pd.DataFrame(columns=STOCK_GROUP_COLUMNS)
-    combined = pd.concat(frames, ignore_index=True)
-    combined = combined[combined["symbol"] != ""].copy()
-    if combined.empty:
-        return pd.DataFrame(columns=STOCK_GROUP_COLUMNS)
-
-    # Sources are passed from lowest to highest priority. For every column, keep
-    # the highest-priority non-empty value so a legacy watchlist without
-    # summary/reference_url does not erase Gemini metadata for the same symbol.
-    merged_rows = []
-    for symbol, group in combined.groupby("symbol", sort=False):
-        row = {"symbol": symbol}
-        for col in [c for c in STOCK_GROUP_COLUMNS if c != "symbol"]:
-            values = group[col].tolist()
-            row[col] = next((value for value in reversed(values) if value), "")
-        merged_rows.append(row)
-    return pd.DataFrame(merged_rows, columns=STOCK_GROUP_COLUMNS)
-
-
-def normalize_stock_meta_entry(entry) -> dict[str, str]:
-    meta = {field: "" for field in STOCK_META_FIELDS}
-    meta["note"] = ""
-    if isinstance(entry, str):
-        meta["note"] = entry.strip()
-    elif isinstance(entry, dict):
-        for field in meta:
-            meta[field] = str(entry.get(field) or "").strip()
-        if not meta["note"]:
-            meta["note"] = str(entry.get("memo") or "").strip()
-    return meta
-
-
-def stock_code_sort_value(symbol: object) -> tuple[str, str]:
-    normalized = str(symbol or "").strip().upper()
-    code = normalized.split(".", 1)[0]
-    return code, normalized
-
-
-def sort_stocks_by_symbol(stocks: pd.DataFrame) -> pd.DataFrame:
-    if stocks.empty or "symbol" not in stocks.columns:
-        return stocks.copy()
-    sorted_stocks = stocks.copy()
-    sort_values = sorted_stocks["symbol"].map(stock_code_sort_value)
-    sorted_stocks["_stock_code_sort"] = sort_values.map(lambda value: value[0])
-    sorted_stocks["_stock_symbol_sort"] = sort_values.map(lambda value: value[1])
-    return (
-        sorted_stocks.sort_values(["_stock_code_sort", "_stock_symbol_sort"], kind="stable")
-        .drop(columns=["_stock_code_sort", "_stock_symbol_sort"])
-        .reset_index(drop=True)
-    )
 
 
 @dataclass(slots=True)
@@ -203,51 +147,16 @@ def build_stock_pool(
     )
 
 
-def stock_meta_filter_values(stocks: pd.DataFrame, stock_meta_payload: dict) -> dict[str, set[str]]:
-    values = {field: set() for field in STOCK_META_FIELDS}
-    for symbol in stocks["symbol"].astype(str):
-        meta = normalize_stock_meta_entry(stock_meta_payload.get(symbol, {}))
-        for field in values:
-            values[field].add(meta[field] or "none")
-    return values
-
-
-def apply_stock_meta_filters(
-    stocks: pd.DataFrame,
-    *,
-    stock_meta_payload: dict,
-    stock_meta_filters: dict[str, str],
-    stock_meta_note_filter: str,
-    stock_meta_stock_filter: str,
-) -> pd.DataFrame:
-    note_filter_lower = stock_meta_note_filter.lower()
-    stock_filter_tokens = [
-        token.strip().lower()
-        for token in stock_meta_stock_filter.replace("，", ",").replace("、", ",").replace(";", ",").replace("；", ",").split(",")
-        for token in token.split()
-        if token.strip()
-    ]
-
-    def stock_matches_meta_filters(row):
-        symbol = str(row["symbol"])
-        name = str(row["name"] or "")
-        summary = str(row.get("summary", "") or "")
-        meta = normalize_stock_meta_entry(stock_meta_payload.get(symbol, {}))
-        tags_match = all(
-            selected == "all"
-            or (selected == "none" and not meta[field])
-            or meta[field] == selected
-            for field, selected in stock_meta_filters.items()
-        )
-        note_matches = not note_filter_lower or note_filter_lower in meta["note"].lower()
-        symbol_lower = symbol.lower()
-        symbol_key_lower = _symbol_key(symbol).lower()
-        name_lower = name.lower()
-        summary_lower = summary.lower()
-        stock_matches = not stock_filter_tokens or any(
-            token in symbol_lower or token in symbol_key_lower or token in name_lower or token in summary_lower
-            for token in stock_filter_tokens
-        )
-        return tags_match and note_matches and stock_matches
-
-    return stocks[stocks.apply(stock_matches_meta_filters, axis=1)]
+__all__ = [
+    "StockPoolResult",
+    "apply_stock_meta_filters",
+    "build_stock_pool",
+    "ensure_stock_group_columns",
+    "merge_stock_group_sources",
+    "normalize_stock_meta_entry",
+    "sort_stocks_by_symbol",
+    "stock_code_sort_value",
+    "stock_filter_tokens",
+    "stock_group_frame",
+    "stock_meta_filter_values",
+]

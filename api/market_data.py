@@ -15,6 +15,10 @@ import yfinance as yf
 
 from api import price_service as _price_service
 from api import tw_market_data as _tw_market_data
+from api import tw_market_history as _tw_market_history
+from api import tw_market_merge as _tw_market_merge
+from api import tw_market_realtime as _tw_market_realtime
+from api import tw_market_time as _tw_market_time
 from api.market_utils import _prepare_price_df, _symbol_key, resolve_price_params, trim_display_df
 from api.price_service import get_price_cache_ttl_seconds
 from api.tw_market_data import (
@@ -48,6 +52,15 @@ def _sync_compat_dependencies() -> None:
     _tw_market_data._expected_latest_tw_daily_date = _expected_latest_tw_daily_date
     _tw_market_data._should_use_tw_intraday_daily_snapshot = _should_use_tw_intraday_daily_snapshot
     _tw_market_data._fetch_tw_official_daily_price = _fetch_tw_official_daily_price
+    _tw_market_time._expected_latest_tw_daily_date = _expected_latest_tw_daily_date
+    _tw_market_time._should_use_tw_intraday_daily_snapshot = _should_use_tw_intraday_daily_snapshot
+    _tw_market_realtime._expected_latest_tw_daily_date = _expected_latest_tw_daily_date
+    _tw_market_realtime._should_use_tw_intraday_daily_snapshot = _should_use_tw_intraday_daily_snapshot
+    _tw_market_merge._expected_latest_tw_daily_date = _expected_latest_tw_daily_date
+    _tw_market_merge._should_use_tw_intraday_daily_snapshot = _should_use_tw_intraday_daily_snapshot
+    _tw_market_merge._fetch_tw_official_daily_price = _fetch_tw_official_daily_price
+    _tw_market_history._period_start_date = _period_start_date
+    _tw_market_history._month_starts = _month_starts
     _price_service._cached_price = _cached_price
     _price_service._store_price_cache = _store_price_cache
     _price_service._is_stale_tw_daily_price = _is_stale_tw_daily_price
