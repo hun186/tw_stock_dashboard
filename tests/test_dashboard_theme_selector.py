@@ -89,6 +89,8 @@ class DashboardThemeSelectorTests(unittest.TestCase):
         self.assertIn("data-symbol='2330.TW'", response)
         self.assertNotIn("data-symbol='2382.TW'", response)
         self.assertNotIn("data-symbol='4977.TW'", response)
+        self.assertIn("<td><strong>AI晶片</strong><span>先進製程</span></td>", response)
+        self.assertNotIn("<td><strong>AI光通訊</strong><span>光通訊模組</span></td>", response)
         self.assertIn("符合股數</span><span class='summary-value'>1 檔", response)
 
     def test_pure_theme_selector_filters_are_composable(self) -> None:
