@@ -17,6 +17,7 @@ from api import price_service as _price_service
 from api import tw_market_data as _tw_market_data
 from api import tw_market_history as _tw_market_history
 from api import tw_market_merge as _tw_market_merge
+from api import tw_market_quote as _tw_market_quote
 from api import tw_market_realtime as _tw_market_realtime
 from api import tw_market_time as _tw_market_time
 from api.market_utils import _prepare_price_df, _symbol_key, resolve_price_params, trim_display_df
@@ -54,6 +55,8 @@ def _sync_compat_dependencies() -> None:
     _tw_market_data._fetch_tw_official_daily_price = _fetch_tw_official_daily_price
     _tw_market_time._expected_latest_tw_daily_date = _expected_latest_tw_daily_date
     _tw_market_time._should_use_tw_intraday_daily_snapshot = _should_use_tw_intraday_daily_snapshot
+    _tw_market_quote._expected_latest_tw_daily_date = _expected_latest_tw_daily_date
+    _tw_market_quote._should_use_tw_intraday_daily_snapshot = _should_use_tw_intraday_daily_snapshot
     _tw_market_realtime._expected_latest_tw_daily_date = _expected_latest_tw_daily_date
     _tw_market_realtime._should_use_tw_intraday_daily_snapshot = _should_use_tw_intraday_daily_snapshot
     _tw_market_merge._expected_latest_tw_daily_date = _expected_latest_tw_daily_date
