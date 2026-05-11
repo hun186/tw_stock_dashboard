@@ -10,6 +10,7 @@ from api.dashboard_table_renderers import (
     render_stock_row,
     render_watchlist_action_button,
 )
+from api.dashboard_theme_selector import signal_code, signal_label
 from api.dashboard_theme import (
     theme_reference_html as _theme_reference_html,
     theme_summary_text as _theme_summary_text,
@@ -54,6 +55,9 @@ def render_stock_item(
     return {
         "symbol": row.symbol,
         "bucket": stock_item["bucket"],
+        "signal_code": signal_code(stock_item),
+        "signal_label": signal_label(stock_item),
+        "volume_ratio": float(stock_item.get("sort_metrics", {}).get("volume_ratio", 0.0) or 0.0),
         "has_chart_data": not df.empty,
         "row_html": render_stock_row(
             row=row,

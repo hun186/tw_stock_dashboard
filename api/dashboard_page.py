@@ -14,11 +14,59 @@ from api.dashboard_page_context import (
     stock_filter_button_text,
 )
 from api.dashboard_theme_selector import (
+    VOLUME_RATIO_OPTIONS,
+    collect_signal_code_options,
+    signal_code,
+    signal_label,
     render_signal_bucket_options,
     render_signal_code_options,
     render_volume_ratio_options,
+    volume_ratio_threshold,
 )
 from api.server_configs import load_server_config_presets
+
+
+def _theme_signal_volume_ratio(item: dict) -> float:
+    try:
+        return float(item.get("sort_metrics", {}).get("volume_ratio", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _matches_theme_signal_item(
+    item: dict,
+    *,
+    bucket: str = "all",
+    code: str = "all",
+    ratio: str = "all",
+) -> bool:
+    if bucket != "all" and item.get("bucket") != bucket:
+        return False
+    if code != "all" and signal_code(item) != code:
+        return False
+    threshold = volume_ratio_threshold(ratio)
+    return threshold is None or _theme_signal_volume_ratio(item) >= threshold
+
+
+def _available_volume_ratio_values(items: list[dict], *, bucket: str = "all", code: str = "all") -> set[str]:
+    return {
+        value
+        for value in VOLUME_RATIO_OPTIONS
+        if value == "all"
+        or any(_matches_theme_signal_item(item, bucket=bucket, code=code, ratio=value) for item in items)
+    }
+
+
+def _theme_signal_items(items: list[dict]) -> list[dict]:
+    return [
+        {
+            "bucket": item.get("bucket", ""),
+            "signal_code": signal_code(item),
+            "signal_label": signal_label(item),
+            "volume_ratio": _theme_signal_volume_ratio(item),
+        }
+        for item in items
+    ]
 
 
 def render_dashboard_page(
@@ -83,9 +131,29 @@ def render_dashboard_page(
     stock_meta_filter_has_empty = stock_meta_filter_context["has_empty"]
     group_options = render_topic_options(values=valid_groups, selected_value=group_filter, all_label="全部主題")
     subgroup_options = render_topic_options(values=valid_subgroups, selected_value=subgroup_filter, all_label="全部次題材")
-    theme_signal_code_options = render_signal_code_options(signal_code_options, theme_signal_code)
-    theme_signal_bucket_options = render_signal_bucket_options(theme_signal_bucket, status_filter_values)
-    theme_volume_ratio_options = render_volume_ratio_options(theme_volume_ratio)
+    bucket_option_items = [
+        item
+        for item in sorted_stocks
+        if _matches_theme_signal_item(item, code=theme_signal_code, ratio=theme_volume_ratio)
+    ]
+    code_option_items = [
+        item
+        for item in sorted_stocks
+        if _matches_theme_signal_item(item, bucket=theme_signal_bucket, ratio=theme_volume_ratio)
+    ]
+    theme_signal_code_options = render_signal_code_options(
+        collect_signal_code_options(code_option_items),
+        theme_signal_code,
+    )
+    theme_signal_bucket_options = render_signal_bucket_options(
+        theme_signal_bucket,
+        {item["bucket"] for item in bucket_option_items},
+    )
+    theme_volume_ratio_options = render_volume_ratio_options(
+        theme_volume_ratio,
+        _available_volume_ratio_values(sorted_stocks, bucket=theme_signal_bucket, code=theme_signal_code),
+    )
+    theme_signal_items = _theme_signal_items(sorted_stocks)
 
     save_payload = build_save_payload(
         tab=tab,
@@ -183,6 +251,7 @@ def render_dashboard_page(
         stock_meta_payload_raw=stock_meta_payload_raw,
         stock_meta_stock_filter=stock_meta_stock_filter,
         theme_summary_keyword=theme_summary_keyword,
+        theme_signal_items=theme_signal_items,
         theme_signal_bucket_options=theme_signal_bucket_options,
         theme_signal_code_options=theme_signal_code_options,
         theme_volume_ratio_options=theme_volume_ratio_options,

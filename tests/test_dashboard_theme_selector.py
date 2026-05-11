@@ -93,6 +93,44 @@ class DashboardThemeSelectorTests(unittest.TestCase):
         self.assertNotIn("<td><strong>AI光通訊</strong><span>光通訊模組</span></td>", response)
         self.assertIn("符合股數</span><span class='summary-value'>1 檔", response)
 
+    def test_theme_signal_options_follow_selected_bucket_and_auto_submit_js_is_present(self) -> None:
+        file_watchlist = pd.DataFrame([
+            {"symbol": "2330.TW", "name": "台積電", "group": "AI晶片", "subgroup": "先進製程", "summary": "CPO 高速傳輸"},
+            {"symbol": "2382.TW", "name": "廣達", "group": "AI伺服器", "subgroup": "系統組裝", "summary": "AI 伺服器"},
+        ])
+        llm_watchlist = pd.DataFrame(columns=["symbol", "name", "group", "subgroup", "summary", "reference_url"])
+        industry_df = pd.DataFrame(columns=["industry", "industry_label", "symbol", "name", "group", "subgroup", "summary", "reference_url"])
+
+        def fake_analysis(symbol, *_args, **_kwargs):
+            is_bull = symbol == "2330.TW"
+            code = "BREAKOUT_STRONG" if is_bull else "MA20_SUPPORT"
+            bucket = "bull" if is_bull else "observe"
+            return {
+                "df": pd.DataFrame(),
+                "signal": {"bucket": bucket, "message": bucket, "score": 80 if is_bull else 40, "code": code, "label": "強突破" if is_bull else "回測 MA20 不破"},
+                "bucket": bucket,
+                "status": bucket,
+                "close_text": "-",
+                "sort_metrics": {"symbol": symbol, "close": -1.0, "volume": -1.0, "change_pct": 0.0, "target_ratio": -1.0, "signal_score": 80 if is_bull else 40, "volume_ratio": 2.1 if is_bull else 1.2},
+                "target_price_text": "-",
+                "target_ratio_text": "-",
+            }
+
+        query = urlencode({"theme_signal_bucket": "bull"})
+        with patch.object(dashboard_app, "load_watchlist", return_value=file_watchlist), \
+            patch.object(dashboard_app, "load_gemini_agent_group_map", return_value=pd.DataFrame(columns=["symbol", "name", "group", "subgroup", "summary", "reference_url"])), \
+            patch.object(dashboard_app, "load_llm_group_map", return_value=llm_watchlist), \
+            patch.object(dashboard_app, "load_twse_industry_map", return_value=industry_df), \
+            patch.object(dashboard_app, "prefetch_price_data", return_value={}), \
+            patch.object(dashboard_app, "_build_stock_analysis", side_effect=fake_analysis):
+            response = b"".join(dashboard_app.app({"QUERY_STRING": query}, lambda *_args: None)).decode("utf-8")
+
+        self.assertIn("<option value='BREAKOUT_STRONG' >強突破 (BREAKOUT_STRONG)</option>", response)
+        self.assertIn("強突破 (BREAKOUT_STRONG)", response)
+        self.assertNotIn("<option value='MA20_SUPPORT' >回測 MA20 不破 (MA20_SUPPORT)</option>", response)
+        self.assertIn("const themeSignalItems = Object.freeze", response)
+        self.assertIn("submitThemeSelectorFilters", response)
+
     def test_pure_theme_selector_filters_are_composable(self) -> None:
         stocks = pd.DataFrame([
             {"symbol": "2330.TW", "summary": "CPO 與先進封裝"},

@@ -44,6 +44,7 @@ def render_dashboard_document(
     stock_meta_payload_raw,
     stock_meta_stock_filter,
     theme_summary_keyword,
+    theme_signal_items,
     theme_signal_bucket_options,
     theme_signal_code_options,
     theme_volume_ratio_options,
@@ -148,6 +149,7 @@ def render_dashboard_document(
     const stockMetaFilterHasEmpty = {safe_json_script(stock_meta_filter_has_empty)};
     const allStocks = {safe_json_script(picker_stocks[STOCK_GROUP_COLUMNS].to_dict(orient='records'))};
     const stockFilterStocks = {safe_json_script(stock_filter_stocks[STOCK_GROUP_COLUMNS].to_dict(orient='records'))};
+    const themeSignalItems = Object.freeze({safe_json_script(theme_signal_items)});
     const pipelineProgressSteps = {pipeline_progress_json};
     // Immutable source of the full server-analyzed pool; status filtering always derives
     // a fresh visible list from this array so switching back to "全部" never needs
