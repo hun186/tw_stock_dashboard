@@ -7,6 +7,12 @@ from typing import Callable
 import pandas as pd
 
 from api.dashboard_live_fetch import DEFAULT_LIVE_FETCH_THRESHOLD, resolve_live_fetch_controls
+from api.dashboard_theme_selector import (
+    collect_signal_code_options,
+    filter_analyzed_stocks,
+    latest_volume_ratio_from_df,
+    normalize_signal_code,
+)
 
 MAX_SERVERLESS_ANALYSIS_STOCKS = 240
 MAX_SERVERLESS_TOPIC_ANALYSIS_STOCKS = 320
@@ -32,6 +38,7 @@ class DashboardAnalysisResult:
     filtered_stocks: list[dict]
     status_filter: str
     status_filter_values: set[str]
+    signal_code_options: list[tuple[str, str]]
     candidate_count: int
     is_limited_analysis: bool
     max_serverless_analysis_stocks: int
@@ -52,6 +59,9 @@ def run_dashboard_analysis(
     show_target_price: bool,
     card_sort: str,
     status_filter: str,
+    theme_signal_code: str = "all",
+    theme_signal_bucket: str = "all",
+    theme_volume_ratio: str = "all",
     tab: str,
     industry: str,
     custom_watchlist_raw: str,
@@ -115,6 +125,9 @@ def run_dashboard_analysis(
             signal_data_map.get(row.symbol, pd.DataFrame()),
             needs_target_price,
         )
+        latest_volume_ratio = latest_volume_ratio_from_df(stock_analysis["df"])
+        if latest_volume_ratio or "volume_ratio" not in stock_analysis["sort_metrics"]:
+            stock_analysis["sort_metrics"]["volume_ratio"] = latest_volume_ratio
         analyzed_stocks.append({
             "row": row,
             "df": stock_analysis["df"],
@@ -131,16 +144,22 @@ def run_dashboard_analysis(
     if status_filter != "all" and status_filter not in status_filter_values:
         status_filter = "all"
 
+    signal_code_options = collect_signal_code_options(analyzed_stocks)
+    theme_signal_code = normalize_signal_code(theme_signal_code, {code for code, _label in signal_code_options})
+
     sorted_stocks = analyzed_stocks.copy()
     if card_sort == "symbol":
         sorted_stocks.sort(key=lambda item: item["sort_metrics"]["symbol"])
     else:
         sorted_stocks.sort(key=lambda item: item["sort_metrics"][card_sort], reverse=True)
 
-    filtered_stocks = [
-        item for item in sorted_stocks
-        if status_filter == "all" or item["bucket"] == status_filter
-    ]
+    filtered_stocks = filter_analyzed_stocks(
+        sorted_stocks,
+        status_filter=status_filter,
+        signal_bucket_filter=theme_signal_bucket,
+        signal_code_filter=theme_signal_code,
+        volume_ratio_filter=theme_volume_ratio,
+    )
 
     return DashboardAnalysisResult(
         stocks=stocks,
@@ -149,6 +168,7 @@ def run_dashboard_analysis(
         filtered_stocks=filtered_stocks,
         status_filter=status_filter,
         status_filter_values=status_filter_values,
+        signal_code_options=signal_code_options,
         candidate_count=candidate_count,
         is_limited_analysis=is_limited_analysis,
         max_serverless_analysis_stocks=analysis_limit,

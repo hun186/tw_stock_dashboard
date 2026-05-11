@@ -13,6 +13,11 @@ from api.dashboard_page_context import (
     safe_json_script,
     stock_filter_button_text,
 )
+from api.dashboard_theme_selector import (
+    render_signal_bucket_options,
+    render_signal_code_options,
+    render_volume_ratio_options,
+)
 from api.server_configs import load_server_config_presets
 
 
@@ -42,6 +47,7 @@ def render_dashboard_page(
     show_price,
     show_target_price,
     show_volume,
+    signal_code_options,
     signal_ready_count,
     sorted_stocks,
     source_stocks,
@@ -53,6 +59,10 @@ def render_dashboard_page(
     stock_meta_note_filter,
     stock_meta_payload_raw,
     stock_meta_stock_filter,
+    theme_summary_keyword,
+    theme_signal_code,
+    theme_signal_bucket,
+    theme_volume_ratio,
     stocks,
     subgroup_filter,
     tab,
@@ -73,6 +83,9 @@ def render_dashboard_page(
     stock_meta_filter_has_empty = stock_meta_filter_context["has_empty"]
     group_options = render_topic_options(values=valid_groups, selected_value=group_filter, all_label="全部主題")
     subgroup_options = render_topic_options(values=valid_subgroups, selected_value=subgroup_filter, all_label="全部次題材")
+    theme_signal_code_options = render_signal_code_options(signal_code_options, theme_signal_code)
+    theme_signal_bucket_options = render_signal_bucket_options(theme_signal_bucket, status_filter_values)
+    theme_volume_ratio_options = render_volume_ratio_options(theme_volume_ratio)
 
     save_payload = build_save_payload(
         tab=tab,
@@ -87,6 +100,10 @@ def render_dashboard_page(
         stock_meta_note_filter=stock_meta_note_filter,
         stock_meta_stock_filter=stock_meta_stock_filter,
         stock_meta_payload_raw=stock_meta_payload_raw,
+        theme_summary_keyword=theme_summary_keyword,
+        theme_signal_code=theme_signal_code,
+        theme_signal_bucket=theme_signal_bucket,
+        theme_volume_ratio=theme_volume_ratio,
         cards_per_row=cards_per_row,
         watchlist=watchlist,
         show_volume=show_volume,
@@ -165,6 +182,10 @@ def render_dashboard_page(
         stock_meta_note_filter=stock_meta_note_filter,
         stock_meta_payload_raw=stock_meta_payload_raw,
         stock_meta_stock_filter=stock_meta_stock_filter,
+        theme_summary_keyword=theme_summary_keyword,
+        theme_signal_bucket_options=theme_signal_bucket_options,
+        theme_signal_code_options=theme_signal_code_options,
+        theme_volume_ratio_options=theme_volume_ratio_options,
         subgroup_options=subgroup_options,
         tab=tab,
         table_header_html=table_header_html,

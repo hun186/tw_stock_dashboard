@@ -11,6 +11,7 @@ from api.dashboard_page import render_dashboard_page
 from api.dashboard_pipeline import run_dashboard_analysis
 from api.dashboard_request import DashboardRequest
 from api.dashboard_theme_rotation import build_theme_rotation_rows, render_theme_rotation_radar
+from api.dashboard_theme_selector import filter_stocks_by_summary_keyword
 from api.dashboard_stock_pool import build_stock_pool
 from api.dashboard_view_model import (
     build_dashboard_render_payload,
@@ -50,6 +51,10 @@ def render_dashboard_response(request: DashboardRequest) -> str:
     show_target_price = request.show_target_price
     card_sort = request.card_sort
     compact_progress = request.compact_progress
+    theme_summary_keyword = request.theme_summary_keyword
+    theme_signal_code = request.theme_signal_code
+    theme_signal_bucket = request.theme_signal_bucket
+    theme_volume_ratio = request.theme_volume_ratio
 
     fetch_period, fetch_interval, display_period = resolve_price_params(period, interval)
 
@@ -85,6 +90,7 @@ def render_dashboard_response(request: DashboardRequest) -> str:
         stock_meta_note_filter=stock_meta_note_filter,
         stock_meta_stock_filter=stock_meta_stock_filter,
     )
+    stocks = filter_stocks_by_summary_keyword(stocks, theme_summary_keyword)
 
     analysis_result = run_dashboard_analysis(
         stocks=stocks,
@@ -95,6 +101,9 @@ def render_dashboard_response(request: DashboardRequest) -> str:
         show_target_price=show_target_price,
         card_sort=card_sort,
         status_filter=status_filter,
+        theme_signal_code=theme_signal_code,
+        theme_signal_bucket=theme_signal_bucket,
+        theme_volume_ratio=theme_volume_ratio,
         tab=tab,
         industry=industry,
         custom_watchlist_raw=custom_watchlist_raw,
@@ -109,6 +118,7 @@ def render_dashboard_response(request: DashboardRequest) -> str:
     filtered_stocks = analysis_result.filtered_stocks
     status_filter = analysis_result.status_filter
     status_filter_values = analysis_result.status_filter_values
+    signal_code_options = analysis_result.signal_code_options
     candidate_count = analysis_result.candidate_count
     is_limited_analysis = analysis_result.is_limited_analysis
     max_serverless_analysis_stocks = analysis_result.max_serverless_analysis_stocks
@@ -158,6 +168,7 @@ def render_dashboard_response(request: DashboardRequest) -> str:
         show_price=show_price,
         show_target_price=show_target_price,
         show_volume=show_volume,
+        signal_code_options=signal_code_options,
         signal_ready_count=signal_ready_count,
         sorted_stocks=sorted_stocks,
         source_stocks=source_stocks,
@@ -169,6 +180,10 @@ def render_dashboard_response(request: DashboardRequest) -> str:
         stock_meta_note_filter=stock_meta_note_filter,
         stock_meta_payload_raw=stock_meta_payload_raw,
         stock_meta_stock_filter=stock_meta_stock_filter,
+        theme_summary_keyword=theme_summary_keyword,
+        theme_signal_code=theme_signal_code,
+        theme_signal_bucket=theme_signal_bucket,
+        theme_volume_ratio=theme_volume_ratio,
         stocks=stocks,
         subgroup_filter=subgroup_filter,
         tab=tab,
