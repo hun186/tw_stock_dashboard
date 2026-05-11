@@ -126,6 +126,8 @@ def filter_analyzed_stocks(
 def render_signal_bucket_options(selected_bucket: str, available_buckets: Iterable[str] | None = None) -> str:
     selected_bucket = normalize_signal_bucket(selected_bucket)
     available = set(available_buckets or [])
+    if available and selected_bucket not in available:
+        selected_bucket = "all"
     values = [
         (value, label)
         for value, label in SIGNAL_BUCKET_LABELS.items()
@@ -148,9 +150,17 @@ def render_signal_code_options(options: list[tuple[str, str]], selected_code: st
     return "".join(rendered)
 
 
-def render_volume_ratio_options(selected_ratio: str) -> str:
+def render_volume_ratio_options(selected_ratio: str, available_ratios: Iterable[str] | None = None) -> str:
     selected_ratio = normalize_volume_ratio(selected_ratio)
+    available = set(available_ratios or [])
+    if available and selected_ratio not in available:
+        selected_ratio = "all"
+    values = [
+        (value, label)
+        for value, label in VOLUME_RATIO_OPTIONS.items()
+        if value == "all" or not available or value in available
+    ]
     return "".join(
         f"<option value='{html.escape(value)}' {'selected' if value == selected_ratio else ''}>{html.escape(label)}</option>"
-        for value, label in VOLUME_RATIO_OPTIONS.items()
+        for value, label in values
     )
