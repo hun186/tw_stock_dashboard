@@ -47,6 +47,7 @@ def render_dashboard_document(
     tab,
     table_header_html,
     table_header_html_json,
+    theme_rotation_html,
     total_pages,
     total_stocks,
     watchlist,
@@ -89,6 +90,7 @@ def render_dashboard_document(
       <div class='hero-badge'>Vercel 版・即時觀察</div>
     </header>
     {control_panel_html}
+    {theme_rotation_html}
     <section class='section-card' aria-labelledby='overviewTitle'>
       <div class='section-header'>
         <h2 id='overviewTitle'>總覽</h2>
