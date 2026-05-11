@@ -10,6 +10,7 @@ from api.dashboard_analysis import build_stock_analysis as _build_stock_analysis
 from api.dashboard_page import render_dashboard_page
 from api.dashboard_pipeline import run_dashboard_analysis
 from api.dashboard_request import DashboardRequest
+from api.dashboard_theme_rotation import build_theme_rotation_rows, render_theme_rotation_radar
 from api.dashboard_stock_pool import build_stock_pool
 from api.dashboard_view_model import (
     build_dashboard_render_payload,
@@ -113,6 +114,9 @@ def render_dashboard_response(request: DashboardRequest) -> str:
     price_ready_count = analysis_result.price_ready_count
     signal_ready_count = analysis_result.signal_ready_count
 
+    theme_rotation_rows = build_theme_rotation_rows(analyzed_stocks)
+    theme_rotation_html = render_theme_rotation_radar(theme_rotation_rows)
+
     render_payload = build_dashboard_render_payload(
         filtered_stocks=filtered_stocks,
         sorted_stocks=sorted_stocks,
@@ -167,6 +171,7 @@ def render_dashboard_response(request: DashboardRequest) -> str:
         subgroup_filter=subgroup_filter,
         tab=tab,
         total_pages=render_payload.total_pages,
+        theme_rotation_html=theme_rotation_html,
         total_stocks=render_payload.total_stocks,
         valid_groups=valid_groups,
         valid_subgroups=valid_subgroups,

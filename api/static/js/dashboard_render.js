@@ -140,3 +140,7 @@ function scrollToStockCard(symbol){
   window.clearTimeout(scrollToStockCard.timer);
   scrollToStockCard.timer = window.setTimeout(()=>card.classList.remove('is-jump-target'), 2200);
 }
+function applyThemeRadarFilter(group, subgroup){
+  const overrides = {group_filter: group || 'all', subgroup_filter: subgroup || 'all', page: '1'};
+  submitConfig(overrides);
+}
