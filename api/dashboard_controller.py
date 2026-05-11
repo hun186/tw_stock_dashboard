@@ -126,7 +126,7 @@ def render_dashboard_response(request: DashboardRequest) -> str:
     price_ready_count = analysis_result.price_ready_count
     signal_ready_count = analysis_result.signal_ready_count
 
-    theme_rotation_rows = build_theme_rotation_rows(analyzed_stocks)
+    theme_rotation_rows = build_theme_rotation_rows(filtered_stocks)
     theme_rotation_html = render_theme_rotation_radar(theme_rotation_rows)
 
     render_payload = build_dashboard_render_payload(
