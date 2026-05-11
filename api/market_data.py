@@ -59,6 +59,7 @@ def _sync_compat_dependencies() -> None:
     _tw_market_quote._should_use_tw_intraday_daily_snapshot = _should_use_tw_intraday_daily_snapshot
     _tw_market_realtime._expected_latest_tw_daily_date = _expected_latest_tw_daily_date
     _tw_market_realtime._should_use_tw_intraday_daily_snapshot = _should_use_tw_intraday_daily_snapshot
+    _tw_market_realtime._fetch_tw_realtime_quote_snapshot = _fetch_tw_realtime_quote_snapshot
     _tw_market_merge._expected_latest_tw_daily_date = _expected_latest_tw_daily_date
     _tw_market_merge._should_use_tw_intraday_daily_snapshot = _should_use_tw_intraday_daily_snapshot
     _tw_market_merge._fetch_tw_official_daily_price = _fetch_tw_official_daily_price
