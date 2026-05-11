@@ -8,6 +8,10 @@ from plotly.subplots import make_subplots
 from api.constants import DOWN_COLOR, MA5_COLOR, MA20_COLOR, MA60_COLOR, UP_COLOR
 
 
+def _volume_in_lots(series: pd.Series) -> pd.Series:
+    return series / 1000
+
+
 def make_chart_html(
     df: pd.DataFrame,
     title: str,
@@ -45,12 +49,57 @@ def make_chart_html(
     if volume_row is not None:
         ref_series = df["RefClose"] if "RefClose" in df.columns else df["Open"]
         volume_colors = np.where(df["Close"] >= ref_series, UP_COLOR, DOWN_COLOR)
-        fig.add_trace(go.Bar(x=df["Date"], y=df["Volume"], name="量K線", marker_color=volume_colors, opacity=0.8), row=volume_row, col=1)
+        volume_lots = _volume_in_lots(df["Volume"])
+        fig.add_trace(
+            go.Bar(
+                x=df["Date"],
+                y=volume_lots,
+                name="量K線（張）",
+                marker_color=volume_colors,
+                opacity=0.8,
+                hovertemplate="%{x}<br>成交量：%{y:,.0f} 張<extra></extra>",
+            ),
+            row=volume_row,
+            col=1,
+        )
         if show_ma:
-            fig.add_trace(go.Scatter(x=df["Date"], y=df["VMA5"], mode="lines", name="VMA5", line=dict(color=MA5_COLOR)), row=volume_row, col=1)
-            fig.add_trace(go.Scatter(x=df["Date"], y=df["VMA20"], mode="lines", name="VMA20", line=dict(color=MA20_COLOR)), row=volume_row, col=1)
-            fig.add_trace(go.Scatter(x=df["Date"], y=df["VMA60"], mode="lines", name="VMA60", line=dict(color=MA60_COLOR)), row=volume_row, col=1)
-        fig.update_yaxes(title_text="成交量", row=volume_row, col=1)
+            fig.add_trace(
+                go.Scatter(
+                    x=df["Date"],
+                    y=_volume_in_lots(df["VMA5"]),
+                    mode="lines",
+                    name="VMA5（張）",
+                    line=dict(color=MA5_COLOR),
+                    hovertemplate="%{x}<br>VMA5：%{y:,.0f} 張<extra></extra>",
+                ),
+                row=volume_row,
+                col=1,
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=df["Date"],
+                    y=_volume_in_lots(df["VMA20"]),
+                    mode="lines",
+                    name="VMA20（張）",
+                    line=dict(color=MA20_COLOR),
+                    hovertemplate="%{x}<br>VMA20：%{y:,.0f} 張<extra></extra>",
+                ),
+                row=volume_row,
+                col=1,
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=df["Date"],
+                    y=_volume_in_lots(df["VMA60"]),
+                    mode="lines",
+                    name="VMA60（張）",
+                    line=dict(color=MA60_COLOR),
+                    hovertemplate="%{x}<br>VMA60：%{y:,.0f} 張<extra></extra>",
+                ),
+                row=volume_row,
+                col=1,
+            )
+        fig.update_yaxes(title_text="成交量（張）", row=volume_row, col=1)
 
     if intraday_ref_close is not None:
         ref_close = float(intraday_ref_close)
