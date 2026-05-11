@@ -68,7 +68,7 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         self.assertIn("initServerConfigPicker();", response)
         self.assertIn(".watchlist-batch-item .batch-stock-check", response)
         self.assertIn('class="batch-stock-label"', response)
-        self.assertIn("顯示價K線", response)
+        self.assertRegex(response, r"顯示價K線[\s\S]*顯示量K線")
         self.assertIn("總表摘要／來源", response)
         self.assertIn(".note-cell{width:calc(190px + 3em);min-width:calc(190px + 3em);max-width:calc(190px + 3em)}", response)
         self.assertIn(".note-editor .stock-note-input{width:calc(170px + 3em);min-width:calc(120px + 3em);padding:4px 6px;min-height:30px}", response)
