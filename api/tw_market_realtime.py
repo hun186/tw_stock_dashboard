@@ -12,14 +12,13 @@ def _tw_intraday_snapshot_from_minutes(symbol: str, minute_df: pd.DataFrame | No
     intraday_df = _prepare_price_df(symbol, minute_df, "1m")
     if intraday_df.empty:
         return pd.DataFrame()
-    intraday_df = _merge_intraday_realtime_quote(symbol, intraday_df)
 
     expected_date = _expected_latest_tw_daily_date()
     intraday_df = intraday_df[pd.to_datetime(intraday_df["Date"], errors="coerce").dt.normalize() == expected_date]
     if intraday_df.empty:
         return pd.DataFrame()
 
-    return pd.DataFrame([{
+    minute_snapshot = pd.DataFrame([{
         "Date": expected_date,
         "Open": float(intraday_df.iloc[0]["Open"]),
         "High": float(intraday_df["High"].max()),
@@ -27,6 +26,14 @@ def _tw_intraday_snapshot_from_minutes(symbol: str, minute_df: pd.DataFrame | No
         "Close": float(intraday_df.iloc[-1]["Close"]),
         "Volume": float(intraday_df["Volume"].fillna(0).sum()),
     }])
+
+    quote_snapshot = _fetch_tw_realtime_quote_snapshot(symbol, "1d")
+    if not quote_snapshot.empty:
+        quote_dates = pd.to_datetime(quote_snapshot["Date"], errors="coerce").dt.normalize()
+        if not quote_dates.empty and quote_dates.max() == expected_date:
+            return _merge_price_frames(minute_snapshot, quote_snapshot)
+
+    return minute_snapshot
 
 
 def _merge_intraday_realtime_quote(symbol: str, df: pd.DataFrame, quote_snapshot: pd.DataFrame | None = None) -> pd.DataFrame:
