@@ -130,6 +130,8 @@ class DashboardThemeSelectorTests(unittest.TestCase):
         self.assertNotIn("<option value='MA20_SUPPORT' >回測 MA20 不破 (MA20_SUPPORT)</option>", response)
         self.assertIn("const themeSignalItems = Object.freeze", response)
         self.assertIn("submitThemeSelectorFilters", response)
+        self.assertIn("function stockMetaAvailabilitySymbols()", response)
+        self.assertIn("return filteredDashboardItems().map", response)
 
     def test_pure_theme_selector_filters_are_composable(self) -> None:
         stocks = pd.DataFrame([
