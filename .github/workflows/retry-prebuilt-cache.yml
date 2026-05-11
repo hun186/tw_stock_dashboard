@@ -1,0 +1,32 @@
+name: Retry failed prebuilt cache rebuild
+
+on:
+  workflow_run:
+    workflows: ["Rebuild prebuilt cache"]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  retry-on-failure:
+    # Only retry the first failed attempt. A failed rerun should surface as a real failure
+    # instead of creating an endless retry loop.
+    if: >-
+      ${{
+        github.event.workflow_run.run_attempt == 1 &&
+        contains(fromJSON('["failure", "timed_out"]'), github.event.workflow_run.conclusion)
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Wait before retrying
+        run: sleep 900
+
+      - name: Rerun failed prebuilt cache workflow once
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: gh run rerun "$RUN_ID" --repo "$REPO"

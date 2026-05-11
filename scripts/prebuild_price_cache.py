@@ -2,12 +2,18 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import sys
 
 import pandas as pd
 
+# GitHub Actions launches this file by path, so add the repo root for api imports.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from api.constants import APP_DIR
 from api.data_loader import load_watchlist, load_twse_industry_map
-from api.main import fetch_price
+from api.market_data import fetch_price
 
 OUT_DIR = APP_DIR / "prebuilt_cache"
 DEFAULT_PERIODS = [("2y", "1d"), ("6mo", "1d"), ("2d", "1m")]

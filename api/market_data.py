@@ -1,176 +1,134 @@
 from __future__ import annotations
 
-import time
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
-
-import pandas as pd
+from api.market_cache import (
+    PRICE_CACHE,
+    TARGET_PRICE_CACHE,
+    _cache_ttl_seconds,
+    _cached_price,
+    _disk_cache_max_age_seconds,
+    _disk_cache_path,
+    _load_disk_cache,
+    _store_price_cache,
+)
+import requests
 import yfinance as yf
 
-from api.constants import STATIC_CACHE_DIR
+from api import price_service as _price_service
+from api import tw_market_data as _tw_market_data
+from api import tw_market_history as _tw_market_history
+from api import tw_market_merge as _tw_market_merge
+from api import tw_market_quote as _tw_market_quote
+from api import tw_market_realtime as _tw_market_realtime
+from api import tw_market_time as _tw_market_time
+from api.market_utils import _prepare_price_df, _symbol_key, resolve_price_params, trim_display_df
+from api.price_service import get_price_cache_ttl_seconds
+from api.tw_market_data import (
+    _bulk_fetch_tw_intraday_daily_snapshots,
+    _clean_market_number,
+    _expected_latest_tw_daily_date,
+    _extract_market_table,
+    _fetch_tw_intraday_daily_snapshot,
+    _fetch_tw_official_daily_price,
+    _fetch_tw_realtime_quote_snapshot,
+    _is_stale_tw_daily_price,
+    _latest_price_date,
+    _market_history_requests,
+    _merge_intraday_realtime_quote,
+    _merge_price_frames,
+    _merge_tw_daily_realtime_price,
+    _month_starts,
+    _parse_tw_market_date,
+    _parse_tw_quote_datetime,
+    _period_start_date,
+    _should_use_tw_intraday_daily_snapshot,
+    _taipei_now,
+    _tw_daily_price_needs_official_refresh,
+    _tw_intraday_snapshot_from_minutes,
+    _tw_realtime_quote_request,
+)
 
 
-PRICE_CACHE: dict[tuple[str, str, str], tuple[float, pd.DataFrame]] = {}
-TARGET_PRICE_CACHE: dict[str, tuple[float, str]] = {}
+def _sync_compat_dependencies() -> None:
+    # Keep legacy monkeypatches against api.market_data working after the split.
+    _tw_market_data._expected_latest_tw_daily_date = _expected_latest_tw_daily_date
+    _tw_market_data._should_use_tw_intraday_daily_snapshot = _should_use_tw_intraday_daily_snapshot
+    _tw_market_data._fetch_tw_official_daily_price = _fetch_tw_official_daily_price
+    _tw_market_time._expected_latest_tw_daily_date = _expected_latest_tw_daily_date
+    _tw_market_time._should_use_tw_intraday_daily_snapshot = _should_use_tw_intraday_daily_snapshot
+    _tw_market_quote._expected_latest_tw_daily_date = _expected_latest_tw_daily_date
+    _tw_market_quote._should_use_tw_intraday_daily_snapshot = _should_use_tw_intraday_daily_snapshot
+    _tw_market_realtime._expected_latest_tw_daily_date = _expected_latest_tw_daily_date
+    _tw_market_realtime._should_use_tw_intraday_daily_snapshot = _should_use_tw_intraday_daily_snapshot
+    _tw_market_merge._expected_latest_tw_daily_date = _expected_latest_tw_daily_date
+    _tw_market_merge._should_use_tw_intraday_daily_snapshot = _should_use_tw_intraday_daily_snapshot
+    _tw_market_merge._fetch_tw_official_daily_price = _fetch_tw_official_daily_price
+    _tw_market_history._period_start_date = _period_start_date
+    _tw_market_history._month_starts = _month_starts
+    _price_service._cached_price = _cached_price
+    _price_service._store_price_cache = _store_price_cache
+    _price_service._is_stale_tw_daily_price = _is_stale_tw_daily_price
+    _price_service._merge_tw_daily_realtime_price = _merge_tw_daily_realtime_price
+    _price_service._merge_intraday_realtime_quote = _merge_intraday_realtime_quote
+    _price_service._bulk_fetch_tw_intraday_daily_snapshots = _bulk_fetch_tw_intraday_daily_snapshots
+    _price_service._fetch_tw_realtime_quote_snapshot = _fetch_tw_realtime_quote_snapshot
 
 
-def _symbol_key(symbol: str) -> str:
-    s = str(symbol).strip().upper()
-    if s.endswith(".TW"):
-        return s[:-3]
-    if s.endswith(".TWO"):
-        return s[:-4]
-    return s
-
-
-def _cache_ttl_seconds(interval: str) -> int:
-    if interval == "1m":
-        return 20
-    if interval.endswith("m"):
-        return 60
-    return 300
-
-
-def _disk_cache_max_age_seconds(interval: str) -> int:
-    if interval.endswith("m"):
-        return _cache_ttl_seconds(interval)
-    return 60 * 60 * 24 * 7
-
-
-def _disk_cache_path(symbol: str, period: str, interval: str) -> Path:
-    safe_symbol = symbol.replace("/", "_").replace(".", "_")
-    return STATIC_CACHE_DIR / f"{safe_symbol}__{period}__{interval}.pkl"
-
-
-def _load_disk_cache(symbol: str, period: str, interval: str, ttl_seconds: int) -> pd.DataFrame | None:
-    path = _disk_cache_path(symbol, period, interval)
-    try:
-        if not path.exists():
-            return None
-        age = time.time() - path.stat().st_mtime
-        if age >= ttl_seconds:
-            return None
-        df = pd.read_pickle(path)
-        return df if isinstance(df, pd.DataFrame) else None
-    except Exception:
-        return None
-
-
-def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d") -> pd.DataFrame:
-    cache_key = (symbol, period, interval)
-    now = time.time()
-    cache_ttl = _cache_ttl_seconds(interval)
-    cached = PRICE_CACHE.get(cache_key)
-    if cached and now - cached[0] < cache_ttl:
-        return cached[1].copy()
-
-    disk_cached = _load_disk_cache(symbol, period, interval, _disk_cache_max_age_seconds(interval))
-    if disk_cached is not None:
-        PRICE_CACHE[cache_key] = (now, disk_cached.copy())
-        return disk_cached.copy()
-
-    df = yf.download(symbol, period=period, interval=interval, auto_adjust=False, progress=False, threads=False)
-    if df is None or df.empty:
-        return pd.DataFrame()
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    df = df.rename_axis("Date").reset_index()
-    need = ["Date", "Open", "High", "Low", "Close", "Volume"]
-    if not set(need).issubset(df.columns):
-        return pd.DataFrame()
-    df = df[need].dropna(subset=["Close"])
-    if interval.endswith("m"):
-        date_col = pd.to_datetime(df["Date"], errors="coerce")
-        if getattr(date_col.dt, "tz", None) is None:
-            source_tz = "Asia/Taipei" if symbol.endswith((".TW", ".TWO")) else "UTC"
-            date_col = date_col.dt.tz_localize(source_tz)
-        date_col = date_col.dt.tz_convert("Asia/Taipei")
-        df["Date"] = date_col.dt.tz_localize(None)
-        intraday_mask = (df["Date"].dt.time >= pd.Timestamp("09:00").time()) & (df["Date"].dt.time <= pd.Timestamp("13:30").time())
-        df = df[intraday_mask].copy()
-        if not df.empty:
-            trade_dates = df["Date"].dt.date
-            latest_date = trade_dates.max()
-            prev_day_close = df.loc[trade_dates < latest_date, "Close"].dropna()
-            reference_close = float(prev_day_close.iloc[-1]) if not prev_day_close.empty else float(df.iloc[0]["Open"])
-            df = df[trade_dates == latest_date].copy()
-            df["RefClose"] = reference_close
-    PRICE_CACHE[cache_key] = (now, df.copy())
-    return df
+def fetch_price(symbol: str, period: str = "3mo", interval: str = "1d", *, allow_stale_disk: bool = False):
+    _sync_compat_dependencies()
+    return _price_service.fetch_price(symbol, period, interval, allow_stale_disk=allow_stale_disk)
 
 
 def fetch_target_price(symbol: str) -> str:
-    now = time.time()
-    cache_ttl = 60 * 60 * 6
-    cached = TARGET_PRICE_CACHE.get(symbol)
-    if cached and now - cached[0] < cache_ttl:
-        return cached[1]
-    try:
-        ticker = yf.Ticker(symbol)
-        info = ticker.get_info()
-    except Exception:
-        info = {}
-    target_keys = ("targetMeanPrice", "targetMedianPrice", "targetHighPrice", "targetLowPrice")
-    for key in target_keys:
-        value = info.get(key) if isinstance(info, dict) else None
-        if value is not None and not pd.isna(value):
-            text = f"{float(value):.2f}"
-            TARGET_PRICE_CACHE[symbol] = (now, text)
-            return text
-    TARGET_PRICE_CACHE[symbol] = (now, "-")
-    return "-"
+    return _price_service.fetch_target_price(symbol)
 
 
+def prefetch_price_data(*args, **kwargs):
+    _sync_compat_dependencies()
+    return _price_service.prefetch_price_data(*args, **kwargs)
 
 
-def resolve_price_params(period: str, interval: str) -> tuple[str, str, str]:
-    if period == "intraday":
-        return "2d", "1m", period
-
-    ma_warmup_period_map = {
-        "1mo": "6mo",
-        "2mo": "6mo",
-        "3mo": "6mo",
-        "6mo": "1y",
-        "1y": "2y",
-        "5y": "max",
-    }
-    fetch_period = ma_warmup_period_map.get(period, period)
-    return fetch_period, interval, period
+def _fetch_tw_realtime_quote_snapshot(symbol: str, interval: str):
+    _sync_compat_dependencies()
+    return _tw_market_data._fetch_tw_realtime_quote_snapshot(symbol, interval)
 
 
-
-
-def prefetch_price_data(stocks: pd.DataFrame, period: str, interval: str) -> dict[str, pd.DataFrame]:
-    symbols = [s for s in stocks["symbol"].dropna().astype(str).tolist() if s]
-    if not symbols:
-        return {}
-
-    max_workers = min(8, len(symbols))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        results = executor.map(lambda sym: (sym, fetch_price(sym, period, interval)), symbols)
-        return {symbol: df for symbol, df in results}
-
-def trim_display_df(df: pd.DataFrame, display_period: str) -> pd.DataFrame:
-    if df.empty or display_period in {"intraday", "max"}:
-        return df
-
-    period_days = {
-        "1mo": 31,
-        "2mo": 62,
-        "3mo": 93,
-        "6mo": 186,
-        "1y": 366,
-        "2y": 732,
-        "5y": 1828,
-    }
-    days = period_days.get(display_period)
-    if days is None:
-        return df
-
-    end_date = pd.to_datetime(df["Date"]).max()
-    start_date = end_date - pd.Timedelta(days=days)
-    trimmed = df[pd.to_datetime(df["Date"]) >= start_date].copy()
-    return trimmed if not trimmed.empty else df
-
-
+__all__ = [
+    "PRICE_CACHE",
+    "TARGET_PRICE_CACHE",
+    "_bulk_fetch_tw_intraday_daily_snapshots",
+    "_cache_ttl_seconds",
+    "_cached_price",
+    "_clean_market_number",
+    "_disk_cache_max_age_seconds",
+    "_disk_cache_path",
+    "_expected_latest_tw_daily_date",
+    "_extract_market_table",
+    "_fetch_tw_intraday_daily_snapshot",
+    "_fetch_tw_official_daily_price",
+    "_fetch_tw_realtime_quote_snapshot",
+    "_is_stale_tw_daily_price",
+    "_latest_price_date",
+    "_load_disk_cache",
+    "_market_history_requests",
+    "_merge_intraday_realtime_quote",
+    "_merge_price_frames",
+    "_merge_tw_daily_realtime_price",
+    "_month_starts",
+    "_parse_tw_market_date",
+    "_parse_tw_quote_datetime",
+    "_period_start_date",
+    "_prepare_price_df",
+    "_should_use_tw_intraday_daily_snapshot",
+    "_store_price_cache",
+    "_symbol_key",
+    "_taipei_now",
+    "_tw_daily_price_needs_official_refresh",
+    "_tw_intraday_snapshot_from_minutes",
+    "_tw_realtime_quote_request",
+    "fetch_price",
+    "fetch_target_price",
+    "get_price_cache_ttl_seconds",
+    "prefetch_price_data",
+    "resolve_price_params",
+    "trim_display_df",
+]
