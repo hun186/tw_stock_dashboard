@@ -27,6 +27,10 @@ def render_dashboard_control_panel(
     stock_meta_note_filter,
     stock_meta_payload_raw,
     stock_meta_stock_filter,
+    theme_summary_keyword,
+    theme_signal_bucket_options,
+    theme_signal_code_options,
+    theme_volume_ratio_options,
     subgroup_options,
     tab,
     watchlist,
@@ -78,6 +82,17 @@ def render_dashboard_control_panel(
             <label class='form-field'>目標價<select name='show_target_price'><option value='0' {'selected' if not show_target_price else ''}>關閉（較快）</option><option value='1' {'selected' if show_target_price else ''}>開啟</option></select></label>
             <label class='form-field'>精簡進度<select name='compact_progress'><option value='1' {'selected' if compact_progress else ''}>開啟（省空間）</option><option value='0' {'selected' if not compact_progress else ''}>關閉（詳細）</option></select></label>
           </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>題材型選股器</legend>
+          <div class='field-stack'>
+            <label class='form-field'>Summary 關鍵字<input name='theme_summary' value='{html.escape(theme_summary_keyword, quote=True)}' placeholder='例如：儲能、CPO、海外、併購'></label>
+            <label class='form-field'>訊號分類<select name='theme_signal_bucket'>{theme_signal_bucket_options}</select></label>
+            <label class='form-field'>技術訊號<select name='theme_signal_code'>{theme_signal_code_options}</select></label>
+            <label class='form-field'>量能倍數<select name='theme_volume_ratio'>{theme_volume_ratio_options}</select></label>
+          </div>
+          <p class='form-help'>可與主題、次題材、自選股、個人標籤同時使用；送出後條件會保存在 URL 參數，方便分享研究清單。</p>
         </fieldset>
         <fieldset>
           <legend>個人標籤篩選</legend>

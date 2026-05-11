@@ -4,6 +4,13 @@ import json
 from dataclasses import dataclass
 from urllib.parse import parse_qs
 
+from api.dashboard_theme_selector import (
+    normalize_signal_bucket,
+    normalize_signal_code,
+    normalize_summary_keyword,
+    normalize_volume_ratio,
+)
+
 STOCK_META_FIELDS = ("action", "trait", "stage", "risk")
 
 
@@ -45,6 +52,10 @@ class DashboardRequest:
     stock_meta_stock_filter: str
     stock_meta_payload_raw: str
     stock_meta_payload: dict
+    theme_summary_keyword: str
+    theme_signal_code: str
+    theme_signal_bucket: str
+    theme_volume_ratio: str
     cards_per_row: int
     custom_watchlist_raw: str
     show_volume: bool
@@ -59,6 +70,15 @@ class DashboardRequest:
             any(value != "all" for value in self.stock_meta_filters.values())
             or bool(self.stock_meta_note_filter)
             or bool(self.stock_meta_stock_filter)
+        )
+
+    @property
+    def has_theme_selector_filter(self) -> bool:
+        return (
+            bool(self.theme_summary_keyword)
+            or self.theme_signal_code != "all"
+            or self.theme_signal_bucket != "all"
+            or self.theme_volume_ratio != "all"
         )
 
 
@@ -92,6 +112,10 @@ def parse_dashboard_request(environ) -> DashboardRequest:
         stock_meta_stock_filter=params.get("stock_meta_stock", [""])[0].strip(),
         stock_meta_payload_raw=stock_meta_payload_raw,
         stock_meta_payload=parse_stock_meta_payload(stock_meta_payload_raw),
+        theme_summary_keyword=normalize_summary_keyword(params.get("theme_summary", [""])[0]),
+        theme_signal_code=normalize_signal_code(params.get("theme_signal_code", ["all"])[0]),
+        theme_signal_bucket=normalize_signal_bucket(params.get("theme_signal_bucket", ["all"])[0]),
+        theme_volume_ratio=normalize_volume_ratio(params.get("theme_volume_ratio", ["all"])[0]),
         cards_per_row=positive_int_param(params, "cards_per_row", 3, max_value=15),
         custom_watchlist_raw=params.get("custom_watchlist", [""])[0],
         show_volume=params.get("show_volume", ["1"])[0] == "1",

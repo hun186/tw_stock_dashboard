@@ -42,6 +42,7 @@ def build_stock_analysis(
         "change_pct": -999.0,
         "target_ratio": -1.0,
         "signal_score": -999.0,
+        "volume_ratio": 0.0,
     }
     target_price_text = "-"
     target_ratio_text = "-"
@@ -62,6 +63,11 @@ def build_stock_analysis(
         close_text = f"{close_value:.2f}"
         sort_metrics["close"] = close_value
         sort_metrics["volume"] = float(df.iloc[-1]["Volume"]) if "Volume" in df.columns else 0.0
+        sort_metrics["volume_ratio"] = (
+            float(df.iloc[-1]["volume_ratio"])
+            if "volume_ratio" in df.columns and not pd.isna(df.iloc[-1]["volume_ratio"])
+            else 0.0
+        )
         sort_metrics["signal_score"] = float(signal.get("score", -999))
         intraday_ref_close = float(df.iloc[-1]["RefClose"]) if period == "intraday" and "RefClose" in df.columns else None
         prev_close = float(df.iloc[-2]["Close"]) if len(df) >= 2 else close_value

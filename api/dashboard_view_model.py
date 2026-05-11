@@ -78,10 +78,11 @@ def build_dashboard_render_payload(
     start_idx = (page - 1) * limit
     end_idx = start_idx + limit
 
-    client_render_all_cards = len(sorted_stocks) <= 120
+    render_source_stocks = filtered_stocks
+    client_render_all_cards = len(render_source_stocks) <= 120
     initial_page_symbols = {item["row"].symbol for item in filtered_stocks[start_idx:end_idx]}
     rendered_stock_items = render_dashboard_stock_items(
-        sorted_stocks=sorted_stocks,
+        sorted_stocks=render_source_stocks,
         initial_page_symbols=initial_page_symbols,
         client_render_all_cards=client_render_all_cards,
         tab=tab,
@@ -91,11 +92,7 @@ def build_dashboard_render_payload(
         show_price=show_price,
     )
 
-    visible_rendered_items = [
-        item for item in rendered_stock_items
-        if status_filter == "all" or item["bucket"] == status_filter
-    ]
-    visible_page_items = visible_rendered_items[start_idx:end_idx]
+    visible_page_items = rendered_stock_items[start_idx:end_idx]
     rows = [item["row_html"] for item in visible_page_items]
     cards_data = [
         {"symbol": item["symbol"], "card_html": item["card_html"]}
