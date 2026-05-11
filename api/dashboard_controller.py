@@ -98,6 +98,8 @@ def render_dashboard_response(request: DashboardRequest) -> str:
         tab=tab,
         industry=industry,
         custom_watchlist_raw=custom_watchlist_raw,
+        group_filter=group_filter,
+        subgroup_filter=subgroup_filter,
         prefetch_price_data=prefetch_price_data,
         build_stock_analysis=_build_stock_analysis,
     )
