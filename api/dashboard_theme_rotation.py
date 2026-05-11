@@ -166,18 +166,20 @@ def render_theme_rotation_radar(rows: Iterable[ThemeRotationRow], *, max_rows: i
         table_body = "".join(_render_theme_rotation_row(row) for row in visible_rows)
 
     return f"""
-    <section class='section-card theme-radar-card' aria-labelledby='themeRadarTitle'>
+    <section class='section-card theme-radar-card collapsible-section' data-collapsible-section='themeRadar' aria-labelledby='themeRadarTitle'>
       <div class='section-header'>
-        <div>
-          <h2 id='themeRadarTitle'>題材熱度榜</h2>
-          <p class='section-subtitle'>依主題 / 次題材聚合目前已分析股票的形勢判斷、平均漲跌幅與訊號分數。</p>
-        </div>
+        <button type='button' class='section-toggle section-toggle-with-subtitle' data-collapse-target='themeRadarBody' aria-expanded='true' aria-controls='themeRadarBody'>
+          <span class='section-toggle-icon' aria-hidden='true'>▾</span>
+          <span><span id='themeRadarTitle' class='section-toggle-title'>題材熱度榜</span><span class='section-subtitle'>依主題 / 次題材聚合目前已分析股票的形勢判斷、平均漲跌幅與訊號分數。</span></span>
+        </button>
       </div>
+      <div id='themeRadarBody' class='collapsible-content'>
       <div class='theme-radar-wrap'>
         <table class='theme-radar-table'>
           <thead><tr><th>題材</th><th>檔數</th><th>偏多</th><th>觀察</th><th>警示</th><th>轉弱</th><th>中性</th><th>平均漲跌</th><th>平均訊號</th><th>熱度</th><th>篩選</th></tr></thead>
           <tbody>{table_body}</tbody>
         </table>
+      </div>
       </div>
     </section>
     """
