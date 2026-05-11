@@ -14,6 +14,7 @@ document.addEventListener('keydown', (e)=>{
   }
 });
 initServerConfigPicker();
+initCollapsibleSections();
 window.addEventListener('pageshow', hideLoadingProgress);
 if(document.readyState !== 'loading') hideLoadingProgress();
 renderBatchStockResults();

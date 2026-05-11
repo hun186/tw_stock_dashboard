@@ -80,6 +80,8 @@ class DashboardThemeRotationTests(unittest.TestCase):
 
         html = render_theme_rotation_radar([])
         self.assertIn("尚無已分析股票可聚合題材輪動", html)
+        self.assertIn("data-collapsible-section='themeRadar'", html)
+        self.assertIn("data-collapse-target='themeRadarBody'", html)
 
     def test_dashboard_renders_theme_heat_ranking_and_click_filter_controls(self) -> None:
         file_watchlist = pd.DataFrame([
@@ -118,6 +120,11 @@ class DashboardThemeRotationTests(unittest.TestCase):
         self.assertIn("applyThemeRadarFilter", response)
         self.assertIn("submitConfig(overrides)", response)
         self.assertIn("onclick='applyThemeRadarFilter(&quot;AI晶片&quot;, &quot;先進製程&quot;)'", response)
+        self.assertIn("data-collapsible-section='controlPanel'", response)
+        self.assertIn("上方控制區", response)
+        self.assertIn("data-collapsible-section='overview'", response)
+        self.assertIn("data-collapsible-section='charts'", response)
+        self.assertIn("initCollapsibleSections()", response)
 
 
 if __name__ == "__main__":

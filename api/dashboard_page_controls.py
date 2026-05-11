@@ -34,7 +34,13 @@ def render_dashboard_control_panel(
     batch_watchlist_modal_html = render_batch_watchlist_modal()
     stock_filter_modal_html = render_stock_filter_modal()
 
-    body = f"""    <form id='cfgForm' class='control-panel'>
+    body = f"""    <form id='cfgForm' class='control-panel collapsible-section' data-collapsible-section='controlPanel'>
+      <div class='section-header control-panel-header'>
+        <button type='button' class='section-toggle' data-collapse-target='controlPanelBody' aria-expanded='true' aria-controls='controlPanelBody'>
+          <span class='section-toggle-icon' aria-hidden='true'>▾</span><span class='section-toggle-title'>上方控制區</span>
+        </button>
+      </div>
+      <div id='controlPanelBody' class='collapsible-content'>
       <div class='filter-grid'>
         <fieldset class='pool-settings'>
           <legend>股池與分類</legend>
@@ -116,6 +122,7 @@ def render_dashboard_control_panel(
     <input type='hidden' name='custom_watchlist' id='customWatchlist' value='{html.escape(','.join(watchlist['symbol'].tolist()))}'>
     {batch_watchlist_modal_html}
     {stock_filter_modal_html}
+      </div>
     </form>"""
 
     return body

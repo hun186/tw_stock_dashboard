@@ -91,14 +91,17 @@ def render_dashboard_document(
     </header>
     {control_panel_html}
     {theme_rotation_html}
-    <section class='section-card' aria-labelledby='overviewTitle'>
+    <section class='section-card collapsible-section' data-collapsible-section='overview' aria-labelledby='overviewTitle'>
       <div class='section-header'>
-        <h2 id='overviewTitle'>總覽</h2>
+        <button type='button' class='section-toggle' data-collapse-target='overviewBody' aria-expanded='true' aria-controls='overviewBody'>
+          <span class='section-toggle-icon' aria-hidden='true'>▾</span><span id='overviewTitle' class='section-toggle-title'>總覽</span>
+        </button>
         <div id='pageNav' class='page-nav'>
           <button type='button' onclick='goToPage({max(1, page-1)})' {'disabled' if page <= 1 else ''}>上一頁</button>
           <button type='button' onclick='goToPage({min(total_pages, page+1)})' {'disabled' if page >= total_pages else ''}>下一頁</button>
         </div>
       </div>
+      <div id='overviewBody' class='collapsible-content'>
       {limited_notice}
       {category_all_coverage_notice}
       <div id='summaryInfo' class='summary-strip'>
@@ -107,10 +110,17 @@ def render_dashboard_document(
         <div class='summary-item'><span class='summary-label'>每頁顯示</span><span class='summary-value'>{limit} 檔</span></div>
       </div>
       <div id='tableWrap' class='table-wrap'><table>{table_header_html}{''.join(rows) if rows else '<tr><td colspan="14">無符合條件資料</td></tr>'}</table></div>
+      </div>
     </section>
-    <section class='section-card' aria-labelledby='chartsTitle'>
-      <div class='section-header'><h2 id='chartsTitle'>多股趨勢圖</h2></div>
+    <section class='section-card collapsible-section' data-collapsible-section='charts' aria-labelledby='chartsTitle'>
+      <div class='section-header'>
+        <button type='button' class='section-toggle' data-collapse-target='chartsBody' aria-expanded='true' aria-controls='chartsBody'>
+          <span class='section-toggle-icon' aria-hidden='true'>▾</span><span id='chartsTitle' class='section-toggle-title'>多股趨勢圖</span>
+        </button>
+      </div>
+      <div id='chartsBody' class='collapsible-content'>
       <div id='cardsGrid' class='cards-grid' style='grid-template-columns:repeat({cards_per_row}, minmax(0,1fr))'>{''.join([f"<div class='card' data-symbol='{html.escape(cd['symbol'])}'>{cd['card_html']}</div>" for cd in cards_data])}</div>
+      </div>
     </section>
     <script>
     const defaultConfig = {safe_json_script(save_payload)};

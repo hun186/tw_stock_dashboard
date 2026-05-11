@@ -89,3 +89,46 @@ function submitConfig(overrides={}){
   syncStockMetaPayload();
   submitFormWithLoading(form, '更新儀表板');
 }
+const DASHBOARD_COLLAPSE_STORAGE_KEY = 'tw_dashboard_collapsed_sections';
+function readCollapsedSectionState(){
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DASHBOARD_COLLAPSE_STORAGE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch(e) {
+    return {};
+  }
+}
+function saveCollapsedSectionState(state){
+  localStorage.setItem(DASHBOARD_COLLAPSE_STORAGE_KEY, JSON.stringify(state || {}));
+}
+function setCollapsibleSectionState(section, collapsed, {persist=false}={}){
+  if(!section) return;
+  const key = section.dataset.collapsibleSection;
+  const toggle = section.querySelector('.section-toggle[data-collapse-target]');
+  const targetId = toggle?.dataset?.collapseTarget;
+  const content = targetId ? document.getElementById(targetId) : null;
+  section.classList.toggle('is-collapsed', Boolean(collapsed));
+  if(toggle){
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    toggle.setAttribute('title', collapsed ? '展開此區塊' : '收起此區塊');
+  }
+  if(content) content.hidden = Boolean(collapsed);
+  if(persist && key){
+    const state = readCollapsedSectionState();
+    state[key] = Boolean(collapsed);
+    saveCollapsedSectionState(state);
+  }
+}
+function initCollapsibleSections(){
+  const state = readCollapsedSectionState();
+  document.querySelectorAll('[data-collapsible-section]').forEach((section)=>{
+    const key = section.dataset.collapsibleSection;
+    const toggle = section.querySelector('.section-toggle[data-collapse-target]');
+    if(!toggle) return;
+    const collapsed = Boolean(key && state[key]);
+    setCollapsibleSectionState(section, collapsed);
+    toggle.addEventListener('click', ()=>{
+      setCollapsibleSectionState(section, toggle.getAttribute('aria-expanded') === 'true', {persist:true});
+    });
+  });
+}
