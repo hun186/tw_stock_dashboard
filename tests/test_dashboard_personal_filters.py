@@ -47,6 +47,8 @@ class DashboardPersonalFilterTests(unittest.TestCase):
         self.assertIn("name='stock_meta_note' value='法說'", response)
         self.assertIn("document.getElementById('stockMetaFilter-note')", response)
         self.assertIn("filter.addEventListener('input', applyStockMetaFilters)", response)
+        self.assertIn("function currentStockMetaFilterAvailability()", response)
+        self.assertIn("refreshStockMetaFilterOptions();\n  applyStockMetaFilters();", response)
         self.assertIn("符合股數</span><span class='summary-value'>1 檔", response)
         self.assertEqual(captured_symbols, [["2330.TW"]])
 

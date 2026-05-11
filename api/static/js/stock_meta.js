@@ -53,13 +53,26 @@ function populateStockMetaControls(){
     select.value = group?.options.includes(currentValue) ? currentValue : '';
   });
 }
+function currentStockMetaFilterAvailability(){
+  const options = Object.fromEntries(STOCK_META_FIELDS.map((field)=>[field, new Set(stockMetaFilterOptions[field] || [])]));
+  const hasEmpty = Object.fromEntries(STOCK_META_FIELDS.map((field)=>[field, Boolean(stockMetaFilterHasEmpty[field])]));
+  document.querySelectorAll('tr[data-symbol]').forEach((tr)=>{
+    STOCK_META_FIELDS.forEach((field)=>{
+      const value = String(tr.dataset[field] || 'none').trim();
+      if(value && value !== 'none') options[field].add(value);
+      else hasEmpty[field] = true;
+    });
+  });
+  return { options, hasEmpty };
+}
 function refreshStockMetaFilterOptions(){
+  const availability = currentStockMetaFilterAvailability();
   STOCK_META_GROUPS.forEach((group)=>{
     const filter = document.getElementById(`stockMetaFilter-${group.id}`);
     if(!filter) return;
     const currentValue = filter.value || 'all';
-    const availableOptions = new Set(stockMetaFilterOptions[group.id] || []);
-    const hasEmpty = Boolean(stockMetaFilterHasEmpty[group.id]);
+    const availableOptions = availability.options[group.id] || new Set();
+    const hasEmpty = Boolean(availability.hasEmpty[group.id]);
     filter.replaceChildren();
     appendOption(filter, 'all', group.allLabel);
     if(hasEmpty) appendOption(filter, 'none', group.noneLabel);
@@ -83,6 +96,7 @@ function applyNotesToTableAndCards(){
     const noteInput = tr.querySelector('.stock-note-input');
     if(noteInput && document.activeElement !== noteInput) noteInput.value = meta.note || '';
   });
+  refreshStockMetaFilterOptions();
   applyStockMetaFilters();
 }
 function selectedStockMetaFilters(){
