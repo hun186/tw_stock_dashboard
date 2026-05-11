@@ -9,6 +9,19 @@ import pandas as pd
 from api.dashboard_live_fetch import DEFAULT_LIVE_FETCH_THRESHOLD, resolve_live_fetch_controls
 
 MAX_SERVERLESS_ANALYSIS_STOCKS = 240
+MAX_SERVERLESS_TOPIC_ANALYSIS_STOCKS = 320
+
+
+def _serverless_analysis_limit(*, group_filter: str, subgroup_filter: str) -> int:
+    """Return the symbol cap for serverless analysis requests.
+
+    Broad category scans stay conservative to avoid Vercel timeouts, but a
+    selected topic with all subtopics (for example ETF與基金) often lands just
+    above the broad cap and is exactly when users need a complete subtheme
+    radar. Give those focused topic requests a slightly larger budget.
+    """
+    has_topic_filter = group_filter != "all" or subgroup_filter != "all"
+    return MAX_SERVERLESS_TOPIC_ANALYSIS_STOCKS if has_topic_filter else MAX_SERVERLESS_ANALYSIS_STOCKS
 
 
 @dataclass(slots=True)
@@ -42,17 +55,20 @@ def run_dashboard_analysis(
     tab: str,
     industry: str,
     custom_watchlist_raw: str,
+    group_filter: str = "all",
+    subgroup_filter: str = "all",
     prefetch_price_data: Callable,
     build_stock_analysis: Callable,
 ) -> DashboardAnalysisResult:
     is_serverless_runtime = os.environ.get("VERCEL") == "1" or bool(os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
     candidate_count = len(stocks)
-    is_limited_analysis = is_serverless_runtime and candidate_count > MAX_SERVERLESS_ANALYSIS_STOCKS
+    analysis_limit = _serverless_analysis_limit(group_filter=group_filter, subgroup_filter=subgroup_filter)
+    is_limited_analysis = is_serverless_runtime and candidate_count > analysis_limit
     if is_limited_analysis:
         # Keep broad dashboard requests inside Vercel's serverless execution window.
         # Users can narrow the set with industry/group/custom-watchlist filters when
         # they need exhaustive scoring across more symbols.
-        stocks = stocks.head(MAX_SERVERLESS_ANALYSIS_STOCKS).copy()
+        stocks = stocks.head(analysis_limit).copy()
 
     is_custom_watchlist = bool(custom_watchlist_raw.strip())
     allow_live_fetch, max_live_symbols = resolve_live_fetch_controls(
@@ -135,7 +151,7 @@ def run_dashboard_analysis(
         status_filter_values=status_filter_values,
         candidate_count=candidate_count,
         is_limited_analysis=is_limited_analysis,
-        max_serverless_analysis_stocks=MAX_SERVERLESS_ANALYSIS_STOCKS,
+        max_serverless_analysis_stocks=analysis_limit,
         progress_total_stocks=progress_total_stocks,
         price_ready_count=price_ready_count,
         signal_ready_count=signal_ready_count,
