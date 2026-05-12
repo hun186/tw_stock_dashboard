@@ -45,14 +45,14 @@ def stock_research_payload(
     }
 
 
-def render_research_card_button(*, symbol: str, label: str = "研", compact: bool = False) -> str:
-    classes = "research-card-button is-compact" if compact else "research-card-button"
+def render_research_symbol_button(*, symbol: str, compact: bool = False) -> str:
+    """Render the stock symbol as the direct trigger for the research card."""
+    classes = "research-symbol-button is-compact" if compact else "research-symbol-button"
     escaped_symbol = html.escape(symbol, quote=True)
-    escaped_label = html.escape(label)
     symbol_js = html.escape(json.dumps(symbol, ensure_ascii=False), quote=True)
-    accessible_label = html.escape("展開研究卡", quote=True)
+    accessible_label = html.escape(f"展開 {symbol} 研究卡", quote=True)
     return (
         f"<button type='button' class='{classes}' data-research-symbol='{escaped_symbol}' "
         f"onclick='openStockResearchCard({symbol_js})' "
-        f"title='{accessible_label}' aria-label='{accessible_label}'>{escaped_label}</button>"
+        f"title='{accessible_label}' aria-label='{accessible_label}'>{html.escape(symbol)}</button>"
     )
