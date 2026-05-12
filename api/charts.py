@@ -8,6 +8,24 @@ from plotly.subplots import make_subplots
 from api.constants import DOWN_COLOR, MA5_COLOR, MA20_COLOR, MA60_COLOR, UP_COLOR
 
 
+def _daily_date_rangebreaks(dates: pd.Series) -> list[dict[str, list[str]]]:
+    parsed_dates = pd.to_datetime(dates, errors="coerce").dropna()
+    if parsed_dates.empty:
+        return []
+
+    normalized_dates = parsed_dates.dt.normalize()
+    if not (parsed_dates == normalized_dates).all():
+        return []
+
+    trading_days = pd.Index(normalized_dates.unique()).sort_values()
+    calendar_days = pd.date_range(trading_days.min(), trading_days.max(), freq="D")
+    missing_days = calendar_days.difference(trading_days)
+    if missing_days.empty:
+        return []
+
+    return [{"values": [day.strftime("%Y-%m-%d") for day in missing_days]}]
+
+
 def _volume_in_lots(series: pd.Series) -> pd.Series:
     return series / 1000
 
@@ -101,6 +119,10 @@ def make_chart_html(
             )
         fig.update_yaxes(title_text="成交量（張）", row=volume_row, col=1)
 
+    daily_rangebreaks = _daily_date_rangebreaks(df["Date"]) if intraday_ref_close is None else []
+    if daily_rangebreaks:
+        fig.update_xaxes(rangebreaks=daily_rangebreaks)
+
     if intraday_ref_close is not None:
         ref_close = float(intraday_ref_close)
         limit_up = ref_close * 1.1
@@ -130,7 +152,3 @@ def make_chart_html(
     height = 500 if has_price_panel and has_volume_panel else 320
     fig.update_layout(title=title, height=height, margin=dict(l=4, r=4, t=36, b=4), xaxis_rangeslider_visible=False)
     return fig.to_html(full_html=False, include_plotlyjs="cdn")
-
-
-
-

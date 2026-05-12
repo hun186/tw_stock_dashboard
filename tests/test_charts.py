@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from api.charts import _volume_in_lots, make_chart_html
+from api.charts import _daily_date_rangebreaks, _volume_in_lots, make_chart_html
 
 
 def chart_df() -> pd.DataFrame:
@@ -22,6 +22,34 @@ def chart_df() -> pd.DataFrame:
         "VMA20": [900, 1000, 1100],
         "VMA60": [800, 900, 1000],
     })
+
+
+class ChartRangebreakTests(unittest.TestCase):
+    def test_daily_chart_hides_weekends_and_holidays_without_data(self) -> None:
+        df = chart_df().iloc[[0, 1]].copy()
+        df["Date"] = pd.to_datetime(["2026-05-01", "2026-05-05"])
+
+        breaks = _daily_date_rangebreaks(df["Date"])
+        html = make_chart_html(df, "測試", show_volume=True, show_ma=True)
+
+        self.assertEqual(
+            breaks,
+            [{"values": ["2026-05-02", "2026-05-03", "2026-05-04"]}],
+        )
+        self.assertIn(
+            '"rangebreaks":[{"values":["2026-05-02","2026-05-03","2026-05-04"]}]',
+            html,
+        )
+
+    def test_intraday_chart_keeps_minute_axis_spacing(self) -> None:
+        df = chart_df().copy()
+        df["Date"] = pd.to_datetime([
+            "2026-05-01 09:00",
+            "2026-05-01 09:01",
+            "2026-05-01 09:05",
+        ])
+
+        self.assertEqual(_daily_date_rangebreaks(df["Date"]), [])
 
 
 class ChartVisibilityTests(unittest.TestCase):
