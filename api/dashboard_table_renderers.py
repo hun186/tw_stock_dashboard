@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 
+from api.dashboard_research_card import render_research_card_button
 from api.dashboard_theme import theme_compact_html as _theme_compact_html
 from api.market_data import _symbol_key
 
@@ -80,11 +81,12 @@ def render_stock_row(
         f"{html.escape(row.name)}"
         "</button>"
     )
+    research_button = render_research_card_button(symbol=row.symbol, compact=True)
     return (
         f"<tr data-symbol='{html.escape(row.symbol)}' data-name='{html.escape(row.name, quote=True)}' "
         f"data-summary='{html.escape(summary_text, quote=True)}'>"
         f"<td class='row-action-cell'>{action_btn}</td><td class='status-icon-cell'>{html.escape(status.split()[0])}</td><td class='symbol-cell'>{html.escape(row.symbol)}</td>"
-        f"<td class='name-cell'>{name_jump_button}</td><td class='signal-cell'>{html.escape(status)}</td>"
+        f"<td class='name-cell'><div class='name-cell-actions'>{name_jump_button}{research_button}</div></td><td class='signal-cell'>{html.escape(status)}</td>"
         f"<td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td><td class='theme-cell'>{theme_compact_html}</td>"
         f"{render_stock_meta_cells(row.symbol)}<td class='note-cell'>{render_note_editor(row.symbol)}</td>"
         f"<td class='theme-summary-cell'>{html.escape(summary_text)}</td><td class='source-cell'>{reference_html}</td></tr>"

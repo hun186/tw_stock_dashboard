@@ -193,3 +193,27 @@
   .radar-filter-btn{padding:5px 9px;min-height:30px}
   .radar-filter-btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
   .empty-radar{text-align:center!important;color:var(--muted);padding:18px!important}
+  .name-cell-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .research-card-button{border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;border-radius:999px;padding:5px 10px;min-height:30px;font-size:.8rem;font-weight:700;white-space:nowrap}
+  .research-card-button:hover,.research-card-button:focus{background:#dbeafe;border-color:#60a5fa;outline:none;box-shadow:0 6px 14px rgba(37,99,235,.16);transform:translateY(-1px)}
+  .research-card-button.is-compact{padding:3px 8px;min-height:26px;font-size:.76rem}
+  .card-title .research-card-button{align-self:flex-start;margin-left:auto}
+  .stock-research-modal{position:fixed;inset:0;background:rgba(15,23,42,.48);display:none;align-items:center;justify-content:center;z-index:10000;padding:18px}
+  .stock-research-modal.is-open{display:flex}
+  .stock-research-dialog{width:min(880px,100%);max-height:92vh;overflow:auto;background:#fff;border-radius:20px;box-shadow:0 24px 70px rgba(15,23,42,.28);border:1px solid rgba(226,232,240,.95)}
+  .stock-research-header{position:sticky;top:0;background:linear-gradient(135deg,#f8fbff,#fff);display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:18px 20px;border-bottom:1px solid var(--line);z-index:1}
+  .stock-research-header h2{margin:0;color:var(--text);font-size:1.25rem}
+  .stock-research-header p{margin:4px 0 0;color:var(--muted);font-size:.9rem}
+  .modal-close{width:34px;min-height:34px;border-radius:999px;padding:0;font-size:1.3rem;line-height:1;background:#fff;color:#475569;border:1px solid #cbd5e1}
+  .stock-research-body{padding:18px 20px;display:grid;gap:16px}
+  .research-card-fields{display:grid;grid-template-columns:minmax(112px,150px) minmax(0,1fr);gap:0;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff}
+  .research-card-fields dt,.research-card-fields dd{margin:0;padding:10px 12px;border-bottom:1px solid #edf2f7;line-height:1.55;word-break:break-word}
+  .research-card-fields dt{background:#f8fafc;color:#475569;font-weight:800}
+  .research-card-fields dd{color:#0f172a}
+  .research-card-fields dt:nth-last-child(2),.research-card-fields dd:last-child{border-bottom:0}
+  .research-card-personal h4{margin:0 0 8px;color:#0f172a}
+  .stock-research-export{padding:0 20px 20px;display:grid;gap:8px}
+  .stock-research-export-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .stock-research-export-header h3{margin:0;font-size:1rem;color:#0f172a}
+  #stockResearchMarkdown{width:100%;min-height:180px;border:1px solid var(--line);border-radius:14px;padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:.85rem;line-height:1.5;background:#f8fafc;color:#0f172a}
+  @media (max-width: 640px){.research-card-fields{grid-template-columns:1fr}.research-card-fields dt{border-bottom:0}.research-card-fields dd{padding-top:0}.stock-research-header{position:static}.card-title .research-card-button{margin-left:0}}
