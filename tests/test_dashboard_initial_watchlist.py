@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from api import dashboard_app
+from api.server_configs import load_server_config_presets
 
 
 class DashboardInitialWatchlistTests(unittest.TestCase):
@@ -47,7 +48,10 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         self.assertNotIn("目前候選股共有 300 檔", response)
         self.assertIn("符合股數</span><span class='summary-value'>2 檔", response)
         self.assertIn("restoreBrowserWatchlistIfAvailable({submit: true})", response)
-        self.assertIn("CZJ-mob-101T-202605261747.json", response)
+        preset_ids = [str(preset["id"]) for preset in load_server_config_presets()]
+        self.assertTrue(preset_ids)
+        for preset_id in preset_ids:
+            self.assertIn(preset_id, response)
         self.assertIn("tw-dashboard-backup.json", response)
         self.assertIn("class='primary-actions' data-title='主要操作'", response)
         self.assertIn("class='utility-actions' data-title='設定與備份'", response)
