@@ -5,7 +5,14 @@ import yfinance as yf
 
 from api.market_utils import _prepare_price_df
 from api.tw_market_quote import _fetch_tw_realtime_quote_snapshot
-from api.tw_market_time import _expected_latest_tw_daily_date, _should_use_tw_intraday_daily_snapshot
+from api.tw_market_time import _expected_latest_tw_daily_date, _latest_price_date, _should_use_tw_intraday_daily_snapshot
+
+
+def _expected_daily_quote_snapshot(symbol: str) -> pd.DataFrame:
+    quote_snapshot = _fetch_tw_realtime_quote_snapshot(symbol, "1d")
+    if _latest_price_date(quote_snapshot) == _expected_latest_tw_daily_date():
+        return quote_snapshot
+    return pd.DataFrame()
 
 
 def _tw_intraday_snapshot_from_minutes(symbol: str, minute_df: pd.DataFrame | None) -> pd.DataFrame:
@@ -27,11 +34,9 @@ def _tw_intraday_snapshot_from_minutes(symbol: str, minute_df: pd.DataFrame | No
         "Volume": float(intraday_df["Volume"].fillna(0).sum()),
     }])
 
-    quote_snapshot = _fetch_tw_realtime_quote_snapshot(symbol, "1d")
+    quote_snapshot = _expected_daily_quote_snapshot(symbol)
     if not quote_snapshot.empty:
-        quote_dates = pd.to_datetime(quote_snapshot["Date"], errors="coerce").dt.normalize()
-        if not quote_dates.empty and quote_dates.max() == expected_date:
-            return _merge_price_frames(minute_snapshot, quote_snapshot)
+        return _merge_price_frames(minute_snapshot, quote_snapshot)
 
     return minute_snapshot
 
@@ -64,6 +69,11 @@ def _merge_intraday_realtime_quote(symbol: str, df: pd.DataFrame, quote_snapshot
 def _fetch_tw_intraday_daily_snapshot(symbol: str) -> pd.DataFrame:
     if not _should_use_tw_intraday_daily_snapshot():
         return pd.DataFrame()
+
+    quote_snapshot = _expected_daily_quote_snapshot(symbol)
+    if not quote_snapshot.empty:
+        return quote_snapshot
+
     try:
         minute_df = yf.download(symbol, period="1d", interval="1m", auto_adjust=False, progress=False, threads=False)
     except Exception:
@@ -75,9 +85,21 @@ def _bulk_fetch_tw_intraday_daily_snapshots(symbols: list[str]) -> dict[str, pd.
     tw_symbols = [symbol for symbol in symbols if symbol.endswith((".TW", ".TWO"))]
     if not tw_symbols or not _should_use_tw_intraday_daily_snapshot():
         return {}
+    snapshots: dict[str, pd.DataFrame] = {}
+    missing_symbols: list[str] = []
+    for symbol in tw_symbols:
+        quote_snapshot = _expected_daily_quote_snapshot(symbol)
+        if not quote_snapshot.empty:
+            snapshots[symbol] = quote_snapshot
+        else:
+            missing_symbols.append(symbol)
+
+    if not missing_symbols:
+        return snapshots
+
     try:
         downloaded = yf.download(
-            tw_symbols,
+            missing_symbols,
             period="1d",
             interval="1m",
             auto_adjust=False,
@@ -86,15 +108,14 @@ def _bulk_fetch_tw_intraday_daily_snapshots(symbols: list[str]) -> dict[str, pd.
             group_by="ticker",
         )
     except Exception:
-        return {}
+        return snapshots
     if downloaded.empty:
-        return {}
+        return snapshots
 
-    snapshots: dict[str, pd.DataFrame] = {}
-    for symbol in tw_symbols:
+    for symbol in missing_symbols:
         if isinstance(downloaded.columns, pd.MultiIndex) and symbol in downloaded.columns.get_level_values(0):
             raw_df = downloaded[symbol]
-        elif len(tw_symbols) == 1:
+        elif len(missing_symbols) == 1:
             raw_df = downloaded
         else:
             continue

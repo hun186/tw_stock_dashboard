@@ -1,6 +1,99 @@
+const THEME_SIGNAL_BUCKET_LABELS = {
+  all: '全部訊號分類',
+  bull: '偏多',
+  observe: '觀察',
+  warn: '警示',
+  bear: '轉弱',
+  neutral: '中性',
+  watch: '資料不足 / 觀察',
+};
+const THEME_VOLUME_RATIO_LABELS = {
+  all: '不限量能',
+  '1.5': '成交量 ≥ 20日均量 1.5x',
+  '2': '成交量 ≥ 20日均量 2x',
+  '4': '成交量 ≥ 20日均量 4x',
+};
+function themeVolumeThreshold(value){
+  return value === 'all' ? null : Number(value);
+}
+function themeSignalItemMatches(item, { bucket='all', code='all', volume='all' }={}){
+  if(bucket !== 'all' && item.bucket !== bucket) return false;
+  if(code !== 'all' && item.signal_code !== code) return false;
+  const threshold = themeVolumeThreshold(volume);
+  return threshold === null || Number(item.volume_ratio || 0) >= threshold;
+}
+function selectedThemeFilters(){
+  return {
+    bucket: document.querySelector('[name="theme_signal_bucket"]')?.value || 'all',
+    code: document.querySelector('[name="theme_signal_code"]')?.value || 'all',
+    volume: document.querySelector('[name="theme_volume_ratio"]')?.value || 'all',
+  };
+}
 function filteredDashboardItems(){
   const filter = document.querySelector('[name="status_filter"]')?.value || 'all';
-  return dashboardRenderItems.filter((item)=>filter === 'all' || item.bucket === filter);
+  const theme = selectedThemeFilters();
+  return dashboardRenderItems.filter((item)=>
+    (filter === 'all' || item.bucket === filter) && themeSignalItemMatches(item, theme)
+  );
+}
+function replaceSelectOptions(select, options, currentValue){
+  if(!select) return currentValue;
+  select.replaceChildren(...options.map(({ value, label })=>{
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    return option;
+  }));
+  const values = new Set(options.map((option)=>option.value));
+  select.value = values.has(currentValue) ? currentValue : 'all';
+  return select.value;
+}
+function refreshThemeSelectorOptions(){
+  if(!Array.isArray(themeSignalItems) || !themeSignalItems.length) return;
+  const bucketSelect = document.querySelector('[name="theme_signal_bucket"]');
+  const codeSelect = document.querySelector('[name="theme_signal_code"]');
+  const volumeSelect = document.querySelector('[name="theme_volume_ratio"]');
+  const current = selectedThemeFilters();
+  const bucketValues = new Set(themeSignalItems
+    .filter((item)=>themeSignalItemMatches(item, { code: current.code, volume: current.volume }))
+    .map((item)=>item.bucket)
+    .filter(Boolean));
+  const bucketOptions = Object.entries(THEME_SIGNAL_BUCKET_LABELS)
+    .filter(([value])=>value === 'all' || bucketValues.has(value))
+    .map(([value, label])=>({ value, label }));
+  current.bucket = replaceSelectOptions(bucketSelect, bucketOptions, current.bucket);
+
+  const codeLabels = new Map();
+  themeSignalItems
+    .filter((item)=>themeSignalItemMatches(item, { bucket: current.bucket, volume: current.volume }))
+    .forEach((item)=>{
+      if(item.signal_code) codeLabels.set(item.signal_code, item.signal_label || item.signal_code);
+    });
+  const codeOptions = [{ value: 'all', label: '全部技術訊號' }].concat(
+    Array.from(codeLabels.entries())
+      .sort((a, b)=>a[1].localeCompare(b[1], 'zh-Hant'))
+      .map(([value, label])=>({ value, label }))
+  );
+  current.code = replaceSelectOptions(codeSelect, codeOptions, current.code);
+
+  const volumeOptions = Object.entries(THEME_VOLUME_RATIO_LABELS)
+    .filter(([value])=>value === 'all' || themeSignalItems.some((item)=>themeSignalItemMatches(item, { bucket: current.bucket, code: current.code, volume: value })))
+    .map(([value, label])=>({ value, label }));
+  replaceSelectOptions(volumeSelect, volumeOptions, current.volume);
+}
+function applyThemeSelectorInPlace(){
+  refreshThemeSelectorOptions();
+  renderDashboardPage(1);
+}
+function submitThemeSelectorFilters(){
+  const form = document.getElementById('cfgForm');
+  submitConfig({
+    page: '1',
+    theme_signal_bucket: form?.elements?.theme_signal_bucket?.value || 'all',
+    theme_signal_code: form?.elements?.theme_signal_code?.value || 'all',
+    theme_volume_ratio: form?.elements?.theme_volume_ratio?.value || 'all',
+    theme_summary: form?.elements?.theme_summary?.value || '',
+  });
 }
 function escapeHtmlAttr(value){
   return String(value ?? '')

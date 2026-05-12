@@ -15,6 +15,7 @@ _JS_ASSETS = (
     "js/batch_watchlist_picker.js",
     "js/stock_filter_picker.js",
     "js/stock_meta.js",
+    "js/stock_research_card.js",
     "js/dashboard_init.js",
     "js/intraday_refresh.js",
 )

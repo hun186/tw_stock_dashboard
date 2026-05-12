@@ -20,6 +20,7 @@ if(document.readyState !== 'loading') hideLoadingProgress();
 renderBatchStockResults();
 seedStockFilterSelectionsFromInput();
 updateStockFilterSummary();
+refreshThemeSelectorOptions();
 populateStockMetaControls();
 refreshStockMetaFilterOptions();
 applyNotesToTableAndCards();
@@ -29,6 +30,23 @@ STOCK_META_GROUPS.forEach((group)=>{
     submitConfig({ page: '1', [event.target.name]: event.target.value });
   });
 });
+
+const themeSelectorFields = [
+  document.querySelector('[name="theme_signal_bucket"]'),
+  document.querySelector('[name="theme_signal_code"]'),
+  document.querySelector('[name="theme_volume_ratio"]'),
+].filter(Boolean);
+themeSelectorFields.forEach((filter)=>{
+  filter.addEventListener('change', ()=>{
+    applyThemeSelectorInPlace();
+    window.clearTimeout(filter._themeSubmitTimer);
+    filter._themeSubmitTimer = window.setTimeout(submitThemeSelectorFilters, 120);
+  });
+});
+const themeSummaryInput = document.querySelector('[name="theme_summary"]');
+if(themeSummaryInput){
+  themeSummaryInput.addEventListener('change', ()=>submitConfig({page: '1', theme_summary: themeSummaryInput.value || ''}));
+}
 const stockMetaTextFilters = [
   document.getElementById('stockMetaFilter-note'),
   document.getElementById('stockMetaFilter-stock'),

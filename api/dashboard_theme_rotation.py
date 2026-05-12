@@ -161,7 +161,7 @@ def _format_signed_pct(value: float) -> str:
 def render_theme_rotation_radar(rows: Iterable[ThemeRotationRow], *, max_rows: int = 12) -> str:
     visible_rows = list(rows or [])[:max_rows]
     if not visible_rows:
-        table_body = "<tr><td colspan='11' class='empty-radar'>尚無已分析股票可聚合題材輪動。</td></tr>"
+        table_body = "<tr><td colspan='11' class='empty-radar'>尚無符合目前篩選的已分析股票可聚合題材輪動。</td></tr>"
     else:
         table_body = "".join(_render_theme_rotation_row(row) for row in visible_rows)
 
@@ -170,7 +170,7 @@ def render_theme_rotation_radar(rows: Iterable[ThemeRotationRow], *, max_rows: i
       <div class='section-header'>
         <button type='button' class='section-toggle section-toggle-with-subtitle' data-collapse-target='themeRadarBody' aria-expanded='true' aria-controls='themeRadarBody'>
           <span class='section-toggle-icon' aria-hidden='true'>▾</span>
-          <span><span id='themeRadarTitle' class='section-toggle-title'>題材熱度榜</span><span class='section-subtitle'>依主題 / 次題材聚合目前已分析股票的形勢判斷、平均漲跌幅與訊號分數。</span></span>
+          <span><span id='themeRadarTitle' class='section-toggle-title'>題材熱度榜</span><span class='section-subtitle'>依主題 / 次題材聚合目前符合篩選的已分析股票形勢判斷、平均漲跌幅與訊號分數。</span></span>
         </button>
       </div>
       <div id='themeRadarBody' class='collapsible-content'>

@@ -100,8 +100,8 @@ class DashboardCategoryPoolTests(unittest.TestCase):
             response = b"".join(dashboard_app.app({"QUERY_STRING": "tab=category&industry=all"}, lambda *_args: None)).decode("utf-8")
 
         self.assertIn("符合股數</span><span class='summary-value'>1 檔", response)
-        self.assertIn("<td class='symbol-cell'>8069.TWO</td>", response)
-        self.assertNotIn("<td class='symbol-cell'>8069.TW</td>", response)
+        self.assertIn("<td class='symbol-cell'><button type='button' class='research-symbol-button is-compact' data-research-symbol='8069.TWO'", response)
+        self.assertNotIn("data-research-symbol='8069.TW'", response)
         self.assertIn("電子紙龍頭", response)
         self.assertEqual(captured_symbols, [["8069.TWO"]])
 

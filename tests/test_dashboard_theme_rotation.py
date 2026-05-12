@@ -79,7 +79,7 @@ class DashboardThemeRotationTests(unittest.TestCase):
         self.assertEqual(row.avg_signal_score, 0.0)
 
         html = render_theme_rotation_radar([])
-        self.assertIn("尚無已分析股票可聚合題材輪動", html)
+        self.assertIn("尚無符合目前篩選的已分析股票可聚合題材輪動", html)
         self.assertIn("data-collapsible-section='themeRadar'", html)
         self.assertIn("data-collapse-target='themeRadarBody'", html)
 

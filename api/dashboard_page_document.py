@@ -43,6 +43,11 @@ def render_dashboard_document(
     stock_meta_note_filter,
     stock_meta_payload_raw,
     stock_meta_stock_filter,
+    theme_summary_keyword,
+    theme_signal_items,
+    theme_signal_bucket_options,
+    theme_signal_code_options,
+    theme_volume_ratio_options,
     subgroup_options,
     tab,
     table_header_html,
@@ -74,6 +79,10 @@ def render_dashboard_document(
         stock_meta_note_filter=stock_meta_note_filter,
         stock_meta_payload_raw=stock_meta_payload_raw,
         stock_meta_stock_filter=stock_meta_stock_filter,
+        theme_summary_keyword=theme_summary_keyword,
+        theme_signal_bucket_options=theme_signal_bucket_options,
+        theme_signal_code_options=theme_signal_code_options,
+        theme_volume_ratio_options=theme_volume_ratio_options,
         subgroup_options=subgroup_options,
         tab=tab,
         watchlist=watchlist,
@@ -122,6 +131,25 @@ def render_dashboard_document(
       <div id='cardsGrid' class='cards-grid' style='grid-template-columns:repeat({cards_per_row}, minmax(0,1fr))'>{''.join([f"<div class='card' data-symbol='{html.escape(cd['symbol'])}'>{cd['card_html']}</div>" for cd in cards_data])}</div>
       </div>
     </section>
+    <div id='stockResearchModal' class='stock-research-modal' aria-hidden='true'>
+      <div class='stock-research-dialog' role='dialog' aria-modal='true' aria-labelledby='stockResearchTitle'>
+        <header class='stock-research-header'>
+          <div>
+            <h2 id='stockResearchTitle'>個股研究卡</h2>
+            <p id='stockResearchSubtitle'>-</p>
+          </div>
+          <button id='stockResearchClose' type='button' class='modal-close' onclick='closeStockResearchCard()' aria-label='關閉研究卡'>×</button>
+        </header>
+        <div id='stockResearchBody' class='stock-research-body'></div>
+        <section class='stock-research-export' aria-label='研究卡 Markdown 匯出'>
+          <div class='stock-research-export-header'>
+            <h3>Markdown</h3>
+            <button type='button' onclick='copyStockResearchMarkdown()'>一鍵複製 Markdown</button>
+          </div>
+          <textarea id='stockResearchMarkdown' readonly></textarea>
+        </section>
+      </div>
+    </div>
     <script>
     const defaultConfig = {safe_json_script(save_payload)};
     const serverConfigPresets = {safe_json_script(server_config_presets)};
@@ -140,6 +168,7 @@ def render_dashboard_document(
     const stockMetaFilterHasEmpty = {safe_json_script(stock_meta_filter_has_empty)};
     const allStocks = {safe_json_script(picker_stocks[STOCK_GROUP_COLUMNS].to_dict(orient='records'))};
     const stockFilterStocks = {safe_json_script(stock_filter_stocks[STOCK_GROUP_COLUMNS].to_dict(orient='records'))};
+    const themeSignalItems = Object.freeze({safe_json_script(theme_signal_items)});
     const pipelineProgressSteps = {pipeline_progress_json};
     // Immutable source of the full server-analyzed pool; status filtering always derives
     // a fresh visible list from this array so switching back to "全部" never needs

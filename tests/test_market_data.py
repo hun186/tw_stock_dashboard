@@ -89,6 +89,26 @@ class MarketDataFreshnessTests(unittest.TestCase):
         self.assertEqual(float(result.iloc[0]["High"]), 108.0)
         self.assertEqual(float(result.iloc[0]["Volume"]), 123000.0)
 
+    def test_intraday_daily_snapshot_uses_official_quote_when_minutes_are_unavailable(self) -> None:
+        quote = pd.DataFrame([{
+            "Date": pd.Timestamp("2026-05-07"),
+            "Open": 101.0,
+            "High": 108.0,
+            "Low": 100.0,
+            "Close": 107.0,
+            "Volume": 123000.0,
+        }])
+
+        with patch.object(market_data._tw_market_realtime, "_expected_latest_tw_daily_date", return_value=pd.Timestamp("2026-05-07")), \
+             patch.object(market_data._tw_market_realtime, "_should_use_tw_intraday_daily_snapshot", return_value=True), \
+             patch.object(market_data._tw_market_realtime, "_fetch_tw_realtime_quote_snapshot", return_value=quote), \
+             patch.object(market_data.yf, "download", return_value=pd.DataFrame()) as download_mock:
+            result = market_data._tw_market_realtime._fetch_tw_intraday_daily_snapshot("2330.TW")
+
+        download_mock.assert_not_called()
+        self.assertEqual(result.iloc[0]["Date"], pd.Timestamp("2026-05-07"))
+        self.assertEqual(float(result.iloc[0]["Volume"]), 123000.0)
+
     def test_intraday_realtime_quote_appends_newer_current_bar(self) -> None:
         base = minute_df().reset_index()
         quote = pd.DataFrame([{

@@ -75,3 +75,66 @@ class DashboardThemeMetadataTests(unittest.TestCase):
         self.assertIn("<th>名稱</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>題材</th>", response)
         self.assertIn("<th>備註</th><th class='theme-summary-cell'>題材摘要</th><th class='source-cell'>來源</th>", response)
         self.assertIn("<td class='theme-summary-cell'>-</td><td class='source-cell'>-</td>", response)
+
+    def test_phase4_research_card_html_payload_and_graceful_fallbacks(self) -> None:
+        file_watchlist = pd.DataFrame([
+            {
+                "symbol": "2330.TW",
+                "name": "台積電",
+                "group": "AI晶片",
+                "subgroup": "先進製程",
+                "summary": "AI 加速器需求推升先進封裝能見度",
+                "reference_url": "https://example.com/research/2330",
+            },
+            {
+                "symbol": "2317.TW",
+                "name": "鴻海",
+                "group": "AI伺服器",
+                "subgroup": "組裝",
+                "summary": "",
+                "reference_url": "",
+            },
+        ])
+        empty_group_map = pd.DataFrame(columns=["symbol", "name", "group", "subgroup"])
+        industry_df = pd.DataFrame(columns=["industry", "industry_label", "symbol", "name", "group", "subgroup"])
+
+        def fake_analysis(symbol, *_args, **_kwargs):
+            target = "680.00" if symbol == "2330.TW" else "-"
+            return {
+                "df": pd.DataFrame(),
+                "signal": {"bucket": "bull", "label": "突破轉強", "message": "突破轉強", "score": 3},
+                "bucket": "bull",
+                "status": "🔴 突破轉強",
+                "close_text": "620.00" if symbol == "2330.TW" else "-",
+                "sort_metrics": {
+                    "symbol": symbol,
+                    "close": 620.0 if symbol == "2330.TW" else -1.0,
+                    "volume": -1.0,
+                    "change_pct": 0.0,
+                    "target_ratio": 109.68 if symbol == "2330.TW" else -1.0,
+                    "signal_score": 3.0,
+                },
+                "target_price_text": target,
+                "target_ratio_text": "109.68%" if symbol == "2330.TW" else "-",
+            }
+
+        with patch.object(dashboard_app, "load_watchlist", return_value=file_watchlist), \
+            patch.object(dashboard_app, "load_gemini_agent_group_map", return_value=empty_group_map), \
+            patch.object(dashboard_app, "load_llm_group_map", return_value=empty_group_map), \
+            patch.object(dashboard_app, "load_twse_industry_map", return_value=industry_df), \
+            patch.object(dashboard_app, "prefetch_price_data", return_value={}), \
+            patch.object(dashboard_app, "_build_stock_analysis", side_effect=fake_analysis):
+            response = b"".join(dashboard_app.app({"QUERY_STRING": "show_target_price=1"}, lambda *_args: None)).decode("utf-8")
+
+        self.assertIn("id='stockResearchModal'", response)
+        self.assertIn("一鍵複製 Markdown", response)
+        self.assertIn("openStockResearchCard", response)
+        self.assertIn("copyStockResearchMarkdown", response)
+        self.assertIn("class='research-symbol-button is-compact' data-research-symbol='2330.TW'", response)
+        self.assertIn("class='research-symbol-button is-compact' data-research-symbol='2317.TW'", response)
+        self.assertNotIn("research-card-button", response)
+        self.assertNotIn(">研</button>", response)
+        self.assertIn('"research": {"symbol": "2330.TW", "name": "台積電", "group": "AI晶片", "subgroup": "先進製程", "summary": "AI 加速器需求推升先進封裝能見度", "reference_url": "https://example.com/research/2330", "status": "🔴 突破轉強", "close_text": "620.00", "target_price_text": "680.00", "target_ratio_text": "109.68%"}', response)
+        self.assertIn('"research": {"symbol": "2317.TW", "name": "鴻海", "group": "AI伺服器", "subgroup": "組裝", "summary": "-", "reference_url": "-", "status": "🔴 突破轉強", "close_text": "-", "target_price_text": "-", "target_ratio_text": "-"}', response)
+        self.assertIn("個人標籤欄位", response)
+        self.assertIn("reference_url", response)
