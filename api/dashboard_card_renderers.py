@@ -72,13 +72,17 @@ def render_card_variants(
         f"<span><strong>來源：</strong>{reference_html}</span>"
         "</span>"
     )
-    research_button = render_research_card_button(symbol=row.symbol, label='展開研究卡')
+    research_button = render_research_card_button(symbol=row.symbol)
     card_header_html = (
         "<h3 class='card-title'>"
         f"<span class='card-title-main'><span class='theme-title-popover' tabindex='0' aria-label='題材摘要與來源'>{html.escape(row.name)} ({html.escape(row.symbol)}){card_theme_popover}</span><span>收盤 "
         f"<span style='color:{close_color};font-weight:700'>{close_text}{change_text}</span>{html.escape(signal_brief)}</span></span>"
-        f"<span class='card-target-ratio' style='color:{target_ratio_color(target_ratio_text)}'>目標價：{html.escape(target_price_text)}・目標價/現價：{target_ratio_text}</span>"
+        "<span class='card-title-actions'>"
+        f"<span class='card-target-ratio' style='color:{target_ratio_color(target_ratio_text)}'>"
+        f"<span>目標價：{html.escape(target_price_text)}</span><span>目標價/現價：{html.escape(target_ratio_text)}</span>"
+        "</span>"
         f"{research_button}"
+        "</span>"
         "</h3>"
         "<div class='theme-card-meta'>"
         f"<p><strong>題材摘要：</strong>{html.escape(summary_text)}</p>"
