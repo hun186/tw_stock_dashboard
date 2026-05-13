@@ -54,5 +54,9 @@ jobs:
           fi
           commit_msg="chore: refresh prebuilt cache and report ($(date -u +'%Y-%m-%d %H:%M UTC'))"
           git commit -m "$commit_msg"
-          git pull --rebase
+          # Generated cache/report files can be updated by another commit while this
+          # job is running. During a rebase, prefer this freshly generated commit
+          # for those conflicting files so binary .pkl cache files do not stop the
+          # scheduled workflow with manual conflict resolution prompts.
+          git pull --rebase --strategy-option=theirs origin "${GITHUB_REF_NAME:-main}"
           git push
