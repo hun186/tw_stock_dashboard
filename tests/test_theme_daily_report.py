@@ -13,6 +13,7 @@ from api.theme_daily_report import (
     SUMMARY_MISSING_TEXT,
     DailyReportConfig,
     analyze_stock_pool_for_report,
+    _price_volume_chart_svg,
     render_daily_theme_report,
     short_summary,
 )
@@ -103,6 +104,39 @@ def test_render_daily_theme_report_embeds_three_month_price_volume_chart() -> No
 
     assert "近三個月價量K線圖" in report
     assert "data:image/svg+xml;base64," in report
+
+
+def test_report_price_volume_chart_uses_lots_axis_and_refclose_colors() -> None:
+    price_df = pd.DataFrame({
+        "Date": pd.date_range("2026-05-11", periods=2, freq="B"),
+        "Open": [100.0, 95.0],
+        "High": [102.0, 102.0],
+        "Low": [99.0, 94.0],
+        "Close": [101.0, 99.0],
+        "RefClose": [100.0, 100.0],
+        "Volume": [1_000_000.0, 2_500_000.0],
+    })
+    item = _item(
+        "2330.TW",
+        "台積電",
+        "AI晶片",
+        "先進製程",
+        bucket="bull",
+        code="BREAKOUT_STRONG",
+        status="🔴 強突破",
+        score=92,
+        change_pct=4.2,
+    )
+    item["df"] = price_df
+
+    svg = _price_volume_chart_svg(item)
+
+    assert "成交量（張）" in svg
+    assert "2,500張" in svg
+    assert "1,250張" in svg
+    assert "2,500,000" not in svg
+    assert 'fill="#16a34a" opacity="0.55"' in svg
+
 
 def test_render_daily_theme_report_marks_missing_price_summary_and_reference() -> None:
     analyzed = [
