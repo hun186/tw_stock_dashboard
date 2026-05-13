@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from pathlib import Path
 from urllib.parse import parse_qs
+from zoneinfo import ZoneInfo
 
 from api.constants import DAILY_THEME_REPORT_FILE, REPORTS_DIR
 
@@ -14,6 +15,28 @@ REPORT_LIST_PATH = "/api/theme-report/list"
 REPORT_CONTENT_PATH = "/api/theme-report/content"
 _TITLE_DATE_RE = re.compile(r"^#\s+台股每日題材快報（([^）]+)）", re.MULTILINE)
 _TITLE_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
+_TAIPEI_TZ = ZoneInfo("Asia/Taipei")
+
+
+def _parse_as_of_date(value: str) -> date | None:
+    text = (value or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def _report_generated_metadata(path: Path, as_of: str) -> tuple[str, str, str]:
+    stat = path.stat()
+    mtime_utc = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+    mtime_taipei = mtime_utc.astimezone(_TAIPEI_TZ)
+    as_of_date = _parse_as_of_date(as_of)
+    if as_of_date and mtime_taipei.date() < as_of_date:
+        report_datetime = datetime.combine(as_of_date, time.min, tzinfo=_TAIPEI_TZ)
+        return report_datetime.isoformat(), f"{as_of}（依報告日期）", "report_date"
+    return mtime_utc.isoformat(), mtime_taipei.strftime("%Y-%m-%d %H:%M:%S"), "file_mtime"
 
 
 def _report_path() -> Path:
@@ -59,12 +82,15 @@ def _report_metadata(path: Path) -> dict:
     title_match = _TITLE_RE.search(content)
     title_date_match = _TITLE_DATE_RE.search(content)
     stat = path.stat()
-    generated_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+    as_of = title_date_match.group(1).strip() if title_date_match else ""
+    generated_at, updated_label, generated_at_source = _report_generated_metadata(path, as_of)
     return {
         "name": path.name,
         "title": title_match.group(1).strip() if title_match else path.stem,
-        "as_of": title_date_match.group(1).strip() if title_date_match else "",
+        "as_of": as_of,
         "generated_at": generated_at,
+        "updated_label": updated_label,
+        "generated_at_source": generated_at_source,
         "size_bytes": stat.st_size,
         "download_url": f"{REPORT_DOWNLOAD_PATH}?name={path.name}",
         "content_url": f"{REPORT_CONTENT_PATH}?name={path.name}",
@@ -76,7 +102,14 @@ def list_report_files(report_dir: Path | None = None) -> list[Path]:
     if not directory.exists() or not directory.is_dir():
         return []
     reports = [path for path in directory.glob("*.md") if path.is_file()]
-    return sorted(reports, key=lambda path: (path.stat().st_mtime, path.name), reverse=True)
+
+    def sort_key(path: Path) -> tuple[str, float, str]:
+        content = _read_report_head(path)
+        title_date_match = _TITLE_DATE_RE.search(content)
+        as_of = title_date_match.group(1).strip() if title_date_match else ""
+        return (as_of, path.stat().st_mtime, path.name)
+
+    return sorted(reports, key=sort_key, reverse=True)
 
 
 def latest_report_path(report_dir: Path | None = None) -> Path | None:

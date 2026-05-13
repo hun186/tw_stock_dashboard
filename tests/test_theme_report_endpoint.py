@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -29,6 +31,20 @@ def test_theme_report_status_payload_reads_prebuilt_report_metadata(tmp_path: Pa
     assert payload["as_of"] == "2026-05-12"
     assert payload["size_bytes"] > 0
     assert payload["download_url"] == "/api/theme-report/download?name=daily_theme_report.md"
+
+
+def test_theme_report_metadata_uses_report_date_when_file_mtime_is_stale(tmp_path: Path) -> None:
+    report = tmp_path / "daily_theme_report.md"
+    report.write_text("# 台股每日題材快報（2026-05-13）\n\n內容", encoding="utf-8")
+    stale_timestamp = datetime(2018, 10, 20, 1, 46, 40, tzinfo=timezone.utc).timestamp()
+    os.utime(report, (stale_timestamp, stale_timestamp))
+
+    payload = theme_report_status_payload(report)
+
+    assert payload["as_of"] == "2026-05-13"
+    assert payload["updated_label"] == "2026-05-13（依報告日期）"
+    assert payload["generated_at_source"] == "report_date"
+    assert payload["generated_at"].startswith("2026-05-13T00:00:00")
 
 
 def test_theme_report_list_payload_includes_all_markdown_reports(tmp_path: Path) -> None:

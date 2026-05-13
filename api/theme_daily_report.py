@@ -10,7 +10,15 @@ from typing import Callable, Iterable, Sequence
 
 import pandas as pd
 
-from api.constants import DAILY_THEME_REPORT_FILE, GEMINI_AGENT_GROUP_FILE, LLM_GROUP_FILE, LLM_GROUP_SHEET, WATCHLIST_FILE
+from api.charts import _volume_in_lots
+from api.constants import (
+    DAILY_THEME_REPORT_FILE,
+    GEMINI_AGENT_GROUP_FILE,
+    LLM_GROUP_FILE,
+    LLM_GROUP_SHEET,
+    REPORTS_DIR,
+    WATCHLIST_FILE,
+)
 from api.dashboard_analysis import build_stock_analysis
 from api.dashboard_theme_rotation import ThemeRotationRow, build_theme_rotation_rows
 from api.data_loader import load_gemini_agent_group_map, load_llm_group_map, load_watchlist
@@ -35,6 +43,16 @@ class DailyReportConfig:
 
 def _clean_text(value: object) -> str:
     return str(value or "").strip()
+
+
+def dated_daily_theme_report_path(as_of: str | None = None, *, reports_dir: Path | None = None) -> Path:
+    reports_dir = reports_dir or REPORTS_DIR
+    report_date = _clean_text(as_of) or date.today().isoformat()
+    try:
+        report_date = date.fromisoformat(report_date[:10]).isoformat()
+    except ValueError:
+        report_date = date.today().isoformat()
+    return reports_dir / f"daily_theme_report_{report_date}.md"
 
 
 def short_summary(summary: object, *, max_chars: int = 90) -> str:
@@ -108,9 +126,11 @@ def _chart_source_df(item: dict, *, max_points: int = 66) -> pd.DataFrame:
     required = ["Date", "Open", "High", "Low", "Close", "Volume"]
     if not isinstance(df, pd.DataFrame) or df.empty or not set(required).issubset(df.columns):
         return pd.DataFrame(columns=required)
-    chart_df = df[required].copy()
-    for column in ["Open", "High", "Low", "Close", "Volume"]:
-        chart_df[column] = pd.to_numeric(chart_df[column], errors="coerce")
+    columns = required + (["RefClose"] if "RefClose" in df.columns else [])
+    chart_df = df[columns].copy()
+    for column in ["Open", "High", "Low", "Close", "Volume", "RefClose"]:
+        if column in chart_df.columns:
+            chart_df[column] = pd.to_numeric(chart_df[column], errors="coerce")
     chart_df["Date"] = pd.to_datetime(chart_df["Date"], errors="coerce")
     chart_df = chart_df.dropna(subset=required).tail(max_points).reset_index(drop=True)
     return chart_df
@@ -124,7 +144,7 @@ def _price_volume_chart_svg(item: dict, *, width: int = 760, height: int = 320) 
     symbol = row_value(item, "symbol") or "未知代號"
     name = row_value(item, "name") or "未知名稱"
     title = f"{symbol} {name}｜近三個月價K / 量K線圖"
-    margin_left, margin_right, margin_top, margin_bottom = 46, 18, 34, 26
+    margin_left, margin_right, margin_top, margin_bottom = 72, 18, 34, 26
     gap = 16
     price_height = 170
     volume_height = height - margin_top - margin_bottom - gap - price_height
@@ -140,7 +160,8 @@ def _price_volume_chart_svg(item: dict, *, width: int = 760, height: int = 320) 
     pad = max((price_max - price_min) * 0.08, price_max * 0.01, 0.01)
     price_min -= pad
     price_max += pad
-    volume_max = max(float(chart_df["Volume"].max()), 1.0)
+    chart_df["VolumeLots"] = _volume_in_lots(chart_df["Volume"])
+    volume_max = max(float(chart_df["VolumeLots"].max()), 1.0)
     up_color = "#ef4444"
     down_color = "#16a34a"
     grid_color = "#e2e8f0"
@@ -158,8 +179,12 @@ def _price_volume_chart_svg(item: dict, *, width: int = 760, height: int = 320) 
         value = price_max - ratio * (price_max - price_min)
         elements.append(f'<line x1="{margin_left}" x2="{width - margin_right}" y1="{y:.1f}" y2="{y:.1f}" stroke="{grid_color}" stroke-width="1"/>')
         elements.append(f'<text x="{margin_left - 8}" y="{y + 4:.1f}" text-anchor="end" fill="{muted_color}" font-size="10" font-family="Arial, sans-serif">{value:.1f}</text>')
-    elements.append(f'<line x1="{margin_left}" x2="{width - margin_right}" y1="{volume_top + volume_height:.1f}" y2="{volume_top + volume_height:.1f}" stroke="{grid_color}" stroke-width="1"/>')
-    elements.append(f'<text x="{margin_left - 8}" y="{volume_top + 4:.1f}" text-anchor="end" fill="{muted_color}" font-size="10" font-family="Arial, sans-serif">量</text>')
+    for ratio in [0, 0.5, 1.0]:
+        y = volume_top + ratio * volume_height
+        value = volume_max * (1 - ratio)
+        elements.append(f'<line x1="{margin_left}" x2="{width - margin_right}" y1="{y:.1f}" y2="{y:.1f}" stroke="{grid_color}" stroke-width="1"/>')
+        elements.append(f'<text x="{margin_left - 8}" y="{y + 4:.1f}" text-anchor="end" fill="{muted_color}" font-size="10" font-family="Arial, sans-serif">{value:,.0f}張</text>')
+    elements.append(f'<text x="{margin_left}" y="{volume_top - 5:.1f}" fill="{muted_color}" font-size="10" font-family="Arial, sans-serif">成交量（張）</text>')
 
     for idx, row in chart_df.iterrows():
         x = margin_left + idx * step + step / 2
@@ -167,8 +192,9 @@ def _price_volume_chart_svg(item: dict, *, width: int = 760, height: int = 320) 
         high = float(row["High"])
         low = float(row["Low"])
         close = float(row["Close"])
-        volume = float(row["Volume"])
-        color = up_color if close >= open_price else down_color
+        volume = float(row["VolumeLots"])
+        ref_close = float(row["RefClose"]) if "RefClose" in chart_df.columns and not pd.isna(row.get("RefClose")) else open_price
+        color = up_color if close >= ref_close else down_color
         y_high = _scale_value(high, price_min, price_max, price_top, price_height)
         y_low = _scale_value(low, price_min, price_max, price_top, price_height)
         y_open = _scale_value(open_price, price_min, price_max, price_top, price_height)
@@ -497,19 +523,21 @@ def analyze_stock_pool_for_report(
 
 def generate_daily_theme_report(
     *,
-    output_path: Path,
+    output_path: Path | None = None,
     top_n: int = 5,
     stock_limit: int | None = None,
     allow_live_fetch: bool = False,
     as_of: str | None = None,
 ) -> Path:
+    report_as_of = as_of or date.today().isoformat()
+    output_path = output_path or dated_daily_theme_report_path(report_as_of)
     stocks = load_report_stock_pool()
     if stock_limit is not None:
         stocks = stocks.head(stock_limit).copy()
     analyzed = analyze_stock_pool_for_report(stocks, allow_live_fetch=allow_live_fetch)
     markdown = render_daily_theme_report(
         analyzed,
-        config=DailyReportConfig(as_of=as_of or date.today().isoformat(), top_n=top_n),
+        config=DailyReportConfig(as_of=report_as_of, top_n=top_n),
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(markdown, encoding="utf-8")
@@ -518,7 +546,12 @@ def generate_daily_theme_report(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="產生台股每日題材 Markdown 快報。")
-    parser.add_argument("--output", type=Path, default=DAILY_THEME_REPORT_FILE, help="Markdown 日報輸出路徑。")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Markdown 日報輸出路徑；未指定時輸出 reports/daily_theme_report_YYYY-MM-DD.md 以保留歷史。",
+    )
     parser.add_argument("--top-n", type=int, default=5, help="最強題材列出數量。")
     parser.add_argument("--stock-limit", type=int, default=None, help="限制分析股票數，方便本機快速試跑。")
     parser.add_argument("--allow-live-fetch", action="store_true", help="允許缺少本機快取時即時抓價；預設只使用可用快取並清楚標示缺資料。")
@@ -541,6 +574,7 @@ def main(argv: list[str] | None = None) -> None:
 __all__ = [
     "BREAKOUT_CODES",
     "DailyReportConfig",
+    "dated_daily_theme_report_path",
     "MA20_BREAK_CODES",
     "OVERHEAT_CODES",
     "PRICE_MISSING_TEXT",

@@ -13,7 +13,8 @@ function formatThemeReportStatus(payload){
   if(!payload || !payload.exists) return payload?.message || '尚未找到可下載的預建報告。';
   const parts = [];
   if(payload.as_of) parts.push(`最新報告日 ${payload.as_of}`);
-  if(payload.generated_at) parts.push(`更新 ${formatThemeReportDate(payload.generated_at)}`);
+  if(payload.updated_label) parts.push(`更新 ${payload.updated_label}`);
+  else if(payload.generated_at) parts.push(`更新 ${formatThemeReportDate(payload.generated_at)}`);
   if(payload.size_bytes) parts.push(formatThemeReportSize(payload.size_bytes));
   return parts.length ? `已可線上檢視 / 下載：${parts.join('｜')}` : (payload.message || '已可線上檢視 / 下載預建報告。');
 }
@@ -146,7 +147,7 @@ async function loadThemeReportContent(name){
   }
   const report = payload.report || {};
   if(title) title.textContent = report.title || report.name || '題材報告';
-  if(meta) meta.textContent = [report.as_of ? `報告日 ${report.as_of}` : '', formatThemeReportDate(report.generated_at), formatThemeReportSize(report.size_bytes)].filter(Boolean).join('｜');
+  if(meta) meta.textContent = [report.as_of ? `報告日 ${report.as_of}` : '', report.updated_label || formatThemeReportDate(report.generated_at), formatThemeReportSize(report.size_bytes)].filter(Boolean).join('｜');
   if(download){
     download.href = report.download_url || `/api/theme-report/download?name=${encodeURIComponent(name)}`;
     download.classList.remove('is-disabled');

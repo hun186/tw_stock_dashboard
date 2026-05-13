@@ -8,11 +8,14 @@ from pathlib import Path
 
 import pandas as pd
 
+import api.theme_daily_report as theme_daily_report
 from api.theme_daily_report import (
     PRICE_MISSING_TEXT,
     SUMMARY_MISSING_TEXT,
     DailyReportConfig,
+    _price_volume_chart_svg,
     analyze_stock_pool_for_report,
+    dated_daily_theme_report_path,
     render_daily_theme_report,
     short_summary,
 )
@@ -53,6 +56,45 @@ def _item(
         },
     }
 
+
+def test_dated_daily_theme_report_path_uses_as_of_to_preserve_history(tmp_path: Path) -> None:
+    assert (
+        dated_daily_theme_report_path("2026-05-12", reports_dir=tmp_path)
+        == tmp_path / "daily_theme_report_2026-05-12.md"
+    )
+
+
+def test_generate_daily_theme_report_defaults_to_dated_history_file(tmp_path: Path, monkeypatch) -> None:
+    stocks = pd.DataFrame([
+        {
+            "symbol": "2330.TW",
+            "name": "台積電",
+            "group": "AI晶片",
+            "subgroup": "先進製程",
+            "summary": "摘要",
+            "reference_url": "https://example.com",
+        },
+    ])
+    item = _item(
+        "2330.TW",
+        "台積電",
+        "AI晶片",
+        "先進製程",
+        bucket="bull",
+        code="BREAKOUT_STRONG",
+        status="🔴 強突破",
+        score=92,
+        change_pct=4.2,
+    )
+    monkeypatch.setattr(theme_daily_report, "REPORTS_DIR", tmp_path)
+    monkeypatch.setattr(theme_daily_report, "load_report_stock_pool", lambda: stocks)
+    monkeypatch.setattr(theme_daily_report, "analyze_stock_pool_for_report", lambda stocks_arg, **kwargs: [item])
+
+    output = theme_daily_report.generate_daily_theme_report(as_of="2026-05-12")
+
+    assert output == tmp_path / "daily_theme_report_2026-05-12.md"
+    assert output.exists()
+    assert "# 台股每日題材快報（2026-05-12）" in output.read_text(encoding="utf-8")
 
 def test_render_daily_theme_report_includes_phase5_sections_and_stock_context() -> None:
     analyzed = [
@@ -103,6 +145,39 @@ def test_render_daily_theme_report_embeds_three_month_price_volume_chart() -> No
 
     assert "近三個月價量K線圖" in report
     assert "data:image/svg+xml;base64," in report
+
+
+def test_report_price_volume_chart_uses_lots_axis_and_refclose_colors() -> None:
+    price_df = pd.DataFrame({
+        "Date": pd.date_range("2026-05-11", periods=2, freq="B"),
+        "Open": [100.0, 95.0],
+        "High": [102.0, 102.0],
+        "Low": [99.0, 94.0],
+        "Close": [101.0, 99.0],
+        "RefClose": [100.0, 100.0],
+        "Volume": [1_000_000.0, 2_500_000.0],
+    })
+    item = _item(
+        "2330.TW",
+        "台積電",
+        "AI晶片",
+        "先進製程",
+        bucket="bull",
+        code="BREAKOUT_STRONG",
+        status="🔴 強突破",
+        score=92,
+        change_pct=4.2,
+    )
+    item["df"] = price_df
+
+    svg = _price_volume_chart_svg(item)
+
+    assert "成交量（張）" in svg
+    assert "2,500張" in svg
+    assert "1,250張" in svg
+    assert "2,500,000" not in svg
+    assert 'fill="#16a34a" opacity="0.55"' in svg
+
 
 def test_render_daily_theme_report_marks_missing_price_summary_and_reference() -> None:
     analyzed = [
@@ -192,7 +267,14 @@ def test_short_summary_truncates_without_network_or_llm_calls() -> None:
 
 def test_analyze_stock_pool_for_report_uses_injected_loader_to_avoid_network() -> None:
     stocks = pd.DataFrame([
-        {"symbol": "2330.TW", "name": "台積電", "group": "AI晶片", "subgroup": "先進製程", "summary": "摘要", "reference_url": "https://example.com"},
+        {
+            "symbol": "2330.TW",
+            "name": "台積電",
+            "group": "AI晶片",
+            "subgroup": "先進製程",
+            "summary": "摘要",
+            "reference_url": "https://example.com",
+        },
     ])
     price_df = pd.DataFrame({
         "Date": pd.date_range("2026-04-01", periods=30),
@@ -218,7 +300,14 @@ def test_analyze_stock_pool_for_report_uses_injected_loader_to_avoid_network() -
 
 def test_analyze_stock_pool_for_report_falls_back_to_broader_disk_cache_period() -> None:
     stocks = pd.DataFrame([
-        {"symbol": "2330.TW", "name": "台積電", "group": "AI晶片", "subgroup": "先進製程", "summary": "摘要", "reference_url": "https://example.com"},
+        {
+            "symbol": "2330.TW",
+            "name": "台積電",
+            "group": "AI晶片",
+            "subgroup": "先進製程",
+            "summary": "摘要",
+            "reference_url": "https://example.com",
+        },
     ])
     fallback_df = pd.DataFrame({
         "Date": pd.date_range("2026-01-01", periods=35),

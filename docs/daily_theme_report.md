@@ -19,7 +19,7 @@
 Vercel 的 Serverless runtime 不適合在使用者點擊時大量下載 2,000 多檔股票價格，也不適合把產出的報告寫回檔案系統。因此本專案採用以下流程：
 
 1. GitHub Actions 在台股收盤後重建 `prebuilt_cache/`。
-2. 同一個 workflow 使用更新後的快取產生 `reports/daily_theme_report.md`。
+2. 同一個 workflow 使用更新後的快取產生 `reports/daily_theme_report_YYYY-MM-DD.md`，每天一份歷史報告，不覆蓋舊檔。
 3. workflow 將快取與報告 commit 回 repository。
 4. Vercel 重新部署後，只提供報告狀態檢測與 Markdown 下載，不在 runtime 寫檔。
 
@@ -33,11 +33,13 @@ Vercel 的 Serverless runtime 不適合在使用者點擊時大量下載 2,000 �
 python scripts/generate_theme_daily_report.py
 ```
 
-預設會輸出到：
+預設會輸出到以報告日期命名的檔案，例如：
 
 ```text
-reports/daily_theme_report.md
+reports/daily_theme_report_2026-05-12.md
 ```
+
+這個預設設計會保留每日歷史報告，避免下一天的產出覆蓋前一天。
 
 ### 指定輸出檔案
 
@@ -48,10 +50,10 @@ python scripts/generate_theme_daily_report.py --output rep.md
 ### 指定報告標題日期
 
 ```bash
-python scripts/generate_theme_daily_report.py --output rep.md --as-of 2026-05-12
+python scripts/generate_theme_daily_report.py --as-of 2026-05-12
 ```
 
-`--as-of` 只會指定報告標題與報告日期文字，例如 `# 台股每日題材快報（2026-05-12）`。它目前不是價格資料的截止日過濾器，也不會強制資料切到指定交易日。
+`--as-of` 會指定報告標題與預設輸出檔名日期，例如 `# 台股每日題材快報（2026-05-12）` 與 `reports/daily_theme_report_2026-05-12.md`。它目前不是價格資料的截止日過濾器，也不會強制資料切到指定交易日。
 
 如果要產出「某一天收盤版」報告，請確認 `prebuilt_cache/` 是該交易日收盤後更新的快取，再搭配 `--as-of` 標示報告日。
 
@@ -76,7 +78,7 @@ python scripts/generate_theme_daily_report.py --output rep.md --allow-live-fetch
 | 情境 | 建議指令 / 流程 | 注意事項 |
 | --- | --- | --- |
 | 收盤後正式報告 | GitHub Actions 自動產生 | 使用更新後的 `prebuilt_cache/`，Vercel 只提供下載 |
-| 本機重建正式報告 | `python scripts/prebuild_price_cache.py` 後再跑 `python scripts/generate_theme_daily_report.py --as-of YYYY-MM-DD` | `--as-of` 只是標題日期，資料完整性取決於快取 |
+| 本機重建正式報告 | `python scripts/prebuild_price_cache.py` 後再跑 `python scripts/generate_theme_daily_report.py --as-of YYYY-MM-DD` | 會輸出 `reports/daily_theme_report_YYYY-MM-DD.md`；資料完整性取決於快取 |
 | 快速測格式 | `python scripts/generate_theme_daily_report.py --stock-limit 50 --output rep.md` | 只分析前 50 檔，不代表全市場 |
 | 盤中臨時觀察 | `python scripts/generate_theme_daily_report.py --allow-live-fetch --output rep.md` | 盤中資料未收盤，突破 / 過熱 / 跌破訊號可能收盤後改變 |
 
@@ -84,10 +86,10 @@ python scripts/generate_theme_daily_report.py --output rep.md --allow-live-fetch
 
 Dashboard 標題列右側提供：
 
-- **檢測報告**：呼叫 `/api/theme-report/status`，確認部署中是否有 `reports/daily_theme_report.md`。
+- **檢測報告**：呼叫 `/api/theme-report/status`，確認部署中是否有 `reports/*.md`，並自動挑選最新報告。
 - **下載報告**：呼叫 `/api/theme-report/download`，直接下載預建 Markdown。
 
-若尚未找到報告，代表目前部署沒有包含 `reports/daily_theme_report.md`。請等待 GitHub Actions 收盤後產生並由 Vercel 部署，或在本機產生後確認檔案有被 commit。
+若尚未找到報告，代表目前部署沒有包含任何 `reports/*.md`。請等待 GitHub Actions 收盤後產生並由 Vercel 部署，或在本機產生後確認檔案有被 commit。
 
 ## 報告資料來源與欄位
 
@@ -125,5 +127,5 @@ Dashboard 標題列右側提供：
 
 - **全部股票都缺價格資料**：先執行 `python scripts/prebuild_price_cache.py`，或小量測試時加 `--allow-live-fetch --stock-limit 50`。
 - **`--allow-live-fetch` 跑很久**：完整股池很大，請改用 `--stock-limit` 測試，正式報告交給 GitHub Actions。
-- **儀表板顯示找不到報告**：確認 `reports/daily_theme_report.md` 是否存在、是否已 commit、Vercel 是否已部署到包含該檔案的 commit。
+- **儀表板顯示找不到報告**：確認 `reports/daily_theme_report_YYYY-MM-DD.md` 是否存在、是否已 commit、Vercel 是否已部署到包含該檔案的 commit。
 - **報告日期與資料日期不一致**：目前報告日期由 `--as-of` 或執行當天決定；資料日期由快取內容決定。
