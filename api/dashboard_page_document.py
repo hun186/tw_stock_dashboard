@@ -96,7 +96,12 @@ def render_dashboard_document(
         <h1>多台股監控 Dashboard</h1>
         <p>把股池、技術線圖、篩選條件與自選管理整理到同一個清楚工作台。</p>
       </div>
-      <div class='hero-badge'>Vercel 版・即時觀察</div>
+      <div class='hero-actions' aria-label='每日題材報告'>
+        <div class='hero-badge'>Vercel 版・即時觀察</div>
+        <button type='button' class='hero-report-button' id='themeReportCheckButton' onclick='checkThemeReportStatus()'>檢測報告</button>
+        <a class='hero-report-link is-disabled' id='themeReportDownloadLink' href='/api/theme-report/download' aria-disabled='true'>下載報告</a>
+        <span class='hero-report-status' id='themeReportStatus'>收盤後由 GitHub Action 預建，Vercel 只讀取下載。</span>
+      </div>
     </header>
     {control_panel_html}
     {theme_rotation_html}

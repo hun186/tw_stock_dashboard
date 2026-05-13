@@ -40,16 +40,19 @@ jobs:
       - name: Rebuild prebuilt cache
         run: python scripts/prebuild_price_cache.py
 
-      - name: Commit updated cache
+      - name: Build daily theme report from refreshed cache
+        run: python scripts/generate_theme_daily_report.py --output reports/daily_theme_report.md
+
+      - name: Commit updated cache and report
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add prebuilt_cache
+          git add prebuilt_cache reports/daily_theme_report.md
           if git diff --cached --quiet; then
-            echo "No cache changes to commit"
+            echo "No cache or report changes to commit"
             exit 0
           fi
-          commit_msg="chore: refresh prebuilt cache ($(date -u +'%Y-%m-%d %H:%M UTC'))"
+          commit_msg="chore: refresh prebuilt cache and report ($(date -u +'%Y-%m-%d %H:%M UTC'))"
           git commit -m "$commit_msg"
           git pull --rebase
           git push

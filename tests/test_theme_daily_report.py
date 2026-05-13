@@ -188,6 +188,33 @@ def test_analyze_stock_pool_for_report_uses_injected_loader_to_avoid_network() -
     assert calls == [("6mo", "1d", {"allow_live_fetch": False, "allow_stale_disk": True, "max_live_symbols": 0})]
 
 
+def test_analyze_stock_pool_for_report_falls_back_to_broader_disk_cache_period() -> None:
+    stocks = pd.DataFrame([
+        {"symbol": "2330.TW", "name": "台積電", "group": "AI晶片", "subgroup": "先進製程", "summary": "摘要", "reference_url": "https://example.com"},
+    ])
+    fallback_df = pd.DataFrame({
+        "Date": pd.date_range("2026-01-01", periods=35),
+        "Open": [100.0] * 35,
+        "High": [102.0 + i for i in range(35)],
+        "Low": [99.0] * 35,
+        "Close": [100.0 + i for i in range(35)],
+        "Volume": [1000.0 + i * 100 for i in range(35)],
+    })
+    calls = []
+
+    def fake_loader(stocks_arg, period, interval, **kwargs):
+        calls.append((stocks_arg["symbol"].tolist(), period, interval, kwargs))
+        return {"2330.TW": fallback_df} if period == "2y" else {"2330.TW": pd.DataFrame()}
+
+    analyzed = analyze_stock_pool_for_report(stocks, price_data_loader=fake_loader)
+
+    assert analyzed[0]["close_text"] != "-"
+    assert calls == [
+        (["2330.TW"], "6mo", "1d", {"allow_live_fetch": False, "allow_stale_disk": True, "max_live_symbols": 0}),
+        (["2330.TW"], "2y", "1d", {"allow_live_fetch": False, "allow_stale_disk": True, "max_live_symbols": 0}),
+    ]
+
+
 def test_daily_report_script_imports_when_launched_by_file_path(tmp_path: Path) -> None:
     script = Path(__file__).resolve().parents[1] / "scripts" / "generate_theme_daily_report.py"
     env = os.environ.copy()

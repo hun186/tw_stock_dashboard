@@ -15,6 +15,7 @@ document.addEventListener('keydown', (e)=>{
 });
 initServerConfigPicker();
 initCollapsibleSections();
+checkThemeReportStatus({silent:true});
 window.addEventListener('pageshow', hideLoadingProgress);
 if(document.readyState !== 'loading') hideLoadingProgress();
 renderBatchStockResults();
