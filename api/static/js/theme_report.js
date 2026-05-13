@@ -80,6 +80,16 @@ function renderMarkdownReport(markdown){
       html.push(`<blockquote>${renderInlineMarkdown(trimmed.replace(/^>\s?/, ''))}</blockquote>`);
       return;
     }
+    const image = trimmed.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+    if(image){
+      closeParagraph(); closeList();
+      const alt = escapeHtmlAttr(image[1] || '題材快報圖表');
+      const src = image[2] || '';
+      if(src.startsWith('data:image/svg+xml;base64,') || src.startsWith('https://') || src.startsWith('http://')){
+        html.push(`<figure class="markdown-chart"><img src="${escapeHtmlAttr(src)}" alt="${alt}" loading="lazy"></figure>`);
+      }
+      return;
+    }
     paragraph.push(trimmed);
   });
   closeParagraph();
