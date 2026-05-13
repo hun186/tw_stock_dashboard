@@ -13,6 +13,7 @@ from api.theme_daily_report import (
     PRICE_MISSING_TEXT,
     SUMMARY_MISSING_TEXT,
     DailyReportConfig,
+    _normalized_volume_lots,
     _price_volume_chart_svg,
     analyze_stock_pool_for_report,
     dated_daily_theme_report_path,
@@ -177,6 +178,22 @@ def test_report_price_volume_chart_uses_lots_axis_and_refclose_colors() -> None:
     assert "1,250張" in svg
     assert "2,500,000" not in svg
     assert 'fill="#16a34a" opacity="0.55"' in svg
+
+
+def test_report_volume_chart_normalizes_last_day_unit_spike() -> None:
+    volume = pd.Series([1_000_000.0, 1_100_000.0, 1_200_000_000.0])
+
+    lots = _normalized_volume_lots(volume)
+
+    assert list(lots) == [1000.0, 1100.0, 1200.0]
+
+
+def test_report_volume_chart_preserves_real_last_day_volume_breakout() -> None:
+    volume = pd.Series([1_000_000.0, 1_100_000.0, 22_000_000.0])
+
+    lots = _normalized_volume_lots(volume)
+
+    assert list(lots) == [1000.0, 1100.0, 22000.0]
 
 
 def test_render_daily_theme_report_marks_missing_price_summary_and_reference() -> None:
