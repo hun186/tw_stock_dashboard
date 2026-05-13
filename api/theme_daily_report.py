@@ -121,6 +121,41 @@ def _scale_value(value: float, min_value: float, max_value: float, top: float, h
     return top + (max_value - value) / (max_value - min_value) * height
 
 
+def _normalized_volume_lots(volume: pd.Series) -> pd.Series:
+    """Return volume in lots, correcting a likely last-row shares/lots unit spike.
+
+    The daily report can mix historical daily bars with an intraday realtime
+    snapshot for the latest trading day.  Some realtime providers occasionally
+    report that final volume in a different unit, which makes only the last
+    volume bar about 1,000x too tall after the usual shares-to-lots conversion.
+    When the last bar is an extreme outlier and dividing it by 1,000 brings it
+    back near the recent range, treat it as a unit mismatch instead of a real
+    volume explosion.
+    """
+    lots = _volume_in_lots(pd.to_numeric(volume, errors="coerce")).fillna(0).clip(lower=0)
+    if len(lots) < 3:
+        return lots
+
+    previous = lots.iloc[:-1]
+    positive_previous = previous[previous > 0]
+    if positive_previous.empty:
+        return lots
+
+    last_value = float(lots.iloc[-1])
+    median_previous = float(positive_previous.median())
+    max_previous = float(positive_previous.max())
+    corrected_last = last_value / 1000
+    if (
+        median_previous > 0
+        and last_value >= median_previous * 100
+        and last_value >= max_previous * 20
+        and corrected_last <= max_previous * 10
+    ):
+        lots = lots.copy()
+        lots.iloc[-1] = corrected_last
+    return lots
+
+
 def _chart_source_df(item: dict, *, max_points: int = 66) -> pd.DataFrame:
     df = item.get("df")
     required = ["Date", "Open", "High", "Low", "Close", "Volume"]
@@ -160,7 +195,7 @@ def _price_volume_chart_svg(item: dict, *, width: int = 760, height: int = 320) 
     pad = max((price_max - price_min) * 0.08, price_max * 0.01, 0.01)
     price_min -= pad
     price_max += pad
-    chart_df["VolumeLots"] = _volume_in_lots(chart_df["Volume"])
+    chart_df["VolumeLots"] = _normalized_volume_lots(chart_df["Volume"])
     volume_max = max(float(chart_df["VolumeLots"].max()), 1.0)
     up_color = "#ef4444"
     down_color = "#16a34a"
