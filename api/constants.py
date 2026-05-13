@@ -13,6 +13,8 @@ GEMINI_AGENT_GROUP_FILE = (
 TWSE_LISTED_INFO_API = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
 TPEX_LISTED_INFO_API = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O"
 STATIC_CACHE_DIR = APP_DIR / "prebuilt_cache"
+REPORTS_DIR = APP_DIR / "reports"
+DAILY_THEME_REPORT_FILE = REPORTS_DIR / "daily_theme_report.md"
 
 UP_COLOR = "#d60000"
 DOWN_COLOR = "#008a00"

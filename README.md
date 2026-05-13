@@ -80,18 +80,20 @@ $env:HOST="0.0.0.0"; $env:PORT="8000"; python api/main.py
 
 ### 產生每日題材快報
 
-每日題材快報是離線批次腳本，不需要先啟動 Dashboard 服務；但它需要 `prebuilt_cache/` 內有對應價格快取，或執行時允許即時下載價格。若報告顯示全部股票都「缺價格資料」，請先更新快取或加上 live fetch。
+每日題材快報是離線批次腳本，不需要先啟動 Dashboard 服務；但它需要 `prebuilt_cache/` 內有對應價格快取，或執行時允許即時下載價格。若報告顯示全部股票都「缺價格資料」，請先更新快取或加上 live fetch。完整設計、日期參數、GitHub Actions / Vercel 只讀下載流程請參考 [`docs/daily_theme_report.md`](docs/daily_theme_report.md)。
 
 ```bash
 python scripts/prebuild_price_cache.py
-python scripts/generate_theme_daily_report.py --output reports/theme_daily_report.md
+python scripts/generate_theme_daily_report.py --output reports/daily_theme_report.md --as-of 2026-05-12
 ```
 
 若只是本機臨時產生、且網路可連 Yahoo Finance / 交易所資料源，可直接允許即時抓價：
 
 ```bash
-python scripts/generate_theme_daily_report.py --allow-live-fetch --output reports/theme_daily_report.md
+python scripts/generate_theme_daily_report.py --allow-live-fetch --output reports/daily_theme_report.md
 ```
+
+> `--as-of` 只會指定報告標題日期；價格資料是否真的截止於該交易日，取決於 `prebuilt_cache/` 的更新時間。
 
 ## Vercel 部署
 
@@ -226,6 +228,6 @@ push 後由 Vercel 自動部署，`api/main.py` 會優先讀取 `prebuilt_cache/
 - 觸發方式：
   - 每週一到五 UTC `06:10`（約台北時間 `14:10`，收盤後）
   - 或手動 `workflow_dispatch`
-- 流程：安裝依賴 → 執行 `python scripts/prebuild_price_cache.py` → 若 `prebuilt_cache/` 有變更就自動 commit + push。
+- 流程：安裝依賴 → 執行 `python scripts/prebuild_price_cache.py` → 產生 `reports/daily_theme_report.md` → 若 `prebuilt_cache/` 或報告有變更就自動 commit + push。
 
 > 第一次使用前，請確認 repository 的 Actions 權限允許 `contents: write`。

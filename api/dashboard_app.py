@@ -21,6 +21,7 @@ from api.data_loader import (
     load_watchlist,
 )
 from api.market_data import prefetch_price_data
+from api.theme_report_endpoint import REPORT_DOWNLOAD_PATH, REPORT_STATUS_PATH, download_report_response, json_response, theme_report_status_payload
 
 
 __all__ = [
@@ -46,6 +47,12 @@ def _sync_controller_dependencies() -> None:
 
 
 def app(environ, start_response):
+    path = environ.get("PATH_INFO", "") or "/"
+    if path == REPORT_STATUS_PATH:
+        return json_response(theme_report_status_payload(), start_response)
+    if path == REPORT_DOWNLOAD_PATH:
+        return download_report_response(start_response)
+
     _sync_controller_dependencies()
     request = parse_dashboard_request(environ)
     body = dashboard_controller.render_dashboard_response(request)

@@ -4,11 +4,11 @@ import argparse
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Sequence
 
 import pandas as pd
 
-from api.constants import APP_DIR, GEMINI_AGENT_GROUP_FILE, LLM_GROUP_FILE, LLM_GROUP_SHEET, WATCHLIST_FILE
+from api.constants import DAILY_THEME_REPORT_FILE, GEMINI_AGENT_GROUP_FILE, LLM_GROUP_FILE, LLM_GROUP_SHEET, WATCHLIST_FILE
 from api.dashboard_analysis import build_stock_analysis
 from api.dashboard_theme_rotation import ThemeRotationRow, build_theme_rotation_rows
 from api.data_loader import load_gemini_agent_group_map, load_llm_group_map, load_watchlist
@@ -290,6 +290,47 @@ def load_report_stock_pool(
     return stocks[stocks["symbol"] != ""].drop_duplicates(subset=["symbol"], keep="first").copy()
 
 
+def _merge_fallback_price_data(
+    stocks: pd.DataFrame,
+    price_data_map: dict[str, pd.DataFrame],
+    *,
+    fetch_interval: str,
+    fallback_fetch_periods: Sequence[str],
+    loader: Callable,
+) -> dict[str, pd.DataFrame]:
+    """Fill missing report prices from older prebuilt cache periods without live fetch.
+
+    The report normally uses 6mo/1d prices, but deployed or manually copied
+    cache directories can contain only a broader period such as 2y/1d.  Falling
+    back to those local disk caches keeps the report useful while preserving the
+    no-network default.
+    """
+    price_data_map = dict(price_data_map or {})
+    missing_symbols = [
+        symbol
+        for symbol in stocks["symbol"].dropna().astype(str).tolist()
+        if price_data_map.get(symbol, pd.DataFrame()).empty
+    ]
+    for fallback_period in fallback_fetch_periods:
+        if not missing_symbols:
+            break
+        fallback_stocks = stocks[stocks["symbol"].isin(missing_symbols)].copy()
+        fallback_map = loader(
+            fallback_stocks,
+            fallback_period,
+            fetch_interval,
+            allow_live_fetch=False,
+            allow_stale_disk=True,
+            max_live_symbols=0,
+        )
+        for symbol in missing_symbols[:]:
+            fallback_df = fallback_map.get(symbol, pd.DataFrame())
+            if isinstance(fallback_df, pd.DataFrame) and not fallback_df.empty:
+                price_data_map[symbol] = fallback_df
+                missing_symbols.remove(symbol)
+    return price_data_map
+
+
 def analyze_stock_pool_for_report(
     stocks: pd.DataFrame,
     *,
@@ -298,6 +339,7 @@ def analyze_stock_pool_for_report(
     display_period: str = "3mo",
     allow_live_fetch: bool = False,
     price_data_loader: Callable | None = None,
+    fallback_fetch_periods: Sequence[str] = ("2y",),
 ) -> list[dict]:
     if stocks.empty:
         return []
@@ -310,6 +352,15 @@ def analyze_stock_pool_for_report(
         allow_stale_disk=True,
         max_live_symbols=len(stocks) if allow_live_fetch else 0,
     )
+    fallback_fetch_periods = tuple(period for period in fallback_fetch_periods if period != fetch_period)
+    if fallback_fetch_periods:
+        price_data_map = _merge_fallback_price_data(
+            stocks,
+            price_data_map,
+            fetch_interval=fetch_interval,
+            fallback_fetch_periods=fallback_fetch_periods,
+            loader=loader,
+        )
     analyzed = []
     for row in stocks.itertuples(index=False):
         analysis = build_stock_analysis(
@@ -359,7 +410,7 @@ def generate_daily_theme_report(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="產生台股每日題材 Markdown 快報。")
-    parser.add_argument("--output", type=Path, default=APP_DIR / "reports" / "daily_theme_report.md", help="Markdown 日報輸出路徑。")
+    parser.add_argument("--output", type=Path, default=DAILY_THEME_REPORT_FILE, help="Markdown 日報輸出路徑。")
     parser.add_argument("--top-n", type=int, default=5, help="最強題材列出數量。")
     parser.add_argument("--stock-limit", type=int, default=None, help="限制分析股票數，方便本機快速試跑。")
     parser.add_argument("--allow-live-fetch", action="store_true", help="允許缺少本機快取時即時抓價；預設只使用可用快取並清楚標示缺資料。")
@@ -387,6 +438,7 @@ __all__ = [
     "PRICE_MISSING_TEXT",
     "SUMMARY_MISSING_TEXT",
     "URL_MISSING_TEXT",
+    "_merge_fallback_price_data",
     "analyze_stock_pool_for_report",
     "generate_daily_theme_report",
     "load_report_stock_pool",
