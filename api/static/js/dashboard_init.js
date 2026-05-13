@@ -11,7 +11,11 @@ document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape'){
     closeBatchWatchlistDialog();
     closeStockFilterDialog();
+    closeThemeReportManager();
   }
+});
+document.getElementById('themeReportModal')?.addEventListener('click', (e)=>{
+  if(e.target.id === 'themeReportModal') closeThemeReportManager();
 });
 initServerConfigPicker();
 initCollapsibleSections();
