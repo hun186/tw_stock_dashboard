@@ -11,7 +11,14 @@ from typing import Callable, Iterable, Sequence
 import pandas as pd
 
 from api.charts import _volume_in_lots
-from api.constants import DAILY_THEME_REPORT_FILE, GEMINI_AGENT_GROUP_FILE, LLM_GROUP_FILE, LLM_GROUP_SHEET, WATCHLIST_FILE
+from api.constants import (
+    DAILY_THEME_REPORT_FILE,
+    GEMINI_AGENT_GROUP_FILE,
+    LLM_GROUP_FILE,
+    LLM_GROUP_SHEET,
+    REPORTS_DIR,
+    WATCHLIST_FILE,
+)
 from api.dashboard_analysis import build_stock_analysis
 from api.dashboard_theme_rotation import ThemeRotationRow, build_theme_rotation_rows
 from api.data_loader import load_gemini_agent_group_map, load_llm_group_map, load_watchlist
@@ -36,6 +43,16 @@ class DailyReportConfig:
 
 def _clean_text(value: object) -> str:
     return str(value or "").strip()
+
+
+def dated_daily_theme_report_path(as_of: str | None = None, *, reports_dir: Path | None = None) -> Path:
+    reports_dir = reports_dir or REPORTS_DIR
+    report_date = _clean_text(as_of) or date.today().isoformat()
+    try:
+        report_date = date.fromisoformat(report_date[:10]).isoformat()
+    except ValueError:
+        report_date = date.today().isoformat()
+    return reports_dir / f"daily_theme_report_{report_date}.md"
 
 
 def short_summary(summary: object, *, max_chars: int = 90) -> str:
@@ -506,19 +523,21 @@ def analyze_stock_pool_for_report(
 
 def generate_daily_theme_report(
     *,
-    output_path: Path,
+    output_path: Path | None = None,
     top_n: int = 5,
     stock_limit: int | None = None,
     allow_live_fetch: bool = False,
     as_of: str | None = None,
 ) -> Path:
+    report_as_of = as_of or date.today().isoformat()
+    output_path = output_path or dated_daily_theme_report_path(report_as_of)
     stocks = load_report_stock_pool()
     if stock_limit is not None:
         stocks = stocks.head(stock_limit).copy()
     analyzed = analyze_stock_pool_for_report(stocks, allow_live_fetch=allow_live_fetch)
     markdown = render_daily_theme_report(
         analyzed,
-        config=DailyReportConfig(as_of=as_of or date.today().isoformat(), top_n=top_n),
+        config=DailyReportConfig(as_of=report_as_of, top_n=top_n),
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(markdown, encoding="utf-8")
@@ -527,7 +546,12 @@ def generate_daily_theme_report(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="產生台股每日題材 Markdown 快報。")
-    parser.add_argument("--output", type=Path, default=DAILY_THEME_REPORT_FILE, help="Markdown 日報輸出路徑。")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Markdown 日報輸出路徑；未指定時輸出 reports/daily_theme_report_YYYY-MM-DD.md 以保留歷史。",
+    )
     parser.add_argument("--top-n", type=int, default=5, help="最強題材列出數量。")
     parser.add_argument("--stock-limit", type=int, default=None, help="限制分析股票數，方便本機快速試跑。")
     parser.add_argument("--allow-live-fetch", action="store_true", help="允許缺少本機快取時即時抓價；預設只使用可用快取並清楚標示缺資料。")
@@ -550,6 +574,7 @@ def main(argv: list[str] | None = None) -> None:
 __all__ = [
     "BREAKOUT_CODES",
     "DailyReportConfig",
+    "dated_daily_theme_report_path",
     "MA20_BREAK_CODES",
     "OVERHEAT_CODES",
     "PRICE_MISSING_TEXT",
