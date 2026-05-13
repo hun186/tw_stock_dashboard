@@ -98,11 +98,44 @@ def render_dashboard_document(
       </div>
       <div class='hero-actions' aria-label='每日題材報告'>
         <div class='hero-badge'>Vercel 版・即時觀察</div>
-        <button type='button' class='hero-report-button' id='themeReportCheckButton' onclick='checkThemeReportStatus()'>檢測報告</button>
-        <a class='hero-report-link is-disabled' id='themeReportDownloadLink' href='/api/theme-report/download' aria-disabled='true'>下載報告</a>
-        <span class='hero-report-status' id='themeReportStatus'>收盤後由 GitHub Action 預建，Vercel 只讀取下載。</span>
+        <button type='button' class='hero-report-button' id='themeReportManagerButton' onclick='openThemeReportManager()'>報告管理</button>
+        <a class='hero-report-link is-disabled' id='themeReportDownloadLink' href='/api/theme-report/download' aria-disabled='true'>下載最新 MD</a>
+        <span class='hero-report-status' id='themeReportStatus'>收盤後由 GitHub Action 預建，可管理歷史報告、線上檢視或下載 Markdown。</span>
       </div>
     </header>
+
+    <div class='theme-report-modal' id='themeReportModal' role='dialog' aria-modal='true' aria-labelledby='themeReportModalTitle' aria-hidden='true'>
+      <div class='theme-report-dialog'>
+        <div class='theme-report-header'>
+          <div>
+            <p class='modal-kicker'>Markdown 題材報告</p>
+            <h2 id='themeReportModalTitle'>報告管理</h2>
+            <p id='themeReportModalSubtitle'>選擇任一歷史報告線上檢視，或下載原始 .md 檔。</p>
+          </div>
+          <button type='button' class='modal-close' aria-label='關閉報告管理' onclick='closeThemeReportManager()'>×</button>
+        </div>
+        <div class='theme-report-layout'>
+          <aside class='theme-report-sidebar' aria-label='歷史報告清單'>
+            <div class='theme-report-sidebar-head'>
+              <strong>歷史報告</strong>
+              <button type='button' class='btn-soft' onclick='loadThemeReportList({{force:true}})'>重新整理</button>
+            </div>
+            <p class='theme-report-list-status' id='themeReportListStatus'>尚未載入。</p>
+            <div class='theme-report-list' id='themeReportList'></div>
+          </aside>
+          <main class='theme-report-viewer'>
+            <div class='theme-report-toolbar'>
+              <div>
+                <strong id='themeReportViewerTitle'>請選擇報告</strong>
+                <span id='themeReportViewerMeta'></span>
+              </div>
+              <a class='hero-report-link is-disabled' id='themeReportViewerDownload' href='/api/theme-report/download' aria-disabled='true'>下載 MD</a>
+            </div>
+            <article class='markdown-report' id='themeReportMarkdown' aria-live='polite'>請從左側選擇一份報告。</article>
+          </main>
+        </div>
+      </div>
+    </div>
     {control_panel_html}
     {theme_rotation_html}
     <section class='section-card collapsible-section' data-collapsible-section='overview' aria-labelledby='overviewTitle'>

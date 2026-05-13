@@ -53,11 +53,12 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         for preset_id in preset_ids:
             self.assertIn(preset_id, response)
         self.assertIn("tw-dashboard-backup.json", response)
-        self.assertIn("id='themeReportCheckButton'", response)
+        self.assertIn("id='themeReportManagerButton'", response)
         self.assertIn("id='themeReportDownloadLink'", response)
+        self.assertIn("id='themeReportModal'", response)
         self.assertIn("/api/theme-report/download", response)
         self.assertIn("checkThemeReportStatus({silent:true});", response)
-        self.assertIn("Vercel 只讀取下載", response)
+        self.assertIn("可管理歷史報告", response)
         self.assertIn("class='primary-actions' data-title='主要操作'", response)
         self.assertIn("class='utility-actions' data-title='設定與備份'", response)
         self.assertRegex(
