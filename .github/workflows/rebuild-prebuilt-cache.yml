@@ -41,13 +41,13 @@ jobs:
         run: python scripts/prebuild_price_cache.py
 
       - name: Build daily theme report from refreshed cache
-        run: python scripts/generate_theme_daily_report.py --output reports/daily_theme_report.md
+        run: python scripts/generate_theme_daily_report.py
 
       - name: Commit updated cache and report
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add prebuilt_cache reports/daily_theme_report.md
+          git add prebuilt_cache reports/*.md
           if git diff --cached --quiet; then
             echo "No cache or report changes to commit"
             exit 0
