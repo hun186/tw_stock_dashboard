@@ -58,6 +58,41 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+### 啟動 Dashboard 服務
+
+本機看 Dashboard 需要啟動一個 WSGI 開發服務；Vercel 部署時才會直接匯入 `api/main.py` 的 `app` 物件。
+
+```bash
+python api/main.py
+```
+
+看到 `Serving ... http://127.0.0.1:8000` 後，用瀏覽器開啟該網址即可。可用環境變數調整監聽位置：
+
+```bash
+HOST=0.0.0.0 PORT=8000 python api/main.py
+```
+
+Windows PowerShell：
+
+```powershell
+$env:HOST="0.0.0.0"; $env:PORT="8000"; python api/main.py
+```
+
+### 產生每日題材快報
+
+每日題材快報是離線批次腳本，不需要先啟動 Dashboard 服務；但它需要 `prebuilt_cache/` 內有對應價格快取，或執行時允許即時下載價格。若報告顯示全部股票都「缺價格資料」，請先更新快取或加上 live fetch。
+
+```bash
+python scripts/prebuild_price_cache.py
+python scripts/generate_theme_daily_report.py --output reports/theme_daily_report.md
+```
+
+若只是本機臨時產生、且網路可連 Yahoo Finance / 交易所資料源，可直接允許即時抓價：
+
+```bash
+python scripts/generate_theme_daily_report.py --allow-live-fetch --output reports/theme_daily_report.md
+```
+
 ## Vercel 部署
 
 ```bash

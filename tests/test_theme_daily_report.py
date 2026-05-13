@@ -208,3 +208,21 @@ def test_daily_report_script_imports_when_launched_by_file_path(tmp_path: Path) 
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_api_main_starts_dev_server_when_launched_as_script(monkeypatch) -> None:
+    import runpy
+
+    import api.dashboard_server as dashboard_server
+
+    calls = []
+
+    def fake_run_dev_server(app):
+        calls.append(app)
+
+    monkeypatch.setattr(dashboard_server, "run_dev_server", fake_run_dev_server)
+
+    runpy.run_module("api.main", run_name="__main__")
+
+    assert len(calls) == 1
+    assert callable(calls[0])

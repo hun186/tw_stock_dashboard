@@ -12,8 +12,9 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from api.constants import APP_DIR
-from api.data_loader import load_watchlist, load_twse_industry_map
+from api.data_loader import load_twse_industry_map, load_watchlist
 from api.market_data import fetch_price
+from api.theme_daily_report import load_report_stock_pool
 
 OUT_DIR = APP_DIR / "prebuilt_cache"
 DEFAULT_PERIODS = [("2y", "1d"), ("6mo", "1d"), ("2d", "1m")]
@@ -36,10 +37,15 @@ def build_one(symbol: str, period: str, interval: str) -> tuple[str, str, str, b
 def main() -> None:
     watch = load_watchlist(APP_DIR / "watchlist.csv")
     industry = load_twse_industry_map()
+    report_pool = load_report_stock_pool()
 
+    # Include the daily-report LLM/Gemini stock pool as well as the exchange
+    # industry universe so the offline report can use prebuilt prices without
+    # requiring a live service or network access at report-generation time.
     symbols = sorted(set(
         watch["symbol"].dropna().astype(str).tolist()
         + industry["symbol"].dropna().astype(str).tolist()
+        + report_pool["symbol"].dropna().astype(str).tolist()
     ))
     tasks = [(s, p, i) for s in symbols for p, i in DEFAULT_PERIODS]
 

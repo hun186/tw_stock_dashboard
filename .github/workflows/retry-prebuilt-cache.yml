@@ -5,6 +5,9 @@ on:
     workflows: ["Rebuild prebuilt cache"]
     types: [completed]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 permissions:
   actions: write
   contents: read
