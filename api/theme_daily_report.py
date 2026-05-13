@@ -10,6 +10,7 @@ from typing import Callable, Iterable, Sequence
 
 import pandas as pd
 
+from api.charts import _volume_in_lots
 from api.constants import DAILY_THEME_REPORT_FILE, GEMINI_AGENT_GROUP_FILE, LLM_GROUP_FILE, LLM_GROUP_SHEET, WATCHLIST_FILE
 from api.dashboard_analysis import build_stock_analysis
 from api.dashboard_theme_rotation import ThemeRotationRow, build_theme_rotation_rows
@@ -108,9 +109,11 @@ def _chart_source_df(item: dict, *, max_points: int = 66) -> pd.DataFrame:
     required = ["Date", "Open", "High", "Low", "Close", "Volume"]
     if not isinstance(df, pd.DataFrame) or df.empty or not set(required).issubset(df.columns):
         return pd.DataFrame(columns=required)
-    chart_df = df[required].copy()
-    for column in ["Open", "High", "Low", "Close", "Volume"]:
-        chart_df[column] = pd.to_numeric(chart_df[column], errors="coerce")
+    columns = required + (["RefClose"] if "RefClose" in df.columns else [])
+    chart_df = df[columns].copy()
+    for column in ["Open", "High", "Low", "Close", "Volume", "RefClose"]:
+        if column in chart_df.columns:
+            chart_df[column] = pd.to_numeric(chart_df[column], errors="coerce")
     chart_df["Date"] = pd.to_datetime(chart_df["Date"], errors="coerce")
     chart_df = chart_df.dropna(subset=required).tail(max_points).reset_index(drop=True)
     return chart_df
@@ -124,7 +127,7 @@ def _price_volume_chart_svg(item: dict, *, width: int = 760, height: int = 320) 
     symbol = row_value(item, "symbol") or "未知代號"
     name = row_value(item, "name") or "未知名稱"
     title = f"{symbol} {name}｜近三個月價K / 量K線圖"
-    margin_left, margin_right, margin_top, margin_bottom = 46, 18, 34, 26
+    margin_left, margin_right, margin_top, margin_bottom = 72, 18, 34, 26
     gap = 16
     price_height = 170
     volume_height = height - margin_top - margin_bottom - gap - price_height
@@ -140,7 +143,8 @@ def _price_volume_chart_svg(item: dict, *, width: int = 760, height: int = 320) 
     pad = max((price_max - price_min) * 0.08, price_max * 0.01, 0.01)
     price_min -= pad
     price_max += pad
-    volume_max = max(float(chart_df["Volume"].max()), 1.0)
+    chart_df["VolumeLots"] = _volume_in_lots(chart_df["Volume"])
+    volume_max = max(float(chart_df["VolumeLots"].max()), 1.0)
     up_color = "#ef4444"
     down_color = "#16a34a"
     grid_color = "#e2e8f0"
@@ -158,8 +162,12 @@ def _price_volume_chart_svg(item: dict, *, width: int = 760, height: int = 320) 
         value = price_max - ratio * (price_max - price_min)
         elements.append(f'<line x1="{margin_left}" x2="{width - margin_right}" y1="{y:.1f}" y2="{y:.1f}" stroke="{grid_color}" stroke-width="1"/>')
         elements.append(f'<text x="{margin_left - 8}" y="{y + 4:.1f}" text-anchor="end" fill="{muted_color}" font-size="10" font-family="Arial, sans-serif">{value:.1f}</text>')
-    elements.append(f'<line x1="{margin_left}" x2="{width - margin_right}" y1="{volume_top + volume_height:.1f}" y2="{volume_top + volume_height:.1f}" stroke="{grid_color}" stroke-width="1"/>')
-    elements.append(f'<text x="{margin_left - 8}" y="{volume_top + 4:.1f}" text-anchor="end" fill="{muted_color}" font-size="10" font-family="Arial, sans-serif">量</text>')
+    for ratio in [0, 0.5, 1.0]:
+        y = volume_top + ratio * volume_height
+        value = volume_max * (1 - ratio)
+        elements.append(f'<line x1="{margin_left}" x2="{width - margin_right}" y1="{y:.1f}" y2="{y:.1f}" stroke="{grid_color}" stroke-width="1"/>')
+        elements.append(f'<text x="{margin_left - 8}" y="{y + 4:.1f}" text-anchor="end" fill="{muted_color}" font-size="10" font-family="Arial, sans-serif">{value:,.0f}張</text>')
+    elements.append(f'<text x="{margin_left}" y="{volume_top - 5:.1f}" fill="{muted_color}" font-size="10" font-family="Arial, sans-serif">成交量（張）</text>')
 
     for idx, row in chart_df.iterrows():
         x = margin_left + idx * step + step / 2
@@ -167,8 +175,9 @@ def _price_volume_chart_svg(item: dict, *, width: int = 760, height: int = 320) 
         high = float(row["High"])
         low = float(row["Low"])
         close = float(row["Close"])
-        volume = float(row["Volume"])
-        color = up_color if close >= open_price else down_color
+        volume = float(row["VolumeLots"])
+        ref_close = float(row["RefClose"]) if "RefClose" in chart_df.columns and not pd.isna(row.get("RefClose")) else open_price
+        color = up_color if close >= ref_close else down_color
         y_high = _scale_value(high, price_min, price_max, price_top, price_height)
         y_low = _scale_value(low, price_min, price_max, price_top, price_height)
         y_open = _scale_value(open_price, price_min, price_max, price_top, price_height)
