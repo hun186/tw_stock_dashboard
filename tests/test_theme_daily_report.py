@@ -104,6 +104,56 @@ def test_render_daily_theme_report_marks_missing_price_summary_and_reference() -
     assert "收盤 -，漲跌 -" in report
 
 
+def test_render_daily_theme_report_falls_back_to_metadata_themes_without_prices() -> None:
+    analyzed = [
+        _item(
+            "1111.TW",
+            "甲公司",
+            "AI供應鏈",
+            "散熱",
+            bucket="watch",
+            code="",
+            status="⚪ 抓不到資料",
+            score=-999,
+            change_pct=-999,
+            has_price=False,
+        ),
+        _item(
+            "2222.TW",
+            "乙公司",
+            "AI供應鏈",
+            "散熱",
+            bucket="watch",
+            code="",
+            status="⚪ 抓不到資料",
+            score=-999,
+            change_pct=-999,
+            has_price=False,
+        ),
+        _item(
+            "3333.TW",
+            "丙公司",
+            "車用電子",
+            "連接器",
+            bucket="watch",
+            code="",
+            status="⚪ 抓不到資料",
+            score=-999,
+            change_pct=-999,
+            has_price=False,
+        ),
+    ]
+
+    report = render_daily_theme_report(analyzed, config=DailyReportConfig(as_of="2026-05-12", top_n=1))
+
+    assert "本次沒有可用價格資料" in report
+    assert "### 1. AI供應鏈 / 散熱" in report
+    assert "題材代表股" in report
+    assert "**2222.TW 乙公司**" in report
+    assert PRICE_MISSING_TEXT in report
+    assert "價格資料不足，無法偵測技術訊號" in report
+
+
 def test_short_summary_truncates_without_network_or_llm_calls() -> None:
     long_text = "甲" * 120
     result = short_summary(long_text, max_chars=20)

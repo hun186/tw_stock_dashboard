@@ -93,7 +93,56 @@ def _stock_line(item: dict) -> str:
     )
 
 
-def _theme_stock_sections(theme: ThemeRotationRow, analyzed_stocks: list[dict], *, limit: int) -> str:
+def _build_metadata_theme_rows(analyzed_stocks: Iterable[dict]) -> list[ThemeRotationRow]:
+    groups: dict[tuple[str, str], dict[str, float]] = {}
+    for item in analyzed_stocks or []:
+        group = row_value(item, "group")
+        subgroup = row_value(item, "subgroup")
+        if not group and not subgroup:
+            continue
+        key = (group, subgroup)
+        entry = groups.setdefault(key, {"stock_count": 0.0, "summary_count": 0.0, "reference_count": 0.0})
+        entry["stock_count"] += 1
+        if row_value(item, "summary"):
+            entry["summary_count"] += 1
+        if row_value(item, "reference_url"):
+            entry["reference_count"] += 1
+
+    rows: list[ThemeRotationRow] = []
+    for (group, subgroup), entry in groups.items():
+        stock_count = int(entry["stock_count"])
+        if stock_count <= 0:
+            continue
+        summary_ratio = entry["summary_count"] / stock_count
+        reference_ratio = entry["reference_count"] / stock_count
+        metadata_score = min(stock_count, 50) + summary_ratio * 10.0 + reference_ratio * 5.0
+        rows.append(
+            ThemeRotationRow(
+                group=group,
+                subgroup=subgroup,
+                stock_count=stock_count,
+                bull_count=0,
+                observe_count=0,
+                warn_count=0,
+                bear_count=0,
+                neutral_count=stock_count,
+                avg_change_pct=0.0,
+                avg_signal_score=0.0,
+                heat_score=round(metadata_score, 1),
+            )
+        )
+
+    rows.sort(key=lambda row: (row.heat_score, row.stock_count, row.group_label, row.subgroup_label), reverse=True)
+    return rows
+
+
+def _theme_stock_sections(
+    theme: ThemeRotationRow,
+    analyzed_stocks: list[dict],
+    *,
+    limit: int,
+    metadata_only: bool = False,
+) -> str:
     theme_items = [
         item
         for item in analyzed_stocks
@@ -106,6 +155,21 @@ def _theme_stock_sections(theme: ThemeRotationRow, analyzed_stocks: list[dict], 
         if not items:
             return f"- {empty_text}"
         return "\n".join(_stock_line(item) for item in items)
+
+    if metadata_only:
+        representative = sorted(
+            theme_items,
+            key=lambda item: (
+                bool(row_value(item, "summary")),
+                bool(row_value(item, "reference_url")),
+                row_value(item, "symbol"),
+            ),
+            reverse=True,
+        )[:limit]
+        return (
+            "**題材代表股（缺價格時先依股池資料列示）**\n"
+            f"{render_list(representative, '本題材目前沒有可列示的代表股。')}"
+        )
 
     return (
         "**題材內強勢股**\n"
@@ -130,7 +194,12 @@ def render_daily_theme_report(
     config = config or DailyReportConfig(as_of=date.today().isoformat())
     analyzed_stocks = list(analyzed_stocks or [])
     price_ready_stocks = [item for item in analyzed_stocks if has_price_data(item)]
-    theme_rows = build_theme_rotation_rows(price_ready_stocks)[: config.top_n]
+    metadata_only_themes = not price_ready_stocks and bool(analyzed_stocks)
+    theme_rows = (
+        _build_metadata_theme_rows(analyzed_stocks)
+        if metadata_only_themes
+        else build_theme_rotation_rows(price_ready_stocks)
+    )[: config.top_n]
     price_missing_count = sum(1 for item in analyzed_stocks if not has_price_data(item))
     summary_missing_count = sum(1 for item in analyzed_stocks if not row_value(item, "summary"))
     reference_missing_count = sum(1 for item in analyzed_stocks if not row_value(item, "reference_url"))
@@ -146,6 +215,8 @@ def render_daily_theme_report(
     ]
 
     parts.extend(["", "## 最強題材 Top N"])
+    if metadata_only_themes:
+        parts.append("- ⚠️ 本次沒有可用價格資料；以下先依股池題材檔數與摘要完整度排序，技術訊號待補價格後更新。")
     if not theme_rows:
         parts.append("- 尚無可聚合的題材資料；請確認價格資料或股池來源是否可用。")
     else:
@@ -157,20 +228,41 @@ def render_daily_theme_report(
                 f"- 股票數：{theme.stock_count}；偏多 {theme.bull_count}、觀察 {theme.observe_count}、警示 {theme.warn_count}、轉弱 {theme.bear_count}、中性 {theme.neutral_count}",
                 f"- 平均漲跌：{theme.avg_change_pct:+.2f}%；平均訊號分數：{theme.avg_signal_score:.1f}",
                 "",
-                _theme_stock_sections(theme, analyzed_stocks, limit=config.theme_stock_limit),
+                _theme_stock_sections(
+                    theme,
+                    analyzed_stocks,
+                    limit=config.theme_stock_limit,
+                    metadata_only=metadata_only_themes,
+                ),
             ])
 
     breakout = _sort_by_signal_then_change([item for item in analyzed_stocks if signal_code(item) in BREAKOUT_CODES])
     overheated = _sort_by_signal_then_change([item for item in analyzed_stocks if signal_code(item) in OVERHEAT_CODES], reverse=False)
     ma20_break = _sort_by_signal_then_change([item for item in analyzed_stocks if signal_code(item) in MA20_BREAK_CODES], reverse=False)
 
+    no_price_empty_text = "價格資料不足，無法偵測技術訊號；請先更新 prebuilt_cache 或加上 --allow-live-fetch。"
     parts.extend([
         "",
-        _render_stock_collection("新突破股", breakout, empty_text="今日沒有偵測到 20 日新高突破股。", limit=config.highlight_limit),
+        _render_stock_collection(
+            "新突破股",
+            breakout,
+            empty_text=no_price_empty_text if metadata_only_themes else "今日沒有偵測到 20 日新高突破股。",
+            limit=config.highlight_limit,
+        ),
         "",
-        _render_stock_collection("過熱股", overheated, empty_text="今日沒有偵測到過熱股。", limit=config.highlight_limit),
+        _render_stock_collection(
+            "過熱股",
+            overheated,
+            empty_text=no_price_empty_text if metadata_only_themes else "今日沒有偵測到過熱股。",
+            limit=config.highlight_limit,
+        ),
         "",
-        _render_stock_collection("跌破 MA20 股", ma20_break, empty_text="今日沒有偵測到跌破 MA20 股。", limit=config.highlight_limit),
+        _render_stock_collection(
+            "跌破 MA20 股",
+            ma20_break,
+            empty_text=no_price_empty_text if metadata_only_themes else "今日沒有偵測到跌破 MA20 股。",
+            limit=config.highlight_limit,
+        ),
         "",
     ])
     return "\n".join(parts)
