@@ -76,6 +76,34 @@ def test_render_daily_theme_report_includes_phase5_sections_and_stock_context() 
     assert "熱度分數" in report
 
 
+def test_render_daily_theme_report_embeds_three_month_price_volume_chart() -> None:
+    dates = pd.date_range("2026-02-01", periods=70, freq="B")
+    price_df = pd.DataFrame({
+        "Date": dates,
+        "Open": [100.0 + i * 0.4 for i in range(70)],
+        "High": [102.0 + i * 0.4 for i in range(70)],
+        "Low": [99.0 + i * 0.4 for i in range(70)],
+        "Close": [101.0 + i * 0.4 for i in range(70)],
+        "Volume": [1_000_000.0 + i * 10_000 for i in range(70)],
+    })
+    item = _item(
+        "2330.TW",
+        "台積電",
+        "AI晶片",
+        "先進製程",
+        bucket="bull",
+        code="BREAKOUT_STRONG",
+        status="🔴 強突破",
+        score=92,
+        change_pct=4.2,
+    )
+    item["df"] = price_df
+
+    report = render_daily_theme_report([item], config=DailyReportConfig(as_of="2026-05-12", top_n=1))
+
+    assert "近三個月價量K線圖" in report
+    assert "data:image/svg+xml;base64," in report
+
 def test_render_daily_theme_report_marks_missing_price_summary_and_reference() -> None:
     analyzed = [
         _item(

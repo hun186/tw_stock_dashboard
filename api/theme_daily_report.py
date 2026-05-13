@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import html
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -18,6 +20,7 @@ BREAKOUT_CODES = {"BREAKOUT_EXPLOSIVE", "BREAKOUT_STRONG", "BREAKOUT_MINOR"}
 OVERHEAT_CODES = {"OVERHEATED", "STRONG_OVERHEAT_EDGE", "STRONG_OVERHEAT_HIGH"}
 MA20_BREAK_CODES = {"BREAK_MA20"}
 PRICE_MISSING_TEXT = "⚠️ 缺價格資料：無法計算技術訊號與收盤價。"
+CHART_MISSING_TEXT = "⚠️ 近三個月價量K線圖：價格欄位不足，暫無法繪製。"
 SUMMARY_MISSING_TEXT = "⚠️ 缺 Gemini summary：請補齊 summary 欄位。"
 URL_MISSING_TEXT = "⚠️ 缺 reference_url：請補齊 reference_url 欄位。"
 
@@ -89,8 +92,113 @@ def _stock_line(item: dict) -> str:
         f"- **{symbol} {name}**（{group} / {subgroup}）：{signal}，"
         f"收盤 {close}，漲跌 {change_text}{price_note}\n"
         f"  - Gemini 摘要：{summary}\n"
-        f"  - reference_url：{reference}"
+        f"  - reference_url：{reference}\n"
+        f"{_stock_chart_markdown(item)}"
     )
+
+
+def _scale_value(value: float, min_value: float, max_value: float, top: float, height: float) -> float:
+    if max_value <= min_value:
+        return top + height / 2
+    return top + (max_value - value) / (max_value - min_value) * height
+
+
+def _chart_source_df(item: dict, *, max_points: int = 66) -> pd.DataFrame:
+    df = item.get("df")
+    required = ["Date", "Open", "High", "Low", "Close", "Volume"]
+    if not isinstance(df, pd.DataFrame) or df.empty or not set(required).issubset(df.columns):
+        return pd.DataFrame(columns=required)
+    chart_df = df[required].copy()
+    for column in ["Open", "High", "Low", "Close", "Volume"]:
+        chart_df[column] = pd.to_numeric(chart_df[column], errors="coerce")
+    chart_df["Date"] = pd.to_datetime(chart_df["Date"], errors="coerce")
+    chart_df = chart_df.dropna(subset=required).tail(max_points).reset_index(drop=True)
+    return chart_df
+
+
+def _price_volume_chart_svg(item: dict, *, width: int = 760, height: int = 320) -> str:
+    chart_df = _chart_source_df(item)
+    if chart_df.empty:
+        return ""
+
+    symbol = row_value(item, "symbol") or "未知代號"
+    name = row_value(item, "name") or "未知名稱"
+    title = f"{symbol} {name}｜近三個月價K / 量K線圖"
+    margin_left, margin_right, margin_top, margin_bottom = 46, 18, 34, 26
+    gap = 16
+    price_height = 170
+    volume_height = height - margin_top - margin_bottom - gap - price_height
+    plot_width = width - margin_left - margin_right
+    price_top = margin_top
+    volume_top = price_top + price_height + gap
+    count = len(chart_df)
+    step = plot_width / max(count, 1)
+    candle_width = max(2.0, min(8.0, step * 0.58))
+
+    price_min = float(chart_df["Low"].min())
+    price_max = float(chart_df["High"].max())
+    pad = max((price_max - price_min) * 0.08, price_max * 0.01, 0.01)
+    price_min -= pad
+    price_max += pad
+    volume_max = max(float(chart_df["Volume"].max()), 1.0)
+    up_color = "#ef4444"
+    down_color = "#16a34a"
+    grid_color = "#e2e8f0"
+    text_color = "#334155"
+    muted_color = "#64748b"
+
+    elements = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-label="{html.escape(title)}">',
+        '<rect width="100%" height="100%" rx="16" fill="#ffffff"/>',
+        f'<text x="{margin_left}" y="22" fill="{text_color}" font-size="15" font-family="Arial, sans-serif" font-weight="700">{html.escape(title)}</text>',
+    ]
+
+    for ratio in [0, 0.25, 0.5, 0.75, 1.0]:
+        y = price_top + ratio * price_height
+        value = price_max - ratio * (price_max - price_min)
+        elements.append(f'<line x1="{margin_left}" x2="{width - margin_right}" y1="{y:.1f}" y2="{y:.1f}" stroke="{grid_color}" stroke-width="1"/>')
+        elements.append(f'<text x="{margin_left - 8}" y="{y + 4:.1f}" text-anchor="end" fill="{muted_color}" font-size="10" font-family="Arial, sans-serif">{value:.1f}</text>')
+    elements.append(f'<line x1="{margin_left}" x2="{width - margin_right}" y1="{volume_top + volume_height:.1f}" y2="{volume_top + volume_height:.1f}" stroke="{grid_color}" stroke-width="1"/>')
+    elements.append(f'<text x="{margin_left - 8}" y="{volume_top + 4:.1f}" text-anchor="end" fill="{muted_color}" font-size="10" font-family="Arial, sans-serif">量</text>')
+
+    for idx, row in chart_df.iterrows():
+        x = margin_left + idx * step + step / 2
+        open_price = float(row["Open"])
+        high = float(row["High"])
+        low = float(row["Low"])
+        close = float(row["Close"])
+        volume = float(row["Volume"])
+        color = up_color if close >= open_price else down_color
+        y_high = _scale_value(high, price_min, price_max, price_top, price_height)
+        y_low = _scale_value(low, price_min, price_max, price_top, price_height)
+        y_open = _scale_value(open_price, price_min, price_max, price_top, price_height)
+        y_close = _scale_value(close, price_min, price_max, price_top, price_height)
+        body_top = min(y_open, y_close)
+        body_height = max(abs(y_close - y_open), 1.4)
+        volume_bar_height = volume / volume_max * volume_height
+        elements.append(f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{y_high:.1f}" y2="{y_low:.1f}" stroke="{color}" stroke-width="1.3"/>')
+        elements.append(f'<rect x="{x - candle_width / 2:.1f}" y="{body_top:.1f}" width="{candle_width:.1f}" height="{body_height:.1f}" fill="{color}" opacity="0.9"/>')
+        elements.append(f'<rect x="{x - candle_width / 2:.1f}" y="{volume_top + volume_height - volume_bar_height:.1f}" width="{candle_width:.1f}" height="{volume_bar_height:.1f}" fill="{color}" opacity="0.55"/>')
+
+    first_date = chart_df.iloc[0]["Date"].strftime("%Y-%m-%d")
+    last_date = chart_df.iloc[-1]["Date"].strftime("%Y-%m-%d")
+    elements.extend([
+        f'<text x="{margin_left}" y="{height - 8}" fill="{muted_color}" font-size="10" font-family="Arial, sans-serif">{first_date}</text>',
+        f'<text x="{width - margin_right}" y="{height - 8}" text-anchor="end" fill="{muted_color}" font-size="10" font-family="Arial, sans-serif">{last_date}</text>',
+        '</svg>',
+    ])
+    return "".join(elements)
+
+
+def _stock_chart_markdown(item: dict) -> str:
+    svg = _price_volume_chart_svg(item)
+    if not svg:
+        return f"  - {CHART_MISSING_TEXT}"
+    encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    symbol = row_value(item, "symbol") or "stock"
+    name = row_value(item, "name") or ""
+    alt = f"{symbol} {name} 近三個月價量K線圖".strip()
+    return f"![{alt}](data:image/svg+xml;base64,{encoded})"
 
 
 def _build_metadata_theme_rows(analyzed_stocks: Iterable[dict]) -> list[ThemeRotationRow]:
