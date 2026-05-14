@@ -70,14 +70,14 @@ class MarketDataFreshnessTests(unittest.TestCase):
         self.assertEqual(float(result.iloc[-1]["Close"]), 105.0)
         self.assertEqual(float(result.iloc[-1]["Volume"]), 6000.0)
 
-    def test_intraday_daily_snapshot_prefers_official_quote_volume(self) -> None:
+    def test_intraday_daily_snapshot_uses_quote_price_and_minute_volume(self) -> None:
         quote = pd.DataFrame([{
             "Date": pd.Timestamp("2026-05-07"),
             "Open": 101.0,
             "High": 108.0,
             "Low": 100.0,
             "Close": 107.0,
-            "Volume": 123000.0,
+            "Volume": 12000.0,
         }])
 
         with patch.object(market_data._tw_market_realtime, "_expected_latest_tw_daily_date", return_value=pd.Timestamp("2026-05-07")), \
@@ -87,7 +87,26 @@ class MarketDataFreshnessTests(unittest.TestCase):
         self.assertEqual(result.iloc[0]["Date"], pd.Timestamp("2026-05-07"))
         self.assertEqual(float(result.iloc[0]["Close"]), 107.0)
         self.assertEqual(float(result.iloc[0]["High"]), 108.0)
-        self.assertEqual(float(result.iloc[0]["Volume"]), 123000.0)
+        self.assertEqual(float(result.iloc[0]["Volume"]), 6000.0)
+
+    def test_intraday_daily_snapshot_keeps_minute_volume_even_when_quote_volume_spikes(self) -> None:
+        quote = pd.DataFrame([{
+            "Date": pd.Timestamp("2026-05-07"),
+            "Open": 101.0,
+            "High": 108.0,
+            "Low": 100.0,
+            "Close": 107.0,
+            "Volume": 123000000.0,
+        }])
+
+        with patch.object(market_data._tw_market_realtime, "_expected_latest_tw_daily_date", return_value=pd.Timestamp("2026-05-07")), \
+             patch.object(market_data._tw_market_realtime, "_fetch_tw_realtime_quote_snapshot", return_value=quote):
+            result = market_data._tw_intraday_snapshot_from_minutes("2330.TW", minute_df())
+
+        self.assertEqual(result.iloc[0]["Date"], pd.Timestamp("2026-05-07"))
+        self.assertEqual(float(result.iloc[0]["Close"]), 107.0)
+        self.assertEqual(float(result.iloc[0]["High"]), 108.0)
+        self.assertEqual(float(result.iloc[0]["Volume"]), 6000.0)
 
     def test_intraday_daily_snapshot_uses_official_quote_when_minutes_are_unavailable(self) -> None:
         quote = pd.DataFrame([{
@@ -105,7 +124,7 @@ class MarketDataFreshnessTests(unittest.TestCase):
              patch.object(market_data.yf, "download", return_value=pd.DataFrame()) as download_mock:
             result = market_data._tw_market_realtime._fetch_tw_intraday_daily_snapshot("2330.TW")
 
-        download_mock.assert_not_called()
+        download_mock.assert_called_once()
         self.assertEqual(result.iloc[0]["Date"], pd.Timestamp("2026-05-07"))
         self.assertEqual(float(result.iloc[0]["Volume"]), 123000.0)
 

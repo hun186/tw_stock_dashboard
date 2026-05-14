@@ -15,7 +15,24 @@ def _expected_daily_quote_snapshot(symbol: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 
-def _tw_intraday_snapshot_from_minutes(symbol: str, minute_df: pd.DataFrame | None) -> pd.DataFrame:
+def _merge_daily_quote_price_with_minute_volume(minute_snapshot: pd.DataFrame, quote_snapshot: pd.DataFrame) -> pd.DataFrame:
+    # During the live session the official daily candle may not be available yet.
+    # Use realtime quote OHLC for the provisional latest day, but keep volume from
+    # the same 1-minute bars used to build that provisional candle so units stay
+    # consistent with historical daily rows.
+    merged = _merge_price_frames(minute_snapshot, quote_snapshot)
+    if minute_snapshot.empty or quote_snapshot.empty or merged.empty:
+        return merged
+
+    minute_volume = float(minute_snapshot.iloc[-1].get("Volume", 0) or 0)
+    latest_date = pd.to_datetime(quote_snapshot.iloc[-1]["Date"], errors="coerce")
+    merged_dates = pd.to_datetime(merged["Date"], errors="coerce")
+    merged = merged.copy()
+    merged.loc[merged_dates == latest_date, "Volume"] = minute_volume
+    return merged
+
+
+def _tw_intraday_snapshot_from_minutes(symbol: str, minute_df: pd.DataFrame | None, quote_snapshot: pd.DataFrame | None = None) -> pd.DataFrame:
     intraday_df = _prepare_price_df(symbol, minute_df, "1m")
     if intraday_df.empty:
         return pd.DataFrame()
@@ -34,9 +51,9 @@ def _tw_intraday_snapshot_from_minutes(symbol: str, minute_df: pd.DataFrame | No
         "Volume": float(intraday_df["Volume"].fillna(0).sum()),
     }])
 
-    quote_snapshot = _expected_daily_quote_snapshot(symbol)
+    quote_snapshot = quote_snapshot if quote_snapshot is not None else _expected_daily_quote_snapshot(symbol)
     if not quote_snapshot.empty:
-        return _merge_price_frames(minute_snapshot, quote_snapshot)
+        return _merge_daily_quote_price_with_minute_volume(minute_snapshot, quote_snapshot)
 
     return minute_snapshot
 
@@ -71,35 +88,30 @@ def _fetch_tw_intraday_daily_snapshot(symbol: str) -> pd.DataFrame:
         return pd.DataFrame()
 
     quote_snapshot = _expected_daily_quote_snapshot(symbol)
-    if not quote_snapshot.empty:
-        return quote_snapshot
 
     try:
         minute_df = yf.download(symbol, period="1d", interval="1m", auto_adjust=False, progress=False, threads=False)
     except Exception:
-        return pd.DataFrame()
-    return _tw_intraday_snapshot_from_minutes(symbol, minute_df)
+        minute_df = pd.DataFrame()
+    minute_snapshot = _tw_intraday_snapshot_from_minutes(symbol, minute_df, quote_snapshot)
+    if not minute_snapshot.empty:
+        return minute_snapshot
+    return quote_snapshot
 
 
 def _bulk_fetch_tw_intraday_daily_snapshots(symbols: list[str]) -> dict[str, pd.DataFrame]:
     tw_symbols = [symbol for symbol in symbols if symbol.endswith((".TW", ".TWO"))]
     if not tw_symbols or not _should_use_tw_intraday_daily_snapshot():
         return {}
-    snapshots: dict[str, pd.DataFrame] = {}
-    missing_symbols: list[str] = []
+    quote_snapshots: dict[str, pd.DataFrame] = {}
     for symbol in tw_symbols:
         quote_snapshot = _expected_daily_quote_snapshot(symbol)
         if not quote_snapshot.empty:
-            snapshots[symbol] = quote_snapshot
-        else:
-            missing_symbols.append(symbol)
-
-    if not missing_symbols:
-        return snapshots
+            quote_snapshots[symbol] = quote_snapshot
 
     try:
         downloaded = yf.download(
-            missing_symbols,
+            tw_symbols,
             period="1d",
             interval="1m",
             auto_adjust=False,
@@ -108,20 +120,20 @@ def _bulk_fetch_tw_intraday_daily_snapshots(symbols: list[str]) -> dict[str, pd.
             group_by="ticker",
         )
     except Exception:
-        return snapshots
-    if downloaded.empty:
-        return snapshots
+        downloaded = pd.DataFrame()
 
-    for symbol in missing_symbols:
-        if isinstance(downloaded.columns, pd.MultiIndex) and symbol in downloaded.columns.get_level_values(0):
-            raw_df = downloaded[symbol]
-        elif len(missing_symbols) == 1:
-            raw_df = downloaded
-        else:
-            continue
-        snapshot_df = _tw_intraday_snapshot_from_minutes(symbol, raw_df)
-        if not snapshot_df.empty:
-            snapshots[symbol] = snapshot_df
+    snapshots = quote_snapshots.copy()
+    if not downloaded.empty:
+        for symbol in tw_symbols:
+            if isinstance(downloaded.columns, pd.MultiIndex) and symbol in downloaded.columns.get_level_values(0):
+                raw_df = downloaded[symbol]
+            elif len(tw_symbols) == 1:
+                raw_df = downloaded
+            else:
+                continue
+            snapshot_df = _tw_intraday_snapshot_from_minutes(symbol, raw_df, quote_snapshots.get(symbol, pd.DataFrame()))
+            if not snapshot_df.empty:
+                snapshots[symbol] = snapshot_df
     return snapshots
 
 
