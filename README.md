@@ -49,7 +49,7 @@
 
 ![Dashboard 文字摘要](docs/screenshots/dashboard_text.png)
 
-### 股票總表與個人標籤
+### 每日題材分析報告
 
 ![每日題材分析報告](docs/screenshots/daily_analysis_report.png)
 
