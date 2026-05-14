@@ -72,7 +72,7 @@ class DashboardThemeMetadataTests(unittest.TestCase):
             patch.object(dashboard_app, "prefetch_price_data", return_value={}):
             response = b"".join(dashboard_app.app({"QUERY_STRING": ""}, lambda *_args: None)).decode("utf-8")
 
-        self.assertIn("<th>名稱</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>題材</th>", response)
+        self.assertIn("<th>名稱</th><th>形勢判斷</th><th>收盤</th><th>漲跌幅</th><th>目標價</th><th>目標價/現價</th><th>題材</th>", response)
         self.assertIn("<th>備註</th><th class='theme-summary-cell'>題材摘要</th><th class='source-cell'>來源</th>", response)
         self.assertIn("<td class='theme-summary-cell'>-</td><td class='source-cell'>-</td>", response)
 

@@ -36,10 +36,11 @@ function normalizedSortMetricValue(item, metric){
   return Number.isFinite(value) ? value : -999999999;
 }
 function compareDashboardItems(a, b, metric=dashboardCardSort){
+  const direction = dashboardCardSortDirection === 'asc' ? 1 : -1;
   if(metric === 'symbol'){
-    return normalizedSortMetricValue(a, metric).localeCompare(normalizedSortMetricValue(b, metric), 'zh-Hant', {numeric:true});
+    return normalizedSortMetricValue(a, metric).localeCompare(normalizedSortMetricValue(b, metric), 'zh-Hant', {numeric:true}) * direction;
   }
-  return normalizedSortMetricValue(b, metric) - normalizedSortMetricValue(a, metric);
+  return (normalizedSortMetricValue(a, metric) - normalizedSortMetricValue(b, metric)) * direction;
 }
 function sortedDashboardItems(items){
   return [...items].sort((a, b)=>compareDashboardItems(a, b));
@@ -171,11 +172,13 @@ function syncRenderOnlyUrlParams(){
   if(form?.elements?.show_volume) form.elements.show_volume.value = dashboardShowVolume ? '1' : '0';
   if(form?.elements?.show_price) form.elements.show_price.value = dashboardShowPrice ? '1' : '0';
   if(form?.elements?.card_sort) form.elements.card_sort.value = dashboardCardSort;
+  if(form?.elements?.card_sort_direction) form.elements.card_sort_direction.value = dashboardCardSortDirection;
   url.searchParams.set('page', String(dashboardCurrentPage));
   url.searchParams.set('cards_per_row', String(dashboardCardsPerRow));
   url.searchParams.set('show_volume', dashboardShowVolume ? '1' : '0');
   url.searchParams.set('show_price', dashboardShowPrice ? '1' : '0');
   url.searchParams.set('card_sort', dashboardCardSort);
+  url.searchParams.set('card_sort_direction', dashboardCardSortDirection);
   window.history.replaceState(null, '', url.toString());
 }
 async function renderDashboardPage(page=dashboardCurrentPage){
@@ -187,7 +190,7 @@ async function renderDashboardPage(page=dashboardCurrentPage){
   const pageItems = items.slice(start, start + dashboardPageSize);
   const table = document.querySelector('#tableWrap table');
   if(table){
-    const emptyColspan = dashboardShowTableThemeMeta ? 16 : 14;
+    const emptyColspan = dashboardShowTableThemeMeta ? 17 : 15;
     table.innerHTML = dashboardTableHeaderHtml + (pageItems.length ? pageItems.map((item)=>item.row_html).join('') : `<tr><td colspan="${emptyColspan}">無符合條件資料</td></tr>`);
   }
   const grid = document.getElementById('cardsGrid');

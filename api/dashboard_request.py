@@ -62,6 +62,7 @@ class DashboardRequest:
     show_price: bool
     show_target_price: bool
     card_sort: str
+    card_sort_direction: str
     compact_progress: bool
 
     @property
@@ -96,6 +97,9 @@ def parse_dashboard_request(environ) -> DashboardRequest:
     sort_options = {"symbol", "close", "volume", "change_pct", "target_ratio", "signal_score"}
     if card_sort not in sort_options:
         card_sort = "signal_score"
+    card_sort_direction = params.get("card_sort_direction", ["desc"])[0]
+    if card_sort_direction not in {"asc", "desc"}:
+        card_sort_direction = "desc"
     stock_meta_payload_raw = params.get("stock_meta_payload", [""])[0]
     return DashboardRequest(
         tab=params.get("tab", ["watchlist"])[0],
@@ -122,5 +126,6 @@ def parse_dashboard_request(environ) -> DashboardRequest:
         show_price=params.get("show_price", ["1"])[0] == "1",
         show_target_price=params.get("show_target_price", ["0"])[0] == "1",
         card_sort=card_sort,
+        card_sort_direction=card_sort_direction,
         compact_progress=params.get("compact_progress", ["1"])[0] == "1",
     )

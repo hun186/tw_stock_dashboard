@@ -59,6 +59,16 @@ def render_note_editor(symbol: str) -> str:
     )
 
 
+def render_change_pct_text(sort_metrics: dict | None) -> str:
+    if not isinstance(sort_metrics, dict):
+        return "-"
+    try:
+        value = float(sort_metrics.get('change_pct'))
+    except (TypeError, ValueError):
+        return "-"
+    return "-" if value <= -998 else f"{value:+.2f}%"
+
+
 def render_stock_row(
     *,
     row,
@@ -68,6 +78,7 @@ def render_stock_row(
     close_text: str,
     target_price_text: str,
     target_ratio_text: str,
+    change_pct_text: str,
     summary_text: str,
     reference_html: str,
 ) -> str:
@@ -87,7 +98,7 @@ def render_stock_row(
         f"data-summary='{html.escape(summary_text, quote=True)}'>"
         f"<td class='row-action-cell'>{action_btn}</td><td class='status-icon-cell'>{html.escape(status.split()[0])}</td><td class='symbol-cell'>{research_symbol_button}</td>"
         f"<td class='name-cell'><div class='name-cell-actions'>{name_jump_button}</div></td><td class='signal-cell'>{html.escape(status)}</td>"
-        f"<td>{close_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td><td class='theme-cell'>{theme_compact_html}</td>"
+        f"<td>{close_text}</td><td class='change-pct-cell'>{change_pct_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td><td class='theme-cell'>{theme_compact_html}</td>"
         f"{render_stock_meta_cells(row.symbol)}<td class='note-cell'>{render_note_editor(row.symbol)}</td>"
         f"<td class='theme-summary-cell'>{html.escape(summary_text)}</td><td class='source-cell'>{reference_html}</td></tr>"
     )
