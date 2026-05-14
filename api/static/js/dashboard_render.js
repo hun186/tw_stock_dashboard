@@ -29,12 +29,27 @@ function selectedThemeFilters(){
     volume: document.querySelector('[name="theme_volume_ratio"]')?.value || 'all',
   };
 }
+function normalizedSortMetricValue(item, metric){
+  const raw = item?.sort_metrics?.[metric];
+  if(metric === 'symbol') return String(raw || item?.symbol || '');
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : -999999999;
+}
+function compareDashboardItems(a, b, metric=dashboardCardSort){
+  if(metric === 'symbol'){
+    return normalizedSortMetricValue(a, metric).localeCompare(normalizedSortMetricValue(b, metric), 'zh-Hant', {numeric:true});
+  }
+  return normalizedSortMetricValue(b, metric) - normalizedSortMetricValue(a, metric);
+}
+function sortedDashboardItems(items){
+  return [...items].sort((a, b)=>compareDashboardItems(a, b));
+}
 function filteredDashboardItems(){
   const filter = document.querySelector('[name="status_filter"]')?.value || 'all';
   const theme = selectedThemeFilters();
-  return dashboardRenderItems.filter((item)=>
+  return sortedDashboardItems(dashboardRenderItems.filter((item)=>
     (filter === 'all' || item.bucket === filter) && themeSignalItemMatches(item, theme)
-  );
+  ));
 }
 function replaceSelectOptions(select, options, currentValue){
   if(!select) return currentValue;
@@ -155,10 +170,12 @@ function syncRenderOnlyUrlParams(){
   if(form?.elements?.cards_per_row) form.elements.cards_per_row.value = String(dashboardCardsPerRow);
   if(form?.elements?.show_volume) form.elements.show_volume.value = dashboardShowVolume ? '1' : '0';
   if(form?.elements?.show_price) form.elements.show_price.value = dashboardShowPrice ? '1' : '0';
+  if(form?.elements?.card_sort) form.elements.card_sort.value = dashboardCardSort;
   url.searchParams.set('page', String(dashboardCurrentPage));
   url.searchParams.set('cards_per_row', String(dashboardCardsPerRow));
   url.searchParams.set('show_volume', dashboardShowVolume ? '1' : '0');
   url.searchParams.set('show_price', dashboardShowPrice ? '1' : '0');
+  url.searchParams.set('card_sort', dashboardCardSort);
   window.history.replaceState(null, '', url.toString());
 }
 async function renderDashboardPage(page=dashboardCurrentPage){

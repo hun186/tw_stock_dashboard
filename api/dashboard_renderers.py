@@ -61,6 +61,7 @@ def render_stock_item(
         "signal_code": signal_code(stock_item),
         "signal_label": signal_label(stock_item),
         "volume_ratio": float(stock_item.get("sort_metrics", {}).get("volume_ratio", 0.0) or 0.0),
+        "sort_metrics": stock_item.get("sort_metrics", {}).copy(),
         "has_chart_data": not df.empty,
         "research": stock_research_payload(
             row=row,
