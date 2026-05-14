@@ -181,6 +181,34 @@ function syncRenderOnlyUrlParams(){
   url.searchParams.set('card_sort_direction', dashboardCardSortDirection);
   window.history.replaceState(null, '', url.toString());
 }
+
+function pageNavHtml(totalPages){
+  const page = dashboardCurrentPage;
+  const prevPage = Math.max(1, page - 1);
+  const nextPage = Math.min(totalPages, page + 1);
+  const atFirst = page <= 1;
+  const atLast = page >= totalPages;
+  return `<button type='button' class='page-nav-button' onclick='goToPage(1)' ${atFirst ? 'disabled' : ''} aria-label='第一頁'>首頁</button>`
+    + `<button type='button' class='page-nav-button' onclick='goToPage(${prevPage})' ${atFirst ? 'disabled' : ''} aria-label='上一頁'>上一頁</button>`
+    + `<label class='page-jump' aria-label='跳到指定頁碼'><span class='page-jump-prefix'>第</span>`
+    + `<input id='pageJumpInput' class='page-jump-input' type='number' min='1' max='${totalPages}' value='${page}' inputmode='numeric' onkeydown='handlePageJumpKey(event)' onchange='submitPageJump(this.value)' aria-label='頁碼'>`
+    + `<span class='page-jump-total'>/ ${totalPages} 頁</span></label>`
+    + `<button type='button' class='page-nav-button' onclick='goToPage(${nextPage})' ${atLast ? 'disabled' : ''} aria-label='下一頁'>下一頁</button>`
+    + `<button type='button' class='page-nav-button' onclick='goToPage(${totalPages})' ${atLast ? 'disabled' : ''} aria-label='最後一頁'>最後一頁</button>`;
+}
+function submitPageJump(value){
+  const items = filteredDashboardItems();
+  const totalPages = Math.max(1, Math.ceil(items.length / dashboardPageSize));
+  const targetPage = Math.min(Math.max(Number(value) || dashboardCurrentPage, 1), totalPages);
+  goToPage(targetPage);
+}
+function handlePageJumpKey(event){
+  if(event.key === 'Enter'){
+    event.preventDefault();
+    submitPageJump(event.currentTarget.value);
+  }
+}
+
 async function renderDashboardPage(page=dashboardCurrentPage){
   const items = filteredDashboardItems();
   const total = items.length;
@@ -207,10 +235,7 @@ async function renderDashboardPage(page=dashboardCurrentPage){
   if(summaryValues[1]) summaryValues[1].textContent = `${dashboardCurrentPage} / ${totalPages}`;
   if(summaryValues[2]) summaryValues[2].textContent = `${dashboardPageSize} 檔`;
   const nav = document.getElementById('pageNav');
-  if(nav){
-    nav.innerHTML = `<button type='button' onclick='goToPage(${Math.max(1, dashboardCurrentPage - 1)})' ${dashboardCurrentPage <= 1 ? 'disabled' : ''}>上一頁</button>`
-      + `<button type='button' onclick='goToPage(${Math.min(totalPages, dashboardCurrentPage + 1)})' ${dashboardCurrentPage >= totalPages ? 'disabled' : ''}>下一頁</button>`;
-  }
+  if(nav) nav.innerHTML = pageNavHtml(totalPages);
   populateStockMetaControls();
   applyNotesToTableAndCards();
   updateResponsiveGrid();

@@ -146,8 +146,15 @@ def render_dashboard_document(
           <span class='section-toggle-icon' aria-hidden='true'>▾</span><span id='overviewTitle' class='section-toggle-title'>總覽</span>
         </button>
         <div id='pageNav' class='page-nav'>
-          <button type='button' onclick='goToPage({max(1, page-1)})' {'disabled' if page <= 1 else ''}>上一頁</button>
-          <button type='button' onclick='goToPage({min(total_pages, page+1)})' {'disabled' if page >= total_pages else ''}>下一頁</button>
+          <button type='button' class='page-nav-button' onclick='goToPage(1)' {'disabled' if page <= 1 else ''} aria-label='第一頁'>首頁</button>
+          <button type='button' class='page-nav-button' onclick='goToPage({max(1, page-1)})' {'disabled' if page <= 1 else ''} aria-label='上一頁'>上一頁</button>
+          <label class='page-jump' aria-label='跳到指定頁碼'>
+            <span class='page-jump-prefix'>第</span>
+            <input id='pageJumpInput' class='page-jump-input' type='number' min='1' max='{total_pages}' value='{page}' inputmode='numeric' onkeydown='handlePageJumpKey(event)' onchange='submitPageJump(this.value)' aria-label='頁碼'>
+            <span class='page-jump-total'>/ {total_pages} 頁</span>
+          </label>
+          <button type='button' class='page-nav-button' onclick='goToPage({min(total_pages, page+1)})' {'disabled' if page >= total_pages else ''} aria-label='下一頁'>下一頁</button>
+          <button type='button' class='page-nav-button' onclick='goToPage({total_pages})' {'disabled' if page >= total_pages else ''} aria-label='最後一頁'>最後一頁</button>
         </div>
       </div>
       <div id='overviewBody' class='collapsible-content'>

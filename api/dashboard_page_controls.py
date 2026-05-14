@@ -79,7 +79,6 @@ def render_dashboard_control_panel(
           <div class='field-stack'>
             <label class='form-field'>形勢判斷篩選<select name='status_filter'>{status_options}</select></label>
             <label class='form-field'>檔數<input name='limit' value='{limit}' size='3'/></label>
-            <label class='form-field'>頁碼<input name='page' value='{page}' size='3'/></label>
             <label class='form-field'>目標價<select name='show_target_price'><option value='0' {'selected' if not show_target_price else ''}>關閉（較快）</option><option value='1' {'selected' if show_target_price else ''}>開啟</option></select></label>
             <label class='form-field'>精簡進度<select name='compact_progress'><option value='1' {'selected' if compact_progress else ''}>開啟（省空間）</option><option value='0' {'selected' if not compact_progress else ''}>關閉（詳細）</option></select></label>
           </div>
@@ -112,6 +111,7 @@ def render_dashboard_control_panel(
           </div>
         </fieldset>
       </div>
+      <input type='hidden' name='page' value='{page}'>
       <input type='hidden' name='stock_meta_payload' id='stockMetaPayload' value='{html.escape(stock_meta_payload_raw, quote=True)}'>
       <div class='form-actions'>
         <div class='utility-actions' data-title='設定與備份'>
