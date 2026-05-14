@@ -97,7 +97,7 @@ document.getElementById('cfgForm')?.addEventListener('submit', (event)=>{
   syncStockMetaPayload();
   showLoadingProgress('更新儀表板');
 });
-const AUTO_SUBMIT_FIELDS = new Set(['tab','industry','period','interval','limit','group_filter','subgroup_filter','show_target_price','compact_progress','card_sort']);
+const AUTO_SUBMIT_FIELDS = new Set(['tab','industry','period','interval','limit','group_filter','subgroup_filter','show_target_price','compact_progress']);
 document.getElementById('cfgForm')?.addEventListener('change', (event)=>{
   const fieldName = event.target?.name;
   if(fieldName === 'cards_per_row'){
@@ -105,6 +105,12 @@ document.getElementById('cfgForm')?.addEventListener('change', (event)=>{
     updateResponsiveGrid();
     syncRenderOnlyUrlParams();
     showWatchlistStatus(`已改成每列 ${dashboardCardsPerRow} 檔，未重新下載行情或重算篩選。`);
+    return;
+  }
+  if(fieldName === 'card_sort'){
+    dashboardCardSort = String(event.target.value || 'signal_score');
+    renderDashboardPage(1);
+    showWatchlistStatus('已重排圖塊與總表，直接使用目前載入的排序資料，未重新下載行情或重算技術分析。');
     return;
   }
   if(fieldName === 'show_volume'){

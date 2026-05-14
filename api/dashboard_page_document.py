@@ -219,6 +219,7 @@ def render_dashboard_document(
     let dashboardCardsPerRow = Number(defaultConfig.cards_per_row || 3);
     let dashboardShowVolume = String(defaultConfig.show_volume ?? '1') === '1';
     let dashboardShowPrice = String(defaultConfig.show_price ?? '1') === '1';
+    let dashboardCardSort = String(defaultConfig.card_sort || 'signal_score');
     let dashboardShowTableThemeMeta = false;
     let dashboardShowCardThemeMeta = false;
     {DASHBOARD_JS}
