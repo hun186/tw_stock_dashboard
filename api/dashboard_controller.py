@@ -50,6 +50,7 @@ def render_dashboard_response(request: DashboardRequest) -> str:
     show_price = request.show_price
     show_target_price = request.show_target_price
     card_sort = request.card_sort
+    card_sort_direction = request.card_sort_direction
     compact_progress = request.compact_progress
     theme_summary_keyword = request.theme_summary_keyword
     theme_signal_code = request.theme_signal_code
@@ -100,6 +101,7 @@ def render_dashboard_response(request: DashboardRequest) -> str:
         display_period=display_period,
         show_target_price=show_target_price,
         card_sort=card_sort,
+        card_sort_direction=card_sort_direction,
         status_filter=status_filter,
         theme_signal_code=theme_signal_code,
         theme_signal_bucket=theme_signal_bucket,
@@ -146,6 +148,7 @@ def render_dashboard_response(request: DashboardRequest) -> str:
         analyzed_stocks=analyzed_stocks,
         candidate_count=candidate_count,
         card_sort=card_sort,
+        card_sort_direction=card_sort_direction,
         cards_data=render_payload.cards_data,
         cards_per_row=cards_per_row,
         client_render_all_cards=render_payload.client_render_all_cards,

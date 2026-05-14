@@ -34,7 +34,7 @@ class DashboardPipelineLimitTests(unittest.TestCase):
             "status": "中性",
             "bucket": "neutral",
             "close_text": "-",
-            "sort_metrics": {"symbol": symbol, "change_pct": 0.0, "signal_score": 0.0},
+            "sort_metrics": {"symbol": symbol, "close": float(symbol.split(".")[0]), "volume": 0.0, "change_pct": 0.0, "target_ratio": -1.0, "signal_score": 0.0},
             "target_price_text": "-",
             "target_ratio_text": "-",
         }
@@ -93,6 +93,53 @@ class DashboardPipelineLimitTests(unittest.TestCase):
         self.assertEqual(len(result.analyzed_stocks), 240)
         self.assertEqual(result.max_serverless_analysis_stocks, 240)
         self.assertEqual(self.prefetch_counts, [240])
+
+    def test_card_sort_direction_can_sort_loaded_items_ascending(self) -> None:
+        self.prefetch_counts = []
+
+        result = run_dashboard_analysis(
+            stocks=self._stocks(3),
+            period="daily",
+            fetch_period="6mo",
+            fetch_interval="1d",
+            display_period="6mo",
+            show_target_price=False,
+            card_sort="symbol",
+            card_sort_direction="asc",
+            status_filter="all",
+            tab="category",
+            industry="all",
+            custom_watchlist_raw="",
+            group_filter="all",
+            subgroup_filter="all",
+            prefetch_price_data=self._prefetch,
+            build_stock_analysis=self._analysis,
+        )
+
+        self.assertEqual([item["row"].symbol for item in result.sorted_stocks], ["0000.TW", "0001.TW", "0002.TW"])
+
+    def test_default_card_sort_direction_keeps_descending_order(self) -> None:
+        self.prefetch_counts = []
+
+        result = run_dashboard_analysis(
+            stocks=self._stocks(3),
+            period="daily",
+            fetch_period="6mo",
+            fetch_interval="1d",
+            display_period="6mo",
+            show_target_price=False,
+            card_sort="symbol",
+            status_filter="all",
+            tab="category",
+            industry="all",
+            custom_watchlist_raw="",
+            group_filter="all",
+            subgroup_filter="all",
+            prefetch_price_data=self._prefetch,
+            build_stock_analysis=self._analysis,
+        )
+
+        self.assertEqual([item["row"].symbol for item in result.sorted_stocks], ["0002.TW", "0001.TW", "0000.TW"])
 
 
 if __name__ == "__main__":

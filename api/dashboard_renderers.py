@@ -8,6 +8,7 @@ from api.dashboard_table_renderers import (
     STOCK_META_FIELD_LABELS,
     render_note_editor,
     render_stock_meta_cells,
+    render_change_pct_text,
     render_stock_row,
     render_watchlist_action_button,
 )
@@ -35,6 +36,7 @@ def render_stock_item(
     close_text = stock_item["close_text"]
     target_price_text = stock_item["target_price_text"]
     target_ratio_text = stock_item["target_ratio_text"]
+    change_pct_text = render_change_pct_text(stock_item.get("sort_metrics"))
     summary_text = _theme_summary_text(getattr(row, "summary", ""))
     reference_url = getattr(row, "reference_url", "")
     reference_html = _theme_reference_html(reference_url)
@@ -80,6 +82,7 @@ def render_stock_item(
             close_text=close_text,
             target_price_text=target_price_text,
             target_ratio_text=target_ratio_text,
+            change_pct_text=change_pct_text,
             summary_text=summary_text,
             reference_html=reference_html,
         ),
@@ -120,6 +123,7 @@ __all__ = [
     "render_note_editor",
     "render_stock_item",
     "render_stock_meta_cells",
+    "render_change_pct_text",
     "render_stock_row",
     "render_watchlist_action_button",
     "target_ratio_color",

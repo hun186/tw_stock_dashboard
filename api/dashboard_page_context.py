@@ -90,6 +90,7 @@ def build_save_payload(
     show_price: bool,
     show_target_price: bool,
     card_sort: str,
+    card_sort_direction: str,
     compact_progress: bool,
     page: int,
 ) -> dict[str, Any]:
@@ -116,6 +117,7 @@ def build_save_payload(
         "show_price": "1" if show_price else "0",
         "show_target_price": "1" if show_target_price else "0",
         "card_sort": card_sort,
+        "card_sort_direction": card_sort_direction,
         "compact_progress": "1" if compact_progress else "0",
         "page": page,
     }
@@ -156,4 +158,4 @@ def build_progress_context(
 
 def render_table_header_html(*, tab: str) -> str:
     action_column_label = "移除" if tab == "watchlist" else "自選"
-    return f"<tr><th>{action_column_label}</th><th>狀態</th><th>代號</th><th>名稱</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>題材</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th class='theme-summary-cell'>題材摘要</th><th class='source-cell'>來源</th></tr>"
+    return f"<tr><th>{action_column_label}</th><th>狀態</th><th>代號</th><th>名稱</th><th>形勢判斷</th><th>收盤</th><th>漲跌幅</th><th>目標價</th><th>目標價/現價</th><th>題材</th><th>操作方法</th><th>個股特性</th><th>行情階段</th><th>風險與觀察</th><th>備註</th><th class='theme-summary-cell'>題材摘要</th><th class='source-cell'>來源</th></tr>"

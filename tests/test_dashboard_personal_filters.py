@@ -39,7 +39,7 @@ class DashboardPersonalFilterTests(unittest.TestCase):
             response = b"".join(dashboard_app.app({"QUERY_STRING": query}, lambda *_args: None)).decode("utf-8")
 
         self.assertIn("<tr><th>移除</th><th>狀態</th>", response)
-        self.assertIn("<th>名稱</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>題材</th>", response)
+        self.assertIn("<th>名稱</th><th>形勢判斷</th><th>收盤</th><th>漲跌幅</th><th>目標價</th><th>目標價/現價</th><th>題材</th>", response)
         self.assertIn("<th>風險與觀察</th><th>備註</th><th class='theme-summary-cell'>題材摘要</th><th class='source-cell'>來源</th></tr>", response)
         self.assertIn("class='row-action-cell'><button type='button' class='watchlist-action is-icon is-remove'", response)
         self.assertIn(">−</button>", response)
@@ -104,7 +104,7 @@ class DashboardPersonalFilterTests(unittest.TestCase):
 
         self.assertIn("<option value='AI伺服器' selected>AI伺服器</option>", response)
         self.assertIn("<option value='系統組裝' selected>系統組裝</option>", response)
-        self.assertIn("<th>名稱</th><th>形勢判斷</th><th>收盤</th><th>目標價</th><th>目標價/現價</th><th>題材</th>", response)
+        self.assertIn("<th>名稱</th><th>形勢判斷</th><th>收盤</th><th>漲跌幅</th><th>目標價</th><th>目標價/現價</th><th>題材</th>", response)
         self.assertIn("<td class='theme-cell'><div class='theme-compact' title='主題分類：AI伺服器；次題材：系統組裝'>", response)
         self.assertIn("<span class='theme-chip theme-chip-main'>AI伺服器</span>", response)
         self.assertIn("<span class='theme-chip theme-chip-sub'>系統組裝</span>", response)

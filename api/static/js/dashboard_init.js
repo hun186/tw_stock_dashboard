@@ -107,10 +107,12 @@ document.getElementById('cfgForm')?.addEventListener('change', (event)=>{
     showWatchlistStatus(`已改成每列 ${dashboardCardsPerRow} 檔，未重新下載行情或重算篩選。`);
     return;
   }
-  if(fieldName === 'card_sort'){
-    dashboardCardSort = String(event.target.value || 'signal_score');
+  if(fieldName === 'card_sort' || fieldName === 'card_sort_direction'){
+    dashboardCardSort = String(document.querySelector('[name="card_sort"]')?.value || 'signal_score');
+    dashboardCardSortDirection = String(document.querySelector('[name="card_sort_direction"]')?.value || 'desc') === 'asc' ? 'asc' : 'desc';
     renderDashboardPage(1);
-    showWatchlistStatus('已重排圖塊與總表，直接使用目前載入的排序資料，未重新下載行情或重算技術分析。');
+    const directionText = dashboardCardSortDirection === 'asc' ? '由小排到大' : '由大排到小';
+    showWatchlistStatus(`已改為${directionText}並重排顯示條目，直接使用目前載入的排序資料，未重新下載行情或重算技術分析。`);
     return;
   }
   if(fieldName === 'show_volume'){

@@ -10,6 +10,7 @@ from api.data_loader import STOCK_GROUP_COLUMNS
 
 def render_dashboard_document(
     card_sort,
+    card_sort_direction,
     cards_data,
     cards_per_row,
     category_all_coverage_notice,
@@ -59,6 +60,7 @@ def render_dashboard_document(
 ) -> str:
     control_panel_html = render_dashboard_control_panel(
         card_sort=card_sort,
+        card_sort_direction=card_sort_direction,
         cards_per_row=cards_per_row,
         compact_progress=compact_progress,
         current_progress_stage=current_progress_stage,
@@ -220,6 +222,7 @@ def render_dashboard_document(
     let dashboardShowVolume = String(defaultConfig.show_volume ?? '1') === '1';
     let dashboardShowPrice = String(defaultConfig.show_price ?? '1') === '1';
     let dashboardCardSort = String(defaultConfig.card_sort || 'signal_score');
+    let dashboardCardSortDirection = String(defaultConfig.card_sort_direction || 'desc') === 'asc' ? 'asc' : 'desc';
     let dashboardShowTableThemeMeta = false;
     let dashboardShowCardThemeMeta = false;
     {DASHBOARD_JS}

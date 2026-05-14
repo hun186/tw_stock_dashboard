@@ -73,6 +73,7 @@ def render_dashboard_page(
     analyzed_stocks,
     candidate_count,
     card_sort,
+    card_sort_direction,
     cards_data,
     cards_per_row,
     client_render_all_cards,
@@ -178,6 +179,7 @@ def render_dashboard_page(
         show_price=show_price,
         show_target_price=show_target_price,
         card_sort=card_sort,
+        card_sort_direction=card_sort_direction,
         compact_progress=compact_progress,
         page=page,
     )
@@ -217,6 +219,7 @@ def render_dashboard_page(
 
     body = render_dashboard_document(
         card_sort=card_sort,
+        card_sort_direction=card_sort_direction,
         cards_data=cards_data,
         cards_per_row=cards_per_row,
         category_all_coverage_notice=category_all_coverage_notice,

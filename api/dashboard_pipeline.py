@@ -58,6 +58,7 @@ def run_dashboard_analysis(
     display_period: str,
     show_target_price: bool,
     card_sort: str,
+    card_sort_direction: str = "desc",
     status_filter: str,
     theme_signal_code: str = "all",
     theme_signal_bucket: str = "all",
@@ -148,10 +149,11 @@ def run_dashboard_analysis(
     theme_signal_code = normalize_signal_code(theme_signal_code, {code for code, _label in signal_code_options})
 
     sorted_stocks = analyzed_stocks.copy()
+    is_descending = card_sort_direction != "asc"
     if card_sort == "symbol":
-        sorted_stocks.sort(key=lambda item: item["sort_metrics"]["symbol"])
+        sorted_stocks.sort(key=lambda item: item["sort_metrics"]["symbol"], reverse=is_descending)
     else:
-        sorted_stocks.sort(key=lambda item: item["sort_metrics"][card_sort], reverse=True)
+        sorted_stocks.sort(key=lambda item: item["sort_metrics"][card_sort], reverse=is_descending)
 
     filtered_stocks = filter_analyzed_stocks(
         sorted_stocks,
