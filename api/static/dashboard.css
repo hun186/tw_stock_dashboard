@@ -1,4 +1,4 @@
-  :root{--bg:#f4f7fb;--panel:#fff;--ink:#172033;--muted:#64748b;--line:#dbe4f0;--brand:#2563eb;--brand-dark:#1d4ed8;--brand-soft:#eaf1ff;--shadow:0 14px 36px rgba(15,23,42,.09);--radius:18px}
+  :root{--bg:#f4f7fb;--panel:#fff;--ink:#172033;--muted:#64748b;--line:#dbe4f0;--brand:#2563eb;--brand-dark:#1d4ed8;--brand-soft:#eaf1ff;--up:#dc2626;--down:#16a34a;--flat:#111827;--shadow:0 14px 36px rgba(15,23,42,.09);--radius:18px}
   *{box-sizing:border-box}
   body{font-family:Arial,'Noto Sans TC',sans-serif;margin:0;line-height:1.45;color:var(--ink);background:linear-gradient(180deg,#eef4ff 0,#f7f9fc 240px,var(--bg) 100%);padding:20px}
   .page-shell{max-width:1680px;margin:0 auto}
@@ -128,10 +128,10 @@
   td:last-child,th:last-child{border-right:1px solid #e2e8f0}
   tr:hover td{background:#f8fbff}
   table th:nth-child(6), table td:nth-child(6), table th:nth-child(7), table td:nth-child(7), table th:nth-child(8), table td:nth-child(8), table th:nth-child(9), table td:nth-child(9){text-align:right}
-  .change-pct-cell{font-weight:800;color:#334155}
+  .change-pct-cell{font-weight:800;color:var(--flat)}
   .change-pct-cell.is-up{color:var(--up)}
   .change-pct-cell.is-down{color:var(--down)}
-  .change-pct-cell.is-flat{color:#64748b}
+  .change-pct-cell.is-flat{color:var(--flat)}
   .row-action-cell{text-align:center;width:42px;min-width:42px}
   .table-wrap th:nth-child(1),.table-wrap td:nth-child(1){width:42px;min-width:42px}
   .status-icon-cell{text-align:center;width:54px;min-width:54px}
