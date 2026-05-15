@@ -59,14 +59,30 @@ def render_note_editor(symbol: str) -> str:
     )
 
 
-def render_change_pct_text(sort_metrics: dict | None) -> str:
+def change_pct_value(sort_metrics: dict | None) -> float | None:
     if not isinstance(sort_metrics, dict):
-        return "-"
+        return None
     try:
         value = float(sort_metrics.get('change_pct'))
     except (TypeError, ValueError):
-        return "-"
-    return "-" if value <= -998 else f"{value:+.2f}%"
+        return None
+    return None if value <= -998 else value
+
+
+def render_change_pct_text(sort_metrics: dict | None) -> str:
+    value = change_pct_value(sort_metrics)
+    return "-" if value is None else f"{value:+.2f}%"
+
+
+def render_change_pct_class(sort_metrics: dict | None) -> str:
+    value = change_pct_value(sort_metrics)
+    if value is None:
+        return ""
+    if value > 0:
+        return " is-up"
+    if value < 0:
+        return " is-down"
+    return " is-flat"
 
 
 def render_stock_row(
@@ -79,6 +95,7 @@ def render_stock_row(
     target_price_text: str,
     target_ratio_text: str,
     change_pct_text: str,
+    change_pct_class: str,
     summary_text: str,
     reference_html: str,
 ) -> str:
@@ -98,7 +115,7 @@ def render_stock_row(
         f"data-summary='{html.escape(summary_text, quote=True)}'>"
         f"<td class='row-action-cell'>{action_btn}</td><td class='status-icon-cell'>{html.escape(status.split()[0])}</td><td class='symbol-cell'>{research_symbol_button}</td>"
         f"<td class='name-cell'><div class='name-cell-actions'>{name_jump_button}</div></td><td class='signal-cell'>{html.escape(status)}</td>"
-        f"<td>{close_text}</td><td class='change-pct-cell'>{change_pct_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td><td class='theme-cell'>{theme_compact_html}</td>"
+        f"<td>{close_text}</td><td class='change-pct-cell{change_pct_class}'>{change_pct_text}</td><td>{target_price_text}</td><td>{target_ratio_text}</td><td class='theme-cell'>{theme_compact_html}</td>"
         f"{render_stock_meta_cells(row.symbol)}<td class='note-cell'>{render_note_editor(row.symbol)}</td>"
         f"<td class='theme-summary-cell'>{html.escape(summary_text)}</td><td class='source-cell'>{reference_html}</td></tr>"
     )
