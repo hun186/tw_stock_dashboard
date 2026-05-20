@@ -3,9 +3,11 @@ name: Rebuild prebuilt cache
 on:
   workflow_dispatch:
   schedule:
-    # 台股約 13:30 (Asia/Taipei) 收盤，14:10 (Asia/Taipei) ≈ 06:10 UTC。
+    # 13:40 (Asia/Taipei) 快版：05:40 UTC。
+    - cron: "40 5 * * 1-5"
+    # 14:30 (Asia/Taipei) 終版：06:30 UTC。
     # 若這次執行失敗，retry-prebuilt-cache workflow 會等 15 分鐘後補跑一次。
-    - cron: "10 6 * * 1-5"
+    - cron: "30 6 * * 1-5"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -41,7 +43,12 @@ jobs:
         run: python scripts/prebuild_price_cache.py
 
       - name: Build daily theme report from refreshed cache
-        run: python scripts/generate_theme_daily_report.py
+        run: |
+          STAGE="final"
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "40 5 * * 1-5" ]; then
+            STAGE="flash"
+          fi
+          python scripts/generate_theme_daily_report.py --stage "$STAGE"
 
       - name: Commit updated cache and report
         run: |
