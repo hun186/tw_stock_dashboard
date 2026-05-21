@@ -94,6 +94,18 @@ def _sort_by_signal_then_change(items: Iterable[dict], *, reverse: bool = True) 
     )
 
 
+def _target_ratio_visual(target_ratio_text: str) -> str:
+    ratio = _clean_text(target_ratio_text)
+    if not ratio.endswith("%"):
+        return ratio or "-"
+    try:
+        value = float(ratio[:-1])
+    except ValueError:
+        return ratio
+    color = "#dc2626" if value > 100 else "#16a34a"
+    return f"<span style=\"color:{color};font-weight:700\">{ratio}</span>"
+
+
 def _stock_line(item: dict) -> str:
     symbol = row_value(item, "symbol") or "未知代號"
     name = row_value(item, "name") or "未知名稱"
@@ -104,12 +116,17 @@ def _stock_line(item: dict) -> str:
     sort_metrics = item.get("sort_metrics", {}) if isinstance(item.get("sort_metrics"), dict) else {}
     change = sort_metrics.get("change_pct")
     change_text = "-" if (not has_price_data(item) or change in {None, ""}) else f"{float(change):+.2f}%"
+    target_price = _clean_text(item.get("target_price_text") or "-")
+    target_ratio = _clean_text(item.get("target_ratio_text") or "-")
+    target_ratio_visual = _target_ratio_visual(target_ratio)
     summary = short_summary(row_value(item, "summary"))
     reference = stock_reference_text(row_value(item, "reference_url"))
     price_note = "" if has_price_data(item) else f" — {PRICE_MISSING_TEXT}"
     return (
         f"- **{symbol} {name}**（{group} / {subgroup}）：{signal}，"
         f"收盤 {close}，漲跌 {change_text}{price_note}\n"
+        f"  - 目標價：{target_price}\n"
+        f"  - 目標/現價：{target_ratio_visual}\n"
         f"  - Gemini 摘要：{summary}\n"
         f"  - reference_url：{reference}\n"
         f"{_stock_chart_markdown(item)}"
