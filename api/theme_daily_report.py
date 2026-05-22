@@ -39,6 +39,7 @@ class DailyReportConfig:
     top_n: int = 5
     theme_stock_limit: int = 5
     highlight_limit: int = 10
+    stage: str = "final"
 
 
 def _clean_text(value: object) -> str:
@@ -93,6 +94,18 @@ def _sort_by_signal_then_change(items: Iterable[dict], *, reverse: bool = True) 
     )
 
 
+def _target_ratio_visual(target_ratio_text: str) -> str:
+    ratio = _clean_text(target_ratio_text)
+    if not ratio.endswith("%"):
+        return ratio or "-"
+    try:
+        value = float(ratio[:-1])
+    except ValueError:
+        return ratio
+    color = "#dc2626" if value > 100 else "#16a34a"
+    return f"<span style=\"color:{color};font-weight:700\">{ratio}</span>"
+
+
 def _stock_line(item: dict) -> str:
     symbol = row_value(item, "symbol") or "未知代號"
     name = row_value(item, "name") or "未知名稱"
@@ -103,12 +116,17 @@ def _stock_line(item: dict) -> str:
     sort_metrics = item.get("sort_metrics", {}) if isinstance(item.get("sort_metrics"), dict) else {}
     change = sort_metrics.get("change_pct")
     change_text = "-" if (not has_price_data(item) or change in {None, ""}) else f"{float(change):+.2f}%"
+    target_price = _clean_text(item.get("target_price_text") or "-")
+    target_ratio = _clean_text(item.get("target_ratio_text") or "-")
+    target_ratio_visual = _target_ratio_visual(target_ratio)
     summary = short_summary(row_value(item, "summary"))
     reference = stock_reference_text(row_value(item, "reference_url"))
     price_note = "" if has_price_data(item) else f" — {PRICE_MISSING_TEXT}"
     return (
         f"- **{symbol} {name}**（{group} / {subgroup}）：{signal}，"
         f"收盤 {close}，漲跌 {change_text}{price_note}\n"
+        f"  - 目標價：{target_price}\n"
+        f"  - 目標/現價：{target_ratio_visual}\n"
         f"  - Gemini 摘要：{summary}\n"
         f"  - reference_url：{reference}\n"
         f"{_stock_chart_markdown(item)}"
@@ -373,8 +391,12 @@ def render_daily_theme_report(
     summary_missing_count = sum(1 for item in analyzed_stocks if not row_value(item, "summary"))
     reference_missing_count = sum(1 for item in analyzed_stocks if not row_value(item, "reference_url"))
 
+    stage = _clean_text(config.stage).lower() or "final"
+    stage_label = "快版" if stage == "flash" else "終版"
     parts = [
         f"# 台股每日題材快報（{config.as_of}）",
+        "",
+        f"- 報告版本：{stage_label}",
         "",
         "## 資料品質提示",
         f"- 已分析股票：{len(analyzed_stocks)} 檔",
@@ -563,6 +585,7 @@ def generate_daily_theme_report(
     stock_limit: int | None = None,
     allow_live_fetch: bool = False,
     as_of: str | None = None,
+    stage: str = "final",
 ) -> Path:
     report_as_of = as_of or date.today().isoformat()
     output_path = output_path or dated_daily_theme_report_path(report_as_of)
@@ -572,7 +595,7 @@ def generate_daily_theme_report(
     analyzed = analyze_stock_pool_for_report(stocks, allow_live_fetch=allow_live_fetch)
     markdown = render_daily_theme_report(
         analyzed,
-        config=DailyReportConfig(as_of=report_as_of, top_n=top_n),
+        config=DailyReportConfig(as_of=report_as_of, top_n=top_n, stage=stage),
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(markdown, encoding="utf-8")
@@ -591,6 +614,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stock-limit", type=int, default=None, help="限制分析股票數，方便本機快速試跑。")
     parser.add_argument("--allow-live-fetch", action="store_true", help="允許缺少本機快取時即時抓價；預設只使用可用快取並清楚標示缺資料。")
     parser.add_argument("--as-of", default=None, help="指定日報日期文字，預設使用今天。")
+    parser.add_argument("--stage", choices=["flash", "final"], default="final", help="報告版本：flash=快版，final=終版（預設）。")
     return parser
 
 
@@ -602,6 +626,7 @@ def main(argv: list[str] | None = None) -> None:
         stock_limit=args.stock_limit,
         allow_live_fetch=args.allow_live_fetch,
         as_of=args.as_of,
+        stage=args.stage,
     )
     print(f"wrote daily theme report to {output}")
 

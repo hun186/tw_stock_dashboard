@@ -38,6 +38,8 @@ def _item(
     summary: str = "Gemini 摘要指出此公司受惠 AI 伺服器與高速傳輸升級，後續觀察訂單能見度。",
     reference_url: str = "https://example.com/report",
     close_text: str = "100.00",
+    target_price_text: str = "120.00",
+    target_ratio_text: str = "120.00%",
     has_price: bool = True,
 ) -> dict:
     return {
@@ -55,6 +57,8 @@ def _item(
             "signal_score": score,
             "volume_ratio": 2.0,
         },
+        "target_price_text": target_price_text if has_price else "-",
+        "target_ratio_text": target_ratio_text if has_price else "-",
     }
 
 
@@ -114,6 +118,8 @@ def test_render_daily_theme_report_includes_phase5_sections_and_stock_context() 
     assert "## 過熱股" in report
     assert "## 跌破 MA20 股" in report
     assert "**2330.TW 台積電**" in report
+    assert "目標價：120.00" in report
+    assert "目標/現價：<span style=\"color:#dc2626;font-weight:700\">120.00%</span>" in report
     assert "Gemini 摘要" in report
     assert "reference_url：https://example.com/report" in report
     assert "熱度分數" in report
