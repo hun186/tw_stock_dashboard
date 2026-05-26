@@ -182,7 +182,7 @@ def _resolve_conflicting_symbol_names(df: pd.DataFrame) -> pd.DataFrame:
 
         parts.append(group.tail(1))
         warning = (
-            f"偵測到代號 {symbol} 出現多個名稱（{', '.join(group["name"].tolist())}），"
+            f"偵測到代號 {symbol} 出現多個名稱（{', '.join(group['name'].tolist())}），"
             "但找不到可驗證官方名稱，暫時保留最後一筆"
         )
         _LAST_GROUP_MAP_WARNINGS.append(warning)
