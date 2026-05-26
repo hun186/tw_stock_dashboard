@@ -25,6 +25,7 @@ class DashboardPipelineLimitTests(unittest.TestCase):
 
     def _prefetch(self, stocks, *_args, **_kwargs):
         self.prefetch_counts.append(len(stocks))
+        self.prefetch_kwargs.append(_kwargs)
         return {}
 
     def _analysis(self, symbol, *_args):
@@ -41,6 +42,7 @@ class DashboardPipelineLimitTests(unittest.TestCase):
 
     def test_serverless_topic_requests_can_analyze_complete_etf_subtheme_pool(self) -> None:
         self.prefetch_counts = []
+        self.prefetch_kwargs = []
 
         with patch.dict(os.environ, {"VERCEL": "1"}, clear=False):
             result = run_dashboard_analysis(
@@ -68,6 +70,7 @@ class DashboardPipelineLimitTests(unittest.TestCase):
 
     def test_serverless_broad_requests_keep_conservative_limit(self) -> None:
         self.prefetch_counts = []
+        self.prefetch_kwargs = []
 
         with patch.dict(os.environ, {"VERCEL": "1"}, clear=False):
             result = run_dashboard_analysis(
@@ -96,6 +99,7 @@ class DashboardPipelineLimitTests(unittest.TestCase):
 
     def test_card_sort_direction_can_sort_loaded_items_ascending(self) -> None:
         self.prefetch_counts = []
+        self.prefetch_kwargs = []
 
         result = run_dashboard_analysis(
             stocks=self._stocks(3),
@@ -120,6 +124,7 @@ class DashboardPipelineLimitTests(unittest.TestCase):
 
     def test_default_card_sort_direction_keeps_descending_order(self) -> None:
         self.prefetch_counts = []
+        self.prefetch_kwargs = []
 
         result = run_dashboard_analysis(
             stocks=self._stocks(3),
@@ -140,7 +145,6 @@ class DashboardPipelineLimitTests(unittest.TestCase):
         )
 
         self.assertEqual([item["row"].symbol for item in result.sorted_stocks], ["0002.TW", "0001.TW", "0000.TW"])
-
 
 if __name__ == "__main__":
     unittest.main()
