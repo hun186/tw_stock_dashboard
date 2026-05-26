@@ -1,3 +1,4 @@
+import logging
 import time
 from functools import lru_cache
 from pathlib import Path
@@ -9,6 +10,9 @@ from .constants import INDUSTRY_CODE_NAME, TPEX_LISTED_INFO_API, TWSE_LISTED_INF
 
 
 STOCK_GROUP_COLUMNS = ["symbol", "name", "group", "subgroup", "summary", "reference_url"]
+
+logger = logging.getLogger(__name__)
+_LAST_GROUP_MAP_WARNINGS: list[str] = []
 
 
 def _empty_watchlist_df() -> pd.DataFrame:
@@ -48,6 +52,8 @@ GROUP_COLUMN_ALIASES = {
 
 
 def _normalize_group_map(df: pd.DataFrame) -> pd.DataFrame:
+    global _LAST_GROUP_MAP_WARNINGS
+    _LAST_GROUP_MAP_WARNINGS = []
     rename_map = {}
     for target, aliases in GROUP_COLUMN_ALIASES.items():
         for alias in aliases:
@@ -66,7 +72,7 @@ def _normalize_group_map(df: pd.DataFrame) -> pd.DataFrame:
     for col in STOCK_GROUP_COLUMNS:
         df[col] = df[col].fillna("").astype(str).str.strip()
     df = df[(df["symbol"] != "") & (df["group"] != "")].copy()
-    return df[STOCK_GROUP_COLUMNS].drop_duplicates(subset=["symbol"], keep="last")
+    return _resolve_conflicting_symbol_names(df[STOCK_GROUP_COLUMNS])
 
 
 @lru_cache(maxsize=16)
@@ -135,3 +141,56 @@ def _load_twse_industry_map_cached(cache_bucket: int) -> pd.DataFrame:
 def load_twse_industry_map() -> pd.DataFrame:
     cache_bucket = int(time.time() // (60 * 60 * 6))
     return _load_twse_industry_map_cached(cache_bucket).copy()
+
+
+def _resolve_conflicting_symbol_names(df: pd.DataFrame) -> pd.DataFrame:
+    conflicts = df.groupby("symbol")["name"].nunique()
+    conflict_symbols = conflicts[conflicts > 1].index.tolist()
+    if not conflict_symbols:
+        return df.drop_duplicates(subset=["symbol"], keep="last")
+
+    official_name_map: dict[str, str] = {}
+    try:
+        industry_df = load_twse_industry_map()
+        if not industry_df.empty and {"symbol", "name"}.issubset(industry_df.columns):
+            official_name_map = (
+                industry_df[["symbol", "name"]]
+                .dropna()
+                .assign(symbol=lambda d: d["symbol"].astype(str).str.strip(), name=lambda d: d["name"].astype(str).str.strip())
+                .drop_duplicates(subset=["symbol"], keep="last")
+                .set_index("symbol")["name"]
+                .to_dict()
+            )
+    except Exception:
+        logger.exception("載入上市櫃公司名稱對照失敗，將以原始資料去重")
+
+    parts: list[pd.DataFrame] = []
+    for symbol, group in df.groupby("symbol", sort=False):
+        if symbol not in conflict_symbols:
+            parts.append(group.tail(1))
+            continue
+
+        official_name = official_name_map.get(symbol, "")
+        if official_name:
+            matched = group[group["name"] == official_name]
+            if not matched.empty:
+                parts.append(matched.tail(1))
+                warning = f"偵測到代號 {symbol} 出現多個名稱，已保留與官方名稱一致資料：{official_name}"
+                _LAST_GROUP_MAP_WARNINGS.append(warning)
+                logger.warning("%s", warning)
+                continue
+
+        parts.append(group.tail(1))
+        warning = (
+            f"偵測到代號 {symbol} 出現多個名稱（{', '.join(group["name"].tolist())}），"
+            "但找不到可驗證官方名稱，暫時保留最後一筆"
+        )
+        _LAST_GROUP_MAP_WARNINGS.append(warning)
+        logger.warning("%s", warning)
+
+    resolved = pd.concat(parts, ignore_index=True)
+    return resolved.drop_duplicates(subset=["symbol"], keep="last")
+
+
+def get_last_group_map_warnings() -> list[str]:
+    return list(_LAST_GROUP_MAP_WARNINGS)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from api.dashboard_notices import render_category_all_coverage_notice, render_limited_notice
+from api.dashboard_notices import render_category_all_coverage_notice, render_data_quality_notice, render_limited_notice
 from api.dashboard_page_document import render_dashboard_document
 from api.dashboard_page_context import (
     build_progress_context,
@@ -195,6 +195,9 @@ def render_dashboard_page(
         industry_df=industry_df,
         source_stocks=source_stocks,
     )
+    data_quality_notice = render_data_quality_notice(
+        warnings=get_last_group_map_warnings(),
+    )
     progress_context = build_progress_context(
         analyzed_stocks=analyzed_stocks,
         candidate_count=candidate_count,
@@ -223,6 +226,7 @@ def render_dashboard_page(
         cards_data=cards_data,
         cards_per_row=cards_per_row,
         category_all_coverage_notice=category_all_coverage_notice,
+        data_quality_notice=data_quality_notice,
         client_render_all_cards=client_render_all_cards,
         compact_progress=compact_progress,
         current_progress_stage=current_progress_stage,

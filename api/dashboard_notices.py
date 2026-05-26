@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 from api.market_data import _symbol_key
 
 
@@ -40,4 +42,15 @@ def render_category_all_coverage_notice(*, tab: str, industry: str, industry_df,
         "這不等於停業，常見原因是 Excel 靜態資料、興櫃/ETF/代碼異動、"
         "下市櫃或官方 API 暫時取不到；請以 K 線是否可下載、公開資訊觀測站"
         "與交易所公告確認交易／營運狀態。</div>"
+    )
+
+
+def render_data_quality_notice(*, warnings: list[str]) -> str:
+    if not warnings:
+        return ""
+    items = "".join([f"<li>{html.escape(w)}</li>" for w in warnings])
+    return (
+        "<div class='notice'><strong>資料品質警示：</strong>偵測到題材清單代號/名稱衝突，"
+        "已自動套用防呆規則。請管理者人工檢查來源 Excel：<ul>"
+        f"{items}</ul></div>"
     )
