@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from api.dashboard_notices import render_category_all_coverage_notice, render_data_quality_notice, render_limited_notice
+from api.data_loader import get_last_group_map_warnings
 from api.dashboard_page_document import render_dashboard_document
 from api.dashboard_page_context import (
     build_progress_context,
