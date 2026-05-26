@@ -14,6 +14,7 @@ def render_dashboard_document(
     cards_data,
     cards_per_row,
     category_all_coverage_notice,
+    data_quality_notice,
     client_render_all_cards,
     compact_progress,
     current_progress_stage,
@@ -160,6 +161,7 @@ def render_dashboard_document(
       <div id='overviewBody' class='collapsible-content'>
       {limited_notice}
       {category_all_coverage_notice}
+      {data_quality_notice}
       <div id='summaryInfo' class='summary-strip'>
         <div class='summary-item'><span class='summary-label'>符合股數</span><span class='summary-value'>{total_stocks} 檔</span></div>
         <div class='summary-item'><span class='summary-label'>頁面進度</span><span class='summary-value'>{page} / {total_pages}</span></div>
