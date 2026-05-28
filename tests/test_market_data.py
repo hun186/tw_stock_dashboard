@@ -204,6 +204,21 @@ class MarketDataFreshnessTests(unittest.TestCase):
 
         self.assertEqual(result["Date"].max(), pd.Timestamp("2026-05-05"))
 
+    def test_prepare_price_df_treats_naive_tw_intraday_utc_timestamps_as_utc(self) -> None:
+        raw = pd.DataFrame({
+            "Open": [101.0, 102.0],
+            "High": [102.0, 103.0],
+            "Low": [100.0, 101.0],
+            "Close": [101.5, 102.5],
+            "Volume": [1000, 1500],
+        }, index=pd.to_datetime(["2026-05-28 01:05", "2026-05-28 01:10"]).rename("Date"))
+
+        result = market_data._prepare_price_df("2330.TW", raw, "1m")
+
+        self.assertFalse(result.empty)
+        self.assertEqual(result["Date"].iloc[0], pd.Timestamp("2026-05-28 09:05"))
+        self.assertEqual(result["Date"].iloc[-1], pd.Timestamp("2026-05-28 09:10"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -11,6 +11,18 @@ def _symbol_key(symbol: str) -> str:
         return s[:-4]
     return s
 
+
+def _resolve_intraday_source_tz(symbol: str, date_col: pd.Series) -> str:
+    if not symbol.endswith((".TW", ".TWO")):
+        return "UTC"
+    # yfinance may occasionally return TW minute bars as naive UTC timestamps.
+    # Detect this by checking whether most timestamps land in UTC session hours
+    # for TW cash trading (roughly 01:00-05:30 UTC) instead of local 09:00-13:30.
+    hours = date_col.dt.hour.dropna()
+    if not hours.empty and (hours.between(0, 5).mean() >= 0.7):
+        return "UTC"
+    return "Asia/Taipei"
+
 def _prepare_price_df(symbol: str, df: pd.DataFrame | None, interval: str) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
@@ -25,7 +37,7 @@ def _prepare_price_df(symbol: str, df: pd.DataFrame | None, interval: str) -> pd
     if interval.endswith("m"):
         date_col = pd.to_datetime(df["Date"], errors="coerce")
         if getattr(date_col.dt, "tz", None) is None:
-            source_tz = "Asia/Taipei" if symbol.endswith((".TW", ".TWO")) else "UTC"
+            source_tz = _resolve_intraday_source_tz(symbol, date_col)
             date_col = date_col.dt.tz_localize(source_tz)
         date_col = date_col.dt.tz_convert("Asia/Taipei")
         df["Date"] = date_col.dt.tz_localize(None)
