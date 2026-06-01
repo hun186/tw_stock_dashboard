@@ -99,6 +99,12 @@ def prefetch_price_data(
 
     if allow_live_fetch is None:
         allow_live_fetch = not _is_serverless_runtime() or len(symbols) <= max_live_symbols
+    if force_live_refresh and symbols:
+        # A forced refresh is issued by the browser after the quick stale render.
+        # Even broad serverless pages should try a bounded live refresh instead of
+        # returning only the prebuilt cache forever.  live_symbols below still caps
+        # fan-out at max_live_symbols to avoid Vercel timeouts.
+        allow_live_fetch = True
 
     now = time.time()
     price_map: dict[str, pd.DataFrame] = {}
@@ -107,14 +113,19 @@ def prefetch_price_data(
     # Browser refresh requests add force_live_refresh=True and bypass stale snapshots
     # for symbols that are behind the expected Taiwan trading date; that second
     # request updates the page in-place without relying on Vercel background threads
-    # or writable cache files.  Broad serverless scans still avoid network fan-out
-    # through resolve_live_fetch_controls(), which sets allow_live_fetch=False when
-    # the symbol set is too large.
+    # or writable cache files.  Broad serverless first renders still avoid network
+    # fan-out; forced refreshes above enable only a bounded max_live_symbols pass.
     initial_allow_stale_disk = allow_stale_disk and (not allow_live_fetch or not force_live_refresh)
     for symbol in symbols:
         cached = _cached_price(symbol, period, interval, now, allow_stale_disk=initial_allow_stale_disk)
-        cached_is_stale = cached is not None and _is_stale_tw_daily_price(symbol, interval, cached)
-        if cached is None or (allow_live_fetch and force_live_refresh and cached_is_stale):
+        force_refresh_cached = (
+            cached is not None
+            and allow_live_fetch
+            and force_live_refresh
+            and symbol.endswith((".TW", ".TWO"))
+            and (interval.endswith("m") or _is_stale_tw_daily_price(symbol, interval, cached))
+        )
+        if cached is None or force_refresh_cached:
             missing_symbols.append(symbol)
         else:
             price_map[symbol] = cached

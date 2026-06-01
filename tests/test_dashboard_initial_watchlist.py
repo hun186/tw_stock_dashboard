@@ -110,6 +110,8 @@ class DashboardInitialWatchlistTests(unittest.TestCase):
         self.assertIn("tw_dashboard_live_snapshot", response)
         self.assertIn("restoreLatestPriceSnapshot", response)
         self.assertIn("saveLatestPriceSnapshot", response)
+        self.assertIn("完成後會自動載入新資料", response)
+        self.assertIn("已自動載入", response)
         self.assertIn("refreshIntradayAfterResume", response)
         self.assertIn("visibilitychange", response)
         self.assertIn("window.addEventListener('focus'", response)

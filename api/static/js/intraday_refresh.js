@@ -111,6 +111,8 @@ async function restoreLatestPriceSnapshot(){
 async function refreshLatestPricesInPlace({force=false, reason='背景自動更新', requireMarketDate=true}={}){
   if(refreshLatestPricesInPlace.busy || document.hidden || (!force && requireMarketDate && !shouldRefreshLatestPricesNow())) return;
   refreshLatestPricesInPlace.busy = true;
+  const dataText = isIntradayMode ? '最新即時K線' : '最新行情';
+  if(reason !== '背景自動更新') showWatchlistStatus(`${reason}${dataText}中；完成後會自動載入新資料。`);
   try {
     const response = await fetch(latestPriceRefreshUrl(), { cache: 'no-store' });
     if(!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -137,10 +139,7 @@ async function refreshLatestPricesInPlace({force=false, reason='背景自動更�
     requestAnimationFrame(()=>window.scrollTo(scrollX, scrollY));
     refreshLatestPricesInPlace.lastSuccessAt = Date.now();
     saveLatestPriceSnapshot();
-    if(reason !== '背景自動更新'){
-      const dataText = isIntradayMode ? '最新即時K線' : '最新行情';
-      showWatchlistStatus(`${reason}完成，已補抓${dataText}。`);
-    }
+    if(reason !== '背景自動更新') showWatchlistStatus(`${reason}完成，已自動載入${dataText}。`);
   } catch(e) {
     console.warn('最新行情背景刷新失敗，改用下次排程重試', e);
   } finally {
