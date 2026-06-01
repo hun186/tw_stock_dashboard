@@ -8,11 +8,37 @@ from api.market_data import fetch_target_price, get_price_cache_ttl_seconds, tri
 from api.stock_analysis import add_indicators, analyze_stock_signal
 
 
-STOCK_ANALYSIS_CACHE: dict[tuple[str, str, str, str, str, bool], tuple[float, dict]] = {}
+STOCK_ANALYSIS_CACHE: dict[tuple, tuple[float, dict]] = {}
 
 
 def _analysis_cache_ttl_seconds(fetch_interval: str) -> int:
     return max(get_price_cache_ttl_seconds(fetch_interval), 300)
+
+
+def _price_df_fingerprint(df: pd.DataFrame) -> tuple:
+    if df.empty:
+        return ("empty",)
+
+    latest_date = None
+    if "Date" in df.columns:
+        dates = pd.to_datetime(df["Date"], errors="coerce")
+        if not dates.dropna().empty:
+            latest_date = pd.Timestamp(dates.max()).isoformat()
+    else:
+        index_dates = pd.to_datetime(df.index, errors="coerce")
+        index_dates = pd.Series(index_dates).dropna()
+        if not index_dates.empty:
+            latest_date = pd.Timestamp(index_dates.max()).isoformat()
+
+    last = df.iloc[-1]
+    close = last.get("Close")
+    volume = last.get("Volume")
+    return (
+        latest_date,
+        None if pd.isna(close) else float(close),
+        None if pd.isna(volume) else float(volume),
+        len(df),
+    )
 
 
 def build_stock_analysis(
@@ -25,7 +51,18 @@ def build_stock_analysis(
     signal_df: pd.DataFrame,
     needs_target_price: bool,
 ) -> dict:
-    cache_key = (symbol, period, fetch_period, fetch_interval, display_period, needs_target_price)
+    price_fingerprint = _price_df_fingerprint(price_df)
+    signal_fingerprint = _price_df_fingerprint(signal_df) if period == "intraday" else price_fingerprint
+    cache_key = (
+        symbol,
+        period,
+        fetch_period,
+        fetch_interval,
+        display_period,
+        needs_target_price,
+        price_fingerprint,
+        signal_fingerprint,
+    )
     cached = STOCK_ANALYSIS_CACHE.get(cache_key)
     now = time.time()
     if cached and now - cached[0] < _analysis_cache_ttl_seconds(fetch_interval):
