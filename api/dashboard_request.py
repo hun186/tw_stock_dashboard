@@ -64,6 +64,7 @@ class DashboardRequest:
     card_sort: str
     card_sort_direction: str
     compact_progress: bool
+    force_live_refresh: bool
 
     @property
     def has_stock_meta_filter(self) -> bool:
@@ -128,4 +129,5 @@ def parse_dashboard_request(environ) -> DashboardRequest:
         card_sort=card_sort,
         card_sort_direction=card_sort_direction,
         compact_progress=params.get("compact_progress", ["1"])[0] == "1",
+        force_live_refresh="_live_refresh" in params or "_intraday_refresh" in params,
     )

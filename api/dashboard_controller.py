@@ -52,6 +52,7 @@ def render_dashboard_response(request: DashboardRequest) -> str:
     card_sort = request.card_sort
     card_sort_direction = request.card_sort_direction
     compact_progress = request.compact_progress
+    force_live_refresh = request.force_live_refresh
     theme_summary_keyword = request.theme_summary_keyword
     theme_signal_code = request.theme_signal_code
     theme_signal_bucket = request.theme_signal_bucket
@@ -113,6 +114,7 @@ def render_dashboard_response(request: DashboardRequest) -> str:
         subgroup_filter=subgroup_filter,
         prefetch_price_data=prefetch_price_data,
         build_stock_analysis=_build_stock_analysis,
+        force_live_refresh=force_live_refresh,
     )
     stocks = analysis_result.stocks
     analyzed_stocks = analysis_result.analyzed_stocks
