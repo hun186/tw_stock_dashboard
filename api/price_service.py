@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -33,10 +32,6 @@ from api.tw_market_data import (
     _taipei_now,
     _tw_daily_price_needs_official_refresh,
 )
-
-_LIVE_REFRESH_LOCK = threading.Lock()
-_LIVE_REFRESH_INFLIGHT: set[tuple[str, str, str]] = set()
-
 
 def get_price_cache_ttl_seconds(interval: str) -> int:
     return _cache_ttl_seconds(interval)
@@ -88,22 +83,6 @@ def _is_serverless_runtime() -> bool:
     return os.environ.get("VERCEL") == "1" or bool(os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
 
 
-def _refresh_symbols_in_background(symbols: list[str], period: str, interval: str) -> None:
-    def _worker(refresh_symbols: list[str]) -> None:
-        try:
-            max_workers = min(8, len(refresh_symbols))
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                list(executor.map(lambda sym: fetch_price(sym, period, interval, allow_stale_disk=False), refresh_symbols))
-        finally:
-            with _LIVE_REFRESH_LOCK:
-                for sym in refresh_symbols:
-                    _LIVE_REFRESH_INFLIGHT.discard((sym, period, interval))
-
-    if not symbols:
-        return
-    threading.Thread(target=_worker, args=(symbols,), daemon=True).start()
-
-
 def prefetch_price_data(
     stocks: pd.DataFrame,
     period: str,
@@ -112,6 +91,7 @@ def prefetch_price_data(
     allow_live_fetch: bool | None = None,
     allow_stale_disk: bool = False,
     max_live_symbols: int = 80,
+    force_live_refresh: bool = False,
 ) -> dict[str, pd.DataFrame]:
     symbols = list(dict.fromkeys(s for s in stocks["symbol"].dropna().astype(str).tolist() if s))
     if not symbols:
@@ -123,26 +103,23 @@ def prefetch_price_data(
     now = time.time()
     price_map: dict[str, pd.DataFrame] = {}
     missing_symbols: list[str] = []
-    initial_allow_stale_disk = allow_stale_disk and not allow_live_fetch
+    # Normal dashboard loads may use stale disk data so users see the page quickly.
+    # Browser refresh requests add force_live_refresh=True and bypass stale snapshots
+    # for symbols that are behind the expected Taiwan trading date; that second
+    # request updates the page in-place without relying on Vercel background threads
+    # or writable cache files.  Broad serverless scans still avoid network fan-out
+    # through resolve_live_fetch_controls(), which sets allow_live_fetch=False when
+    # the symbol set is too large.
+    initial_allow_stale_disk = allow_stale_disk and (not allow_live_fetch or not force_live_refresh)
     for symbol in symbols:
         cached = _cached_price(symbol, period, interval, now, allow_stale_disk=initial_allow_stale_disk)
-        if cached is None or (allow_live_fetch and _is_stale_tw_daily_price(symbol, interval, cached)):
+        cached_is_stale = cached is not None and _is_stale_tw_daily_price(symbol, interval, cached)
+        if cached is None or (allow_live_fetch and force_live_refresh and cached_is_stale):
             missing_symbols.append(symbol)
         else:
             price_map[symbol] = cached
 
     live_symbols = missing_symbols[:max_live_symbols] if allow_live_fetch else []
-    if allow_live_fetch and allow_stale_disk:
-        scheduled_symbols: list[str] = []
-        with _LIVE_REFRESH_LOCK:
-            for symbol in live_symbols:
-                key = (symbol, period, interval)
-                if key in _LIVE_REFRESH_INFLIGHT:
-                    continue
-                _LIVE_REFRESH_INFLIGHT.add(key)
-                scheduled_symbols.append(symbol)
-        _refresh_symbols_in_background(scheduled_symbols, period, interval)
-        live_symbols = []
     intraday_snapshot_map = _bulk_fetch_tw_intraday_daily_snapshots(live_symbols) if interval == "1d" else {}
     realtime_quote_map = (
         {symbol: _fetch_tw_realtime_quote_snapshot(symbol, interval) for symbol in live_symbols if symbol.endswith((".TW", ".TWO"))}

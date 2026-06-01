@@ -70,6 +70,7 @@ def run_dashboard_analysis(
     subgroup_filter: str = "all",
     prefetch_price_data: Callable,
     build_stock_analysis: Callable,
+    force_live_refresh: bool = False,
 ) -> DashboardAnalysisResult:
     is_serverless_runtime = os.environ.get("VERCEL") == "1" or bool(os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
     candidate_count = len(stocks)
@@ -97,6 +98,7 @@ def run_dashboard_analysis(
         allow_live_fetch=allow_live_fetch,
         allow_stale_disk=True,
         max_live_symbols=max_live_symbols,
+        force_live_refresh=force_live_refresh,
     )
     price_ready_count = sum(1 for df in price_data_map.values() if not df.empty)
     signal_data_map = (
@@ -107,6 +109,7 @@ def run_dashboard_analysis(
             allow_live_fetch=allow_live_fetch,
             allow_stale_disk=True,
             max_live_symbols=max_live_symbols,
+            force_live_refresh=force_live_refresh,
         )
         if period == "intraday"
         else {}
