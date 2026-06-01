@@ -170,7 +170,7 @@ class MarketDataFreshnessTests(unittest.TestCase):
         self.assertEqual(float(result.iloc[0]["Close"]), 107.0)
         self.assertEqual(float(result.iloc[0]["Volume"]), 123000.0)
 
-    def test_prefetch_refreshes_stale_daily_cache_when_live_fetch_is_allowed(self) -> None:
+    def test_prefetch_refreshes_stale_daily_cache_when_live_refresh_is_forced(self) -> None:
         stocks = pd.DataFrame({"symbol": ["2330.TW"]})
         stale = price_df("2026-05-05", 100.0)
         live = price_df("2026-05-06", 101.0).set_index("Date")
@@ -187,6 +187,7 @@ class MarketDataFreshnessTests(unittest.TestCase):
                 allow_live_fetch=True,
                 allow_stale_disk=True,
                 max_live_symbols=80,
+                force_live_refresh=True,
             )
 
         self.assertEqual(result["2330.TW"]["Date"].max(), pd.Timestamp("2026-05-06"))
